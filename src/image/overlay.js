@@ -30,7 +30,7 @@ export function diffOverlay(baseline, candidate, opts = {}) {
   const tol = opts.channelTolerance ?? DEFAULT_CHANNEL_TOLERANCE;
   const width = Math.min(baseline.width, candidate.width);
   const height = Math.min(baseline.height, candidate.height);
-  const data = new Uint8ClampedArray(width * height * 4);
+  const data = Buffer.alloc(width * height * 4);
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -79,7 +79,7 @@ export function sideBySide(left, right, opts = {}) {
   const gap = opts.gap ?? 8;
   const width = left.width + gap + right.width;
   const height = Math.max(left.height, right.height);
-  const data = new Uint8ClampedArray(width * height * 4);
+  const data = Buffer.alloc(width * height * 4);
   // Opaque near-black backdrop; letterboxing must not read as transparency.
   for (let i = 0; i < data.length; i += 4) {
     data[i] = 12;
