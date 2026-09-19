@@ -1,0 +1,28 @@
+{
+  "name": "atlas-replay-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Atlas Replay Lab - capability-aware quality ladder, adversarial device matrix, privacy-safe flight recorder, deterministic replay, and a pluggable decision layer (rule-based by default, optionally Jev-backed).",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "bin": {
+    "atlas": "./bin/atlas.js"
+  },
+  "scripts": {
+    "demo": "node bin/atlas.js all",
+    "assets": "node bin/atlas.js assets",
+    "matrix": "node bin/atlas.js matrix",
+    "replay": "node bin/atlas.js replay",
+    "gate": "node bin/atlas.js gate",
+    "compare": "node bin/atlas.js compare",
+    "report": "node bin/atlas.js report",
+    "serve": "node bin/atlas.js serve",
+    "doctor": "node bin/atlas.js doctor",
+    "test": "node --test tests/"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

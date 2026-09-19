@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Orbital — Atlas Replay Lab demo experience</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <!--
+      Orbital is an ORIGINAL demo experience built for Atlas Replay Lab.
+      It is not a Flam product, asset, brand or SDK integration, and it does not
+      call any Flam service. See README.md, "No Flam integration".
+    -->
+    <main id="stage" data-state="boot">
+      <!-- camera-xr path: live camera behind a transparent product layer -->
+      <video id="camera" playsinline muted autoplay aria-hidden="true"></video>
+
+      <!-- interactive-2d path: a static anchor image stands in for the camera -->
+      <img id="anchor" alt="" aria-hidden="true" />
+
+      <!-- both interactive paths composite the product layer onto this canvas -->
+      <canvas id="layer" aria-label="Orbital product layer"></canvas>
+
+      <!-- static-safe path: poster image, DOM controls only, no canvas at all -->
+      <img id="poster" alt="Orbital product poster" hidden />
+
+      <div id="boot-veil" aria-hidden="true"><div class="spinner"></div></div>
+
+      <header id="hud">
+        <span id="hud-tier" class="chip">tier —</span>
+        <span id="hud-path" class="chip">path —</span>
+        <span id="hud-engine" class="chip chip-dim">engine —</span>
+      </header>
+
+      <section id="controls">
+        <button id="btn-product" data-atlas-target="product" type="button">
+          <span class="dot"></span> Orbital Halo <span class="price">₹ 4,200</span>
+        </button>
+      </section>
+
+      <aside id="panel" hidden aria-label="Product detail">
+        <h2>Orbital Halo</h2>
+        <p>Anodised shell, 42&nbsp;mm. Six colourways. Ships in 3 days.</p>
+        <div class="row">
+          <button id="btn-back" data-atlas-target="back" type="button">Back</button>
+          <button id="btn-cart" data-atlas-target="add-to-cart" class="primary" type="button">Add to bag</button>
+        </div>
+      </aside>
+
+      <aside id="cart" hidden aria-label="Bag">
+        <h2>Bag · 1 item</h2>
+        <p>Orbital Halo — ₹ 4,200</p>
+        <div class="row">
+          <button id="btn-cart-back" data-atlas-target="back" type="button">Keep looking</button>
+          <button id="btn-checkout" data-atlas-target="checkout" class="primary" type="button">Checkout</button>
+        </div>
+        <p class="fineprint">Mock checkout. No payment is processed and nothing is sent anywhere.</p>
+      </aside>
+
+      <aside id="done" hidden aria-label="Order confirmed">
+        <h2>Order confirmed</h2>
+        <p>Mock order <span id="order-id">—</span>.</p>
+      </aside>
+
+      <div id="degraded-banner" hidden role="status">
+        Reduced quality tier in use — the experience is still fully interactive.
+      </div>
+
+      <div id="error-panel" hidden role="alert">
+        <h2>Could not start</h2>
+        <p id="error-detail"></p>
+      </div>
+    </main>
+
+    <script type="module" src="runtime.js"></script>
+  </body>
+</html>

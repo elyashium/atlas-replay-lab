@@ -1,0 +1,251 @@
+/* Orbital — demo experience styling.
+   Deliberately small and dependency-free. Layout is stable across the three
+   paths so that checkpoint screenshots from different tiers are comparable. */
+
+:root {
+  --bg: #07080c;
+  --fg: #eef1f7;
+  --dim: #8d95a8;
+  --accent: #6ee7ff;
+  --accent-2: #b98cff;
+  --panel: rgba(12, 14, 22, 0.88);
+  --line: rgba(255, 255, 255, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  /* Text selection during synthetic taps would change screenshot pixels. */
+  user-select: none;
+}
+
+#stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 8%, #131a2c 0%, #07080c 62%);
+}
+
+#camera,
+#anchor,
+#poster,
+#layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+}
+
+#stage[data-path="camera-xr"] #camera,
+#stage[data-path="interactive-2d"] #anchor,
+#stage[data-path="camera-xr"] #layer,
+#stage[data-path="interactive-2d"] #layer {
+  display: block;
+}
+
+#stage[data-path="static-safe"] #poster {
+  display: block;
+}
+
+#layer {
+  /* The product layer is composited over the camera/anchor, never opaque. */
+  background: transparent;
+  pointer-events: none;
+}
+
+#boot-veil {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  transition: opacity 160ms linear;
+  z-index: 40;
+}
+
+#stage:not([data-state="boot"]):not([data-state="probing"]):not([data-state="routing"]):not([data-state="loading"]) #boot-veil {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+#hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.chip {
+  font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 6px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(8, 10, 16, 0.72);
+  color: var(--accent);
+}
+
+.chip-dim {
+  color: var(--dim);
+}
+
+#controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16px;
+  z-index: 20;
+}
+
+button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 13px 16px;
+  cursor: pointer;
+  /* 44px minimum target so a synthetic tap at the element centre is not a
+     borderline hit test on a throttled layout. */
+  min-height: 44px;
+}
+
+button.primary {
+  background: linear-gradient(180deg, var(--accent) 0%, #33c8ec 100%);
+  color: #04121a;
+  border-color: transparent;
+  font-weight: 650;
+}
+
+#btn-product {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-start;
+}
+
+#btn-product .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  box-shadow: 0 0 0 4px rgba(185, 140, 255, 0.18);
+  flex: none;
+}
+
+#btn-product .price {
+  margin-left: auto;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+#panel,
+#cart,
+#done,
+#error-panel {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 30;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(8px);
+}
+
+#panel h2,
+#cart h2,
+#done h2,
+#error-panel h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+#panel p,
+#cart p,
+#done p,
+#error-panel p {
+  margin: 0 0 12px;
+  color: var(--dim);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.row button {
+  flex: 1;
+}
+
+.fineprint {
+  margin: 10px 0 0 !important;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+#degraded-banner {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 46px;
+  z-index: 25;
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  color: #ffd9a0;
+  background: rgba(70, 45, 10, 0.82);
+  border: 1px solid rgba(255, 196, 110, 0.26);
+}
+
+#error-panel {
+  border-color: rgba(255, 120, 120, 0.4);
+}
+
+[hidden] {
+  display: none !important;
+}

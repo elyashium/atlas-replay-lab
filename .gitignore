@@ -1,0 +1,9 @@
+node_modules/
+artifacts/
+!artifacts/.gitkeep
+experience/assets/generated/
+.env
+.env.local
+*.log
+.DS_Store
+Thumbs.db
