@@ -23,6 +23,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { fromRoot, writeJson, ensureDir } from "../util/fsx.js";
 import { normalizeSnapshot, bucketOf } from "../capability/buckets.js";
+import { assembleTrace } from "../trace/assemble.js";
 import { logger } from "../util/log.js";
 
 const log = logger("server");
@@ -69,6 +70,7 @@ const MAX_BODY_BYTES = 8 * 1024 * 1024;
  *   root?: string;
  *   port?: number;
  *   traceDir?: string | null;
+ *   emulated?: boolean;
  *   onTrace?: (trace: Trace) => void;
  * }} opts
  * @returns {Promise<AtlasServer>}
@@ -154,13 +156,22 @@ export async function startServer(opts) {
       if (req.method !== "POST") return sendJson(res, 405, { error: "POST only" });
       const body = await readBody(req);
       if (body === null) return sendJson(res, 413, { error: "body too large" });
-      /** @type {Trace} */
-      let trace;
+      /** @type {unknown} */
+      let parsed;
       try {
-        trace = JSON.parse(body);
+        parsed = JSON.parse(body);
       } catch {
         return sendJson(res, 400, { error: "invalid JSON" });
       }
+
+      // The page posts a partial trace. Canonicalisation, metric derivation and
+      // the determinism hash all happen here, in one place, for live captures
+      // and replays alike.
+      const trace = assembleTrace(parsed, {
+        manifest: opts.manifest,
+        emulated: opts.emulated,
+      });
+
       traces.push(trace);
       stats.tracesReceived++;
       opts.onTrace?.(trace);
@@ -168,7 +179,11 @@ export async function startServer(opts) {
         await ensureDir(traceDir);
         await writeJson(path.join(traceDir, `${trace.traceId}.json`), trace);
       }
-      return sendJson(res, 200, { ok: true, traceId: trace.traceId });
+      return sendJson(res, 200, {
+        ok: true,
+        traceId: trace.traceId,
+        determinismHash: trace.determinismHash,
+      });
     }
 
     if (req.method !== "GET" && req.method !== "HEAD") {

@@ -136,9 +136,9 @@ async function decide(state) {
     /** @type {TierDecision} */
     const forced = {
       tier: ATLAS.forceTier,
-      tierAnswer: { value: ATLAS.forceTier, distribution: { [ATLAS.forceTier]: 1 }, confidence: 1 },
-      cameraPathSafe: { pTrue: state.cameraPermission === "granted" ? 1 : 0, confidence: 1 },
-      firstFrameRisk: { value: 0, distribution: {}, confidence: 1 },
+      tierAnswer: { value: ATLAS.forceTier, distribution: { [ATLAS.forceTier]: 1 } },
+      cameraPathSafe: { pTrue: state.cameraPermission === "granted" ? 1 : 0 },
+      firstFrameRisk: { score: 0, levels: [], distribution: {} },
       path: resolvePathLocally(state),
       confidence: 1,
       engine: "BaselineNoRouting",
@@ -166,9 +166,9 @@ async function decide(state) {
     /** @type {TierDecision} */
     const safe = {
       tier: "low",
-      tierAnswer: { value: "low", distribution: { low: 1 }, confidence: 0 },
-      cameraPathSafe: { pTrue: 0, confidence: 0 },
-      firstFrameRisk: { value: 0, distribution: {}, confidence: 0 },
+      tierAnswer: { value: "low", distribution: { low: 1 } },
+      cameraPathSafe: { pTrue: 0 },
+      firstFrameRisk: { score: 0, levels: [], distribution: {} },
       path: "static-safe",
       confidence: 0,
       engine: "LocalSafeDefault",
