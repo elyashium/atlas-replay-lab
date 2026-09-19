@@ -28,13 +28,17 @@ const bridge = /** @type {any} */ (globalThis).__atlasBinding ?? null;
 
 export class Recorder {
   /**
-   * @param {{ traceId: string; profileId: string; runKind: string; emulated: boolean }} init
+   * @param {{ traceId: string; profileId: string; runKind: string; emulated: boolean; seed: number }} init
    */
   constructor(init) {
     this.traceId = init.traceId;
     this.profileId = init.profileId;
     this.runKind = init.runKind;
     this.emulated = init.emulated;
+    // Recorded because replay determinism is conditional on it. A replay that
+    // ran under a different seed is not a failed replay, it is a different
+    // session — and the replay report needs to be able to tell those apart.
+    this.seed = init.seed;
 
     this.t0 = performance.now();
     /** @type {TraceEvent[]} */
@@ -249,6 +253,7 @@ export class Recorder {
       profileId: this.profileId,
       runKind: this.runKind,
       emulated: this.emulated,
+      seed: this.seed,
       capability: final.capability,
       decision: final.decision,
       servedTier: final.servedTier,

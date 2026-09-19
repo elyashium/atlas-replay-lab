@@ -142,8 +142,8 @@ export async function runSession(opts) {
     if (!trace) {
       harnessError = "the page reported completion but no trace reached the control plane";
     } else {
-      attachScreenshotPaths(trace, screenshots, opts.screenshotDir);
-      if (heapMB !== null) attachHeapSample(trace, heapMB);
+      attachScreenshotPaths(trace, screenshots);
+      attachHeapSample(trace, heapMB);
       for (const err of pageErrors.slice(0, 20)) trace.notes.push(err);
 
       const cpFirstFrame = screenshots["cp-first-frame"];
@@ -170,7 +170,8 @@ export async function runSession(opts) {
     // A harness failure still produces whatever the page managed to post.
     const trace = await awaitTrace(opts.server.traces, opts.traceId, 2_000);
     if (trace) {
-      attachScreenshotPaths(trace, screenshots, opts.screenshotDir);
+      attachScreenshotPaths(trace, screenshots);
+      attachHeapSample(trace, null);
       trace.notes.push(`harness error: ${harnessError}`);
       for (const e of pageErrors.slice(0, 20)) trace.notes.push(e);
       finalizeTrace(trace, opts.manifest);
@@ -263,9 +264,8 @@ async function awaitTrace(traces, traceId, timeoutMs) {
 /**
  * @param {Trace} trace
  * @param {Record<string, string>} screenshots
- * @param {string} dir
  */
-function attachScreenshotPaths(trace, screenshots, dir) {
+function attachScreenshotPaths(trace, screenshots) {
   for (const checkpoint of trace.checkpoints) {
     const file = screenshots[checkpoint.id];
     // Relative, so a trace committed to the repo does not carry someone's
@@ -303,13 +303,18 @@ async function readHeapMB(session) {
 /**
  * Appends the runner's own heap measurement as a trace event.
  *
- * Its offset is pinned to the `session-end` event rather than to the wall clock,
- * so adding it does not introduce timing noise into the determinism hash. The
- * attribute itself is not in the hash's allow-list — heap usage is a
- * performance fact, not a causal one.
+ * Appended unconditionally, even when the reading is unavailable. Presence of
+ * an event is causal structure and therefore part of the determinism hash; its
+ * `jsHeapUsedMB` value is not in the hash's allow-list. Adding the event only
+ * when a number came back would make the hash depend on whether CDP felt like
+ * answering, which is precisely the kind of false divergence the normaliser
+ * exists to prevent.
+ *
+ * Its offset is pinned to the `session-end` event rather than to the wall
+ * clock, so the append introduces no timing noise either.
  *
  * @param {Trace} trace
- * @param {number} heapMB
+ * @param {number | null} heapMB
  */
 function attachHeapSample(trace, heapMB) {
   const sessionEnd = trace.events.find((e) => e.name === "session-end");
@@ -317,7 +322,11 @@ function attachHeapSample(trace, heapMB) {
     tOffsetMs: sessionEnd ? sessionEnd.tOffsetMs : trace.durationMs,
     name: "runner-heap-sample",
     kind: "lifecycle",
-    attributes: { state: "session-end", jsHeapUsedMB: heapMB, source: "cdp:Performance.getMetrics" },
+    attributes: {
+      state: "session-end",
+      jsHeapUsedMB: heapMB,
+      source: heapMB === null ? "cdp:unavailable" : "cdp:Performance.getMetrics",
+    },
   });
 }
 

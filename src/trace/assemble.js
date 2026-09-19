@@ -54,6 +54,7 @@ export function assembleTrace(rawPayload, opts) {
     profileId: str(payload.profileId) || opts.profileId || "unknown",
     runKind: RUN_KINDS.includes(payload.runKind) ? payload.runKind : "production",
     emulated: typeof payload.emulated === "boolean" ? payload.emulated : (opts.emulated ?? true),
+    seed: (num(payload.seed) ?? 0) >>> 0,
     capability,
     capabilityBucket: bucketOf(capability),
   });

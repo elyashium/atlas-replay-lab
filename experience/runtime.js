@@ -88,6 +88,7 @@ async function main() {
     profileId: String(ATLAS.profileId ?? "local"),
     runKind: String(ATLAS.runKind ?? "production"),
     emulated: Boolean(ATLAS.emulated),
+    seed: typeof ATLAS.seed === "number" ? ATLAS.seed : DEFAULT_SEED,
   });
 
   setState("boot");

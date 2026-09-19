@@ -55,6 +55,7 @@ export const EMPTY_METRICS = {
  *   profileId: string;
  *   runKind: Trace["resource"]["atlas.run.kind"];
  *   emulated: boolean;
+ *   seed: number;
  *   capability: import("../../types/atlas.js").CapabilitySnapshot;
  *   capabilityBucket: import("../../types/atlas.js").CapabilityBucket;
  * }} init
@@ -73,6 +74,7 @@ export function newTrace(init) {
       "atlas.profile.id": init.profileId,
       "atlas.run.kind": init.runKind,
       "atlas.emulated": init.emulated,
+      "atlas.seed": init.seed,
     },
     capability: init.capability,
     capabilityBucket: init.capabilityBucket,

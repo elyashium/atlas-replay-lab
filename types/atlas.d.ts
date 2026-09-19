@@ -360,6 +360,12 @@ export interface Trace {
     "atlas.run.kind": "baseline" | "adaptive" | "replay" | "production";
     /** True when device characteristics were emulated rather than real hardware. */
     "atlas.emulated": boolean;
+    /**
+     * The RNG seed the session ran under. Replay determinism is conditional on
+     * this matching; it is deliberately NOT part of the determinism hash,
+     * because it is a precondition of the comparison rather than a result of it.
+     */
+    "atlas.seed": number;
   };
   capability: CapabilitySnapshot;
   capabilityBucket: CapabilityBucket;
