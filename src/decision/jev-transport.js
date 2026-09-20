@@ -1,16 +1,32 @@
 /**
- * Transport layer for TypeSafe AI's Jev.
+ * Transport layer for TypeSafe AI's Jev ("System One" model).
  *
  * ── Read this before trusting the wire format ────────────────────────────────
  * This project was built offline. The request/response shape below is a
  * reconstruction from TypeSafe's documented question primitives (choice /
  * score / noul, batched against one state, typed answers with probability
  * distributions and no text output) rather than something verified against a
- * live endpoint. It is deliberately isolated in this one file, and the
- * response adapter is tolerant of the field names a real deployment might use
- * (`probabilities` vs `distribution`, `probability` vs `pTrue`, and so on), so
- * that a human with a real key can correct the shape in exactly one place
- * without touching the engine, the guard, or anything downstream.
+ * live endpoint.
+ *
+ * What the reconstruction is based on, so a human with a key knows what to
+ * check first:
+ *
+ *  - The documented client call is shaped `systemOne({ state, questions })`,
+ *    where each question is `{ type, instructions, criteria }` and `criteria`
+ *    maps each declared option to its description. That is the shape
+ *    `src/decision/questions.js` emits and this file forwards unchanged.
+ *  - Documented answer access is `result.<id>.choice` with
+ *    `result.<id>.probabilities` for a choice, and `result.<id>.noul` for a
+ *    noul. The adapters in `jev.js` read those names first and fall back to
+ *    plausible aliases.
+ *  - The endpoint path and envelope (`POST /v1/answer`, `{model, state,
+ *    questions}` → `{answers}`) are the least certain part and the most likely
+ *    thing to need correcting. Jev is also reachable through Vercel AI Gateway,
+ *    Cloudflare Workers AI, Netlify AI Gateway and OpenRouter; pointing
+ *    TYPESAFE_BASE_URL at one of those is the intended way to switch.
+ *
+ * All of it is deliberately isolated in this one file, so correcting the shape
+ * touches nothing in the engine, the guard, or anything downstream.
  *
  * Nothing else in Atlas imports this file directly.
  *

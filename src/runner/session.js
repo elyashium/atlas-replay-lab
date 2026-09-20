@@ -16,12 +16,13 @@
  */
 
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { applyProfile } from "./profiles.js";
 import { buildInjectedScript } from "./inject.js";
 import { waitForDone, sleep } from "./drive.js";
 import { writeFileEnsured, ensureDir } from "../util/fsx.js";
 import { decodePng } from "../image/png.js";
-import { nonBlankness, focalCoverage, edgeEnergy } from "../image/diff.js";
+import { nonBlankness, focalCoverage, edgeEnergy, edgeDrift } from "../image/diff.js";
 import { applyFirstFrameVisual, finalizeTrace } from "../trace/assemble.js";
 import { logger } from "../util/log.js";
 
@@ -142,7 +143,7 @@ export async function runSession(opts) {
     if (!trace) {
       harnessError = "the page reported completion but no trace reached the control plane";
     } else {
-      attachScreenshotPaths(trace, screenshots);
+      await attachCheckpointMeasurements(trace, screenshots);
       attachHeapSample(trace, heapMB);
       for (const err of pageErrors.slice(0, 20)) trace.notes.push(err);
 
@@ -170,7 +171,7 @@ export async function runSession(opts) {
     // A harness failure still produces whatever the page managed to post.
     const trace = await awaitTrace(opts.server.traces, opts.traceId, 2_000);
     if (trace) {
-      attachScreenshotPaths(trace, screenshots);
+      await attachCheckpointMeasurements(trace, screenshots);
       attachHeapSample(trace, null);
       trace.notes.push(`harness error: ${harnessError}`);
       for (const e of pageErrors.slice(0, 20)) trace.notes.push(e);
@@ -229,7 +230,6 @@ async function captureCheckpoint(session, id, dir, out) {
  * @param {string} screenshotPath
  */
 async function measureFirstFrame(trace, manifest, screenshotPath) {
-  const { readFile } = await import("node:fs/promises");
   try {
     const image = decodePng(await readFile(screenshotPath));
     applyFirstFrameVisual(trace, manifest, {
@@ -262,24 +262,73 @@ async function awaitTrace(traces, traceId, timeoutMs) {
 }
 
 /**
+ * Attaches the captured screenshot path to each checkpoint **and measures it**.
+ *
+ * The measuring half is not decoration. `RuleBasedDecisionEngine.judgeTrace`
+ * evaluates the visual invariant from `checkpoint.focalCoverage` and
+ * `checkpoint.alphaEdgeDrift`; if those stay null, two of the manifest's three
+ * visual checks silently never fire and the invariant degrades to "was the
+ * first frame blank" without anything reporting that it did. Measuring here —
+ * on the Node side, from the decoded PNG — is also the only place it *can*
+ * happen: the page is deliberately unable to read pixels back out of its own
+ * canvas (see PRIVACY.md), and a page-side measurement would in any case miss
+ * the composited layers underneath, which is exactly where a missing product
+ * layer hides.
+ *
+ * `alphaEdgeDrift` is measured against the *previous* checkpoint, so it
+ * expresses how much the silhouette moved between two states of the flow. The
+ * first checkpoint has no predecessor and is therefore null rather than 0 —
+ * "not measurable" and "measured, no drift" must not be the same value.
+ *
  * @param {Trace} trace
- * @param {Record<string, string>} screenshots
+ * @param {Record<string, string>} screenshots   checkpoint id → absolute path
  */
-function attachScreenshotPaths(trace, screenshots) {
+async function attachCheckpointMeasurements(trace, screenshots) {
+  /** @type {number | null} */
+  let previousEdgeEnergy = null;
+
   for (const checkpoint of trace.checkpoints) {
     const file = screenshots[checkpoint.id];
     // Relative, so a trace committed to the repo does not carry someone's
     // home directory in it.
     checkpoint.screenshotPath = file ? path.relative(process.cwd(), file).split(path.sep).join("/") : null;
+    checkpoint.focalCoverage = null;
+    checkpoint.alphaEdgeDrift = null;
+
+    if (!file) {
+      previousEdgeEnergy = null;
+      continue;
+    }
+
+    try {
+      const image = decodePng(await readFile(file));
+      checkpoint.focalCoverage = round4(focalCoverage(image));
+      const energy = edgeEnergy(image);
+      if (previousEdgeEnergy !== null) {
+        checkpoint.alphaEdgeDrift = round4(edgeDrift(previousEdgeEnergy, energy));
+      }
+      previousEdgeEnergy = energy;
+    } catch (err) {
+      trace.notes.push(
+        `checkpoint "${checkpoint.id}" screenshot could not be measured: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+      previousEdgeEnergy = null;
+    }
   }
-  // Checkpoints the manifest declares but the session never reached are a
-  // finding for the gate, so record their absence explicitly.
-  const captured = new Set(Object.keys(screenshots));
-  for (const id of captured) {
+
+  // Screenshots captured for checkpoints the trace never declared are a finding
+  // for the gate, so record their presence explicitly.
+  for (const id of Object.keys(screenshots)) {
     if (!trace.checkpoints.some((c) => c.id === id)) {
       trace.notes.push(`screenshot captured for unknown checkpoint "${id}"`);
     }
   }
+}
+
+/** @param {number} n */
+function round4(n) {
+  return Math.round(n * 1e4) / 1e4;
 }
 
 /**

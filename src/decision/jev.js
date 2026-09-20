@@ -76,7 +76,7 @@ export class JevDecisionEngine {
     // The state sent off-box is exactly the capability snapshot: coarse,
     // non-identifying, and already the shape the schema declares. Nothing is
     // added here, so nothing unexpected can leak.
-    const res = await this.#call({ state: this.#tierState(state, ctx), questions });
+    const res = await this.#call({ state: tierStateForJev(state, ctx), questions });
 
     const tierDist = normalizeDistribution(readDistribution(res.answers.tier), TIER_OPTIONS);
     const tier = /** @type {ServeTier} */ (
@@ -166,33 +166,40 @@ export class JevDecisionEngine {
     return res;
   }
 
-  /**
-   * The router state is the capability snapshot plus the small amount of
-   * manifest context the question text already references, so the model is not
-   * being asked to guess numbers it was never given.
-   *
-   * @param {CapabilitySnapshot} state
-   * @param {DecisionContext} ctx
-   */
-  #tierState(state, ctx) {
-    return {
-      capability: state,
-      experience: {
-        id: ctx.manifest.id,
-        version: ctx.manifest.version,
-        budgets: ctx.manifest.budgets,
-        tiers: ctx.manifest.tiers.map((t) => ({
-          id: t.id,
-          requires: t.requires,
-          particleCount: t.params.particleCount,
-          textureSize: t.params.textureSize,
-          targetFps: t.params.targetFps,
-          totalAssetBytes: t.assets.reduce((s, a) => s + a.approxBytes, 0),
-        })),
-      },
-      origin: ctx.origin,
-    };
-  }
+}
+
+/**
+ * The router state is the capability snapshot plus the small amount of
+ * manifest context the question text already references, so the model is not
+ * being asked to guess numbers it was never given.
+ *
+ * Exported rather than private because the fixture builder must reproduce this
+ * object *exactly* — `fixtureKey` hashes it, so a second implementation that
+ * differed by one field would produce fixtures that never match at runtime and
+ * fail as "no fixture for key ...", which reads like a missing fixture rather
+ * than the drift it actually is. One implementation, two callers.
+ *
+ * @param {CapabilitySnapshot} state
+ * @param {DecisionContext} ctx
+ */
+export function tierStateForJev(state, ctx) {
+  return {
+    capability: state,
+    experience: {
+      id: ctx.manifest.id,
+      version: ctx.manifest.version,
+      budgets: ctx.manifest.budgets,
+      tiers: ctx.manifest.tiers.map((t) => ({
+        id: t.id,
+        requires: t.requires,
+        particleCount: t.params.particleCount,
+        textureSize: t.params.textureSize,
+        targetFps: t.params.targetFps,
+        totalAssetBytes: t.assets.reduce((s, a) => s + a.approxBytes, 0),
+      })),
+    },
+    origin: ctx.origin,
+  };
 }
 
 /**
@@ -243,7 +250,7 @@ export function summariseTraceForJev(trace, ctx) {
       state: c.state,
       focalCoverage: c.focalCoverage,
       alphaEdgeDrift: c.alphaEdgeDrift,
-      screenshotCaptured: Boolean(c.screenshot),
+      screenshotCaptured: Boolean(c.screenshotPath),
     })),
     eventCount: trace.events.length,
     frameEventCount: trace.events.length - notable.length,
@@ -307,7 +314,9 @@ export function readChoiceValue(answer, allowed) {
  */
 export function readProbability(answer) {
   const a = /** @type {Record<string, unknown>} */ (answer ?? {});
-  for (const key of ["pTrue", "probability", "p", "value", "score"]) {
+  // "noul" first: it is the field name TypeSafe's own documented examples use
+  // (`result.cameraSafe.noul`). The rest are defensive aliases.
+  for (const key of ["noul", "pTrue", "probability", "p", "value", "score"]) {
     const v = a[key];
     if (typeof v === "number" && Number.isFinite(v)) return clamp01(v);
   }

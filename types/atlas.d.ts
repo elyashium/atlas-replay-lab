@@ -338,11 +338,15 @@ export interface TraceCheckpoint {
   id: string;
   tOffsetMs: number;
   state: ExperienceState;
-  /** Relative path of the captured PNG, if the runner captured one. */
-  screenshot: string | null;
-  /** Coverage of the focal product layer at this checkpoint, 0..1. */
+  /** Repo-relative path of the captured PNG, if the runner captured one. */
+  screenshotPath: string | null;
+  /**
+   * Coverage of the focal product layer at this checkpoint, 0..1. Measured on
+   * the Node side from the decoded screenshot — never in the page. Null when no
+   * screenshot was captured or it could not be decoded.
+   */
   focalCoverage: number | null;
-  /** Mean alpha-edge instability vs. the previous checkpoint, 0..1. */
+  /** Mean alpha-edge instability vs. the previous checkpoint, 0..1. Null at the first. */
   alphaEdgeDrift: number | null;
 }
 

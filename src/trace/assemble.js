@@ -164,7 +164,17 @@ function attributes(raw) {
   return out;
 }
 
-/** @param {unknown} raw */
+/**
+ * The page posts a checkpoint's identity and timing; it never posts the visual
+ * measurements. Those are filled in by the runner from the decoded screenshot
+ * (see src/runner/session.js). They are initialised to null here so that a
+ * trace is structurally complete the moment it is assembled — a consumer
+ * reading `focalCoverage` gets an explicit "not measured" rather than
+ * `undefined`, which would silently disable the visual invariant it gates.
+ *
+ * @param {unknown} raw
+ * @returns {import("../../types/atlas.js").TraceCheckpoint}
+ */
 function checkpoint(raw) {
   const c = /** @type {Record<string, any>} */ (raw && typeof raw === "object" ? raw : {});
   return {
@@ -172,6 +182,8 @@ function checkpoint(raw) {
     state: /** @type {ExperienceState} */ (str(c.state)),
     tOffsetMs: num(c.tOffsetMs) ?? 0,
     screenshotPath: str(c.screenshotPath) || null,
+    focalCoverage: num(c.focalCoverage),
+    alphaEdgeDrift: num(c.alphaEdgeDrift),
   };
 }
 
@@ -225,9 +237,8 @@ function guard(raw) {
     primaryConfidence: clamp01(num(g.primaryConfidence) ?? 0),
     threshold: clamp01(num(g.threshold) ?? 0),
     overridden: Boolean(g.overridden),
+    reason: str(g.reason) || "no reason recorded",
   };
-  if (str(g.reason)) report.reason = str(g.reason);
-  if (str(g.fellBackTo)) report.fellBackTo = str(g.fellBackTo);
   if (str(g.error)) report.error = str(g.error);
   return report;
 }
