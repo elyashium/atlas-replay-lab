@@ -20,7 +20,7 @@ import os from "node:os";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 
 import { runGate, BLOCKING_SEVERITY_INDEX, DECISION_CONFIDENCE_FLOOR } from "../src/gate/release-gate.js";
-import { SEVERITY_LEVELS } from "../src/decision/questions.js";
+import { SEVERITY_LEVELS, ROOT_CAUSE_OPTIONS } from "../src/decision/questions.js";
 import { PROFILES } from "../src/runner/profiles.js";
 import { orbitalManifest } from "../src/manifest/atlas-orbital.manifest.js";
 
@@ -30,6 +30,18 @@ const CRITICAL = PROFILES.filter((p) => p.critical).map((p) => p.id);
 
 /** @param {string} value @param {number} [p] */
 const choice = (value, p = 0.9) => ({ value, distribution: { [value]: p, other: 1 - p } });
+
+/**
+ * Root causes are drawn from the real vocabulary. A fixture that invented one
+ * would be testing the gate against data the judge can never produce, which is
+ * the quiet way a test suite stops describing the system it guards.
+ *
+ * @param {string} value @param {number} [p]
+ */
+function rootCause(value, p = 0.9) {
+  assert.ok(ROOT_CAUSE_OPTIONS.includes(value), `"${value}" is not a declared root cause`);
+  return choice(value, p);
+}
 
 /** @param {number} score */
 const score = (score) => ({
@@ -71,7 +83,7 @@ function passingRun(profileId, over = {}) {
     metrics: { ...goodMetrics(), ...metrics },
     verdict: {
       outcome: choice("pass"),
-      rootCause: choice("none"),
+      rootCause: choice("unknown"),
       releaseBlocking: score(0),
       ...verdict,
     },
@@ -181,14 +193,14 @@ test("a run that crashed and produced no trace is an absence of evidence, not a 
 test("a failed critical profile blocks, and the finding names the root cause", async (t) => {
   const runs = allPassing();
   runs[2] = passingRun(runs[2].profileId, {
-    verdict: { outcome: choice("fail"), rootCause: choice("network-starvation", 0.71), releaseBlocking: score(4) },
+    verdict: { outcome: choice("fail"), rootCause: rootCause("network", 0.71), releaseBlocking: score(4) },
   });
   const { report, shipped } = await gate(t, runs);
   assert.equal(shipped, false);
   const found = byRule(report, "2-no-failures");
   assert.equal(found[0].severity, "block");
-  assert.match(found[0].message, /network-starvation/);
-  assert.equal(found[0].evidence.rootCause, "network-starvation");
+  assert.match(found[0].message, /network/);
+  assert.equal(found[0].evidence.rootCause, "network");
   assert.equal(found[0].evidence.rootCauseConfidence, 0.71, "the gate records how sure the judge was");
 });
 
@@ -199,7 +211,7 @@ test("a failure on a non-critical profile warns instead of blocking", async (t) 
   const runs = [
     ...allPassing(),
     passingRun("experimental-foldable", {
-      verdict: { outcome: choice("fail"), rootCause: choice("renderer-capability"), releaseBlocking: score(4) },
+      verdict: { outcome: choice("fail"), rootCause: rootCause("codec-unsupported"), releaseBlocking: score(4) },
     }),
   ];
   const { report, shipped } = await gate(t, runs);
@@ -395,7 +407,7 @@ test("the baseline run is excluded from grading by design", async (t) => {
     ...allPassing(),
     {
       ...passingRun("low-cpu-3g", {
-        verdict: { outcome: choice("fail"), rootCause: choice("cpu-starvation"), releaseBlocking: score(4) },
+        verdict: { outcome: choice("fail"), rootCause: rootCause("render-stall"), releaseBlocking: score(4) },
         metrics: { reachedEndState: false },
       }),
       runId: "low-cpu-3g--baseline",
@@ -505,7 +517,7 @@ test("the counts add up to the findings actually listed", async (t) => {
   const runs = allPassing();
   runs[0] = passingRun(runs[0].profileId, {
     metrics: { firstFrameMs: 5000, reachedEndState: false },
-    verdict: { outcome: choice("fail"), rootCause: choice("cpu-starvation"), releaseBlocking: score(4) },
+    verdict: { outcome: choice("fail"), rootCause: rootCause("render-stall"), releaseBlocking: score(4) },
     decision: { engine: "jev", confidence: 0.3, guard: { overridden: false } },
     pageErrors: ["boom"],
   });
