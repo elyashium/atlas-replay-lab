@@ -54,10 +54,27 @@ export const EXAMPLES_DIR = fromRoot("examples", "traces");
  */
 const ORIGINS = /** @type {const} */ (["production", "ci-matrix"]);
 
-async function main() {
+/**
+ * Builds the fixture file and the example traces **in memory**, validating
+ * everything on the way.
+ *
+ * Separated from the writing half so the test suite can exercise the Jev code
+ * path end to end without `jev-responses.json` having to exist on disk. That
+ * matters more than it sounds: the alternative is a test suite that fails on a
+ * fresh clone until someone remembers to run a build step, which trains people
+ * to ignore a red suite.
+ *
+ * Throws when any answer is malformed — a half-valid fixture set is worse than
+ * none, because it fails much later and in a place that looks unrelated.
+ *
+ * @returns {{ fixtureFile: any; examples: Array<{ id: string; trace: any }> }}
+ */
+export function buildFixtureFile() {
   const manifest = orbitalManifest;
   /** @type {Array<{ key: string; label: string; request: any; response: any }>} */
   const cases = [];
+  /** @type {Array<{ id: string; trace: any }>} */
+  const examples = [];
   /** @type {string[]} */
   const problems = [];
 
@@ -97,9 +114,9 @@ async function main() {
             firstFrameRisk: answers.firstFrameRisk,
           },
           // Vendor-reported end-to-end latency is 70-500ms (TypeSafe's figure,
-          // not one this project measured). A plausible constant is recorded so
-          // the reporting path has something to format; it is not a measurement
-          // and the comparison report never presents it as one.
+          // not one this project measured). Recorded as 0 rather than a
+          // plausible-looking constant, precisely so nothing downstream can
+          // format it and imply a measurement was taken.
           latencyMs: 0,
           usage: { inputTokens: approxTokens(request) },
         },
@@ -137,7 +154,7 @@ async function main() {
       },
     });
 
-    await writeJson(path.join(EXAMPLES_DIR, `${scenario.id}.json`), trace);
+    examples.push({ id: scenario.id, trace });
   }
 
   /* ── collisions ───────────────────────────────────────────────────────── */
@@ -151,27 +168,53 @@ async function main() {
   }
 
   if (problems.length) {
-    for (const p of problems) log.error(p);
-    throw new Error(`${problems.length} fixture problem(s); nothing written`);
+    const err = new Error(`${problems.length} fixture problem(s); nothing written`);
+    /** @type {any} */ (err).problems = problems;
+    throw err;
   }
 
-  await writeJson(FIXTURE_FILE, {
-    $id: "atlas/jev-responses",
-    $note:
-      "ILLUSTRATIVE FIXTURES — hand-authored, NOT captured from a live Jev deployment. " +
-      "Every probability here was written by a human to exercise the Jev code path " +
-      "without an API key. They are not evidence of how Jev behaves, and any " +
-      "agreement rate computed against them measures only this file. " +
-      "Regenerate with: node scripts/build-fixtures.js",
-    $generatedBy: "scripts/build-fixtures.js",
-    $model: DEFAULT_MODEL,
-    $manifestHash: manifest.contentHash,
-    cases: cases.sort((a, b) => a.label.localeCompare(b.label)),
-  });
+  return {
+    fixtureFile: {
+      $id: "atlas/jev-responses",
+      $note:
+        "ILLUSTRATIVE FIXTURES — hand-authored, NOT captured from a live Jev deployment. " +
+        "Every probability here was written by a human to exercise the Jev code path " +
+        "without an API key. They are not evidence of how Jev behaves, and any " +
+        "agreement rate computed against them measures only this file. " +
+        "Regenerate with: node scripts/build-fixtures.js",
+      $generatedBy: "scripts/build-fixtures.js",
+      $model: DEFAULT_MODEL,
+      $manifestHash: manifest.contentHash,
+      cases: cases.sort((a, b) => a.label.localeCompare(b.label)),
+    },
+    examples,
+  };
+}
 
-  log.info(`wrote ${cases.length} fixtures → ${path.relative(process.cwd(), FIXTURE_FILE)}`);
-  log.info(`wrote ${TRACE_SCENARIOS.length} example traces → ${path.relative(process.cwd(), EXAMPLES_DIR)}`);
+/**
+ * Builds and writes. The example traces are a deliberate side effect: §5.4 asks
+ * for example traces in the repo, and generating them here guarantees they are
+ * the same objects the fixtures were keyed against rather than a stale copy.
+ */
+export async function buildFixtures() {
+  /** @type {any} */
+  let built;
+  try {
+    built = buildFixtureFile();
+  } catch (err) {
+    for (const p of /** @type {any} */ (err).problems ?? []) log.error(p);
+    throw err;
+  }
+
+  await writeJson(FIXTURE_FILE, built.fixtureFile);
+  for (const { id, trace } of built.examples) {
+    await writeJson(path.join(EXAMPLES_DIR, `${id}.json`), trace);
+  }
+
+  log.info(`wrote ${built.fixtureFile.cases.length} fixtures → ${path.relative(process.cwd(), FIXTURE_FILE)}`);
+  log.info(`wrote ${built.examples.length} example traces → ${path.relative(process.cwd(), EXAMPLES_DIR)}`);
   log.warn("Fixtures are illustrative only. They are NOT captured Jev responses.");
+  return built;
 }
 
 /* ── answer validation ──────────────────────────────────────────────────── */
@@ -260,7 +303,11 @@ function approxTokens(request) {
   return Math.ceil(JSON.stringify(request).length / 4);
 }
 
-main().catch((err) => {
-  log.error(err instanceof Error ? err.message : String(err));
-  process.exitCode = 1;
-});
+// Only self-run when invoked directly. Importing this module (the test suite
+// and `atlas fixtures` both do) must not write to the repo as a side effect.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  buildFixtures().catch((err) => {
+    log.error(err instanceof Error ? err.message : String(err));
+    process.exitCode = 1;
+  });
+}
