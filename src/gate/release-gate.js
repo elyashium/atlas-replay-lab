@@ -218,19 +218,44 @@ export async function runGate(opts = {}) {
 
     /* ── rule 6: decisions the engine was unsure about ──────────────────── */
     const decision = run.decision;
-    if (decision && typeof decision.confidence === "number" && decision.confidence < DECISION_CONFIDENCE_FLOOR) {
-      const overridden = Boolean(decision.overridden ?? decision.guardOverrode);
-      findings.push({
-        severity: overridden ? "info" : "warn",
-        rule: "6-decision-confidence",
-        runId: run.runId,
-        message: overridden
-          ? `router confidence ${decision.confidence.toFixed(2)} was below the floor and the ` +
-            "rule engine took over, as designed"
-          : `router shipped tier "${run.servedTier}" at confidence ${decision.confidence.toFixed(2)}, ` +
-            `below the ${DECISION_CONFIDENCE_FLOOR} floor — worth a human look`,
-        evidence: { confidence: decision.confidence, tier: run.servedTier, engine: decision.engine },
-      });
+    // Two distinct things are worth a finding here, and they are not the same
+    // event. (a) The guard overrode: something shipped that the primary engine
+    // did not choose. That is the design working, so it is informational — but
+    // it must be visible, because a gate that silently accepts overrides gives
+    // no signal when the primary engine starts failing constantly.
+    // (b) A low-confidence decision shipped *without* an override: nothing
+    // caught it, so a human should look.
+    //
+    // Override state lives on the guard report the guarded engine attaches (see
+    // src/decision/guarded.js), not on the decision itself — the decision that
+    // gets served after an override is the rule engine's *replacement*, whose
+    // confidence is its own and normally well above the floor. Reading
+    // `decision.confidence` alone would therefore miss every override.
+    if (decision) {
+      const guard = decision.guard ?? null;
+      const served = typeof decision.confidence === "number" ? decision.confidence : null;
+
+      if (guard?.overridden) {
+        findings.push({
+          severity: "info",
+          rule: "6-decision-confidence",
+          runId: run.runId,
+          message:
+            `${guard.primaryEngine} was overridden by the rule engine — ${guard.reason}. ` +
+            `Served tier "${run.servedTier}".`,
+          evidence: { guard, servedTier: run.servedTier, servedConfidence: served },
+        });
+      } else if (served !== null && served < DECISION_CONFIDENCE_FLOOR) {
+        findings.push({
+          severity: "warn",
+          rule: "6-decision-confidence",
+          runId: run.runId,
+          message:
+            `router shipped tier "${run.servedTier}" at confidence ${served.toFixed(2)}, below the ` +
+            `${DECISION_CONFIDENCE_FLOOR} floor, and nothing overrode it — worth a human look`,
+          evidence: { confidence: served, tier: run.servedTier, engine: decision.engine, guard },
+        });
+      }
     }
 
     /* ── budgets: warnings by design, see the header ────────────────────── */
