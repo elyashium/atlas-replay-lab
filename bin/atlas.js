@@ -268,7 +268,8 @@ const COMMANDS = {
       "Jev responses, and nothing computed from them measures Jev.",
     flags: {},
     async run() {
-      await import("../scripts/build-fixtures.js");
+      const { buildFixtures } = await import("../scripts/build-fixtures.js");
+      await buildFixtures();
       return 0;
     },
   },
