@@ -43,6 +43,16 @@ const log = logger("atlas");
 /** Matches the `engines` field in package.json. Checked before anything else. */
 const MIN_NODE = [18, 17, 0];
 
+/**
+ * Set by `--verbose`/`--quiet`. The log level itself lives in util/log.js, but
+ * two things here need to know independently: whether to print a stack trace on
+ * a crash, and whether to suppress the report tables, which are written to
+ * stdout directly rather than through the logger (they are tables, not log
+ * lines, and threading them through a level-filtered logger would mangle them).
+ */
+let verbose = process.env.ATLAS_LOG_LEVEL === "debug";
+let quiet = false;
+
 /* ── commands ────────────────────────────────────────────────────────────── */
 
 /**
@@ -90,9 +100,9 @@ const COMMANDS = {
         await runReplay({ profileId: "low-cpu-3g" });
       }
 
-      const gate = await runGate({});
-      await runComparison({});
-      const report = await renderReport({});
+      const gate = await runGate({ quiet });
+      await runComparison({ quiet });
+      const report = await renderReport({ quiet });
 
       banner("done");
       log.info(`${((Date.now() - started) / 1000).toFixed(1)}s total`);
@@ -132,7 +142,14 @@ const COMMANDS = {
       // The matrix reports what happened; it does not decide whether that is
       // shippable. `gate` does, and it exits accordingly. So a matrix whose runs
       // all failed still exits 0 — it did its job, which was to find that out.
-      return result.report.summary.errors > 0 ? 1 : 0;
+      // What does exit 1 is a run the harness *lost*, which is an absence of
+      // evidence rather than a result.
+      const { total, completed } = result.report.summary;
+      if (completed < total) {
+        log.error(`${total - completed} of ${total} run(s) did not complete; see the errors above.`);
+        return 1;
+      }
+      return 0;
     },
   },
 
@@ -180,6 +197,7 @@ const COMMANDS = {
         matrixReportPath: args.flags.matrix ? path.resolve(args.flags.matrix) : undefined,
         replayReportPath: args.flags.replay === "none" ? null : args.flags.replay,
         outDir: args.flags.out ? path.resolve(args.flags.out) : undefined,
+        quiet,
       });
       return shipped ? 0 : 1;
     },
@@ -198,7 +216,7 @@ const COMMANDS = {
     },
     async run(args) {
       const { runComparison } = await import("../src/report/engine-comparison.js");
-      await runComparison({ outDir: args.flags.out ? path.resolve(args.flags.out) : undefined });
+      await runComparison({ outDir: args.flags.out ? path.resolve(args.flags.out) : undefined, quiet });
       return 0;
     },
   },
@@ -215,7 +233,10 @@ const COMMANDS = {
     },
     async run(args) {
       const { renderReport } = await import("../src/report/html-report.js");
-      const { file } = await renderReport({ outFile: args.flags.out ? path.resolve(args.flags.out) : undefined });
+      const { file } = await renderReport({
+        outFile: args.flags.out ? path.resolve(args.flags.out) : undefined,
+        quiet,
+      });
       log.info(`open ${rel(file)}`);
       return 0;
     },
@@ -637,9 +658,13 @@ async function main() {
   let wantsHelp = false;
   let wantsVersion = false;
   for (const token of argv) {
-    if (token === "--verbose" || token === "--debug") setLogLevel("debug");
-    else if (token === "--quiet" || token === "-q") setLogLevel("warn");
-    else if (token === "--version" || token === "-V") wantsVersion = true;
+    if (token === "--verbose" || token === "--debug") {
+      setLogLevel("debug");
+      verbose = true;
+    } else if (token === "--quiet" || token === "-q") {
+      setLogLevel("warn");
+      quiet = true;
+    } else if (token === "--version" || token === "-V") wantsVersion = true;
     else if (token === "--help" || token === "-h") wantsHelp = true;
     else rest.push(token);
   }
@@ -701,7 +726,7 @@ main()
       log.error(message(err));
       // The stack is the useful half when the harness itself broke, and noise
       // when the user typed something wrong — so it follows the log level.
-      if (err instanceof Error && err.stack && process.env.ATLAS_LOG_LEVEL === "debug") {
+      if (err instanceof Error && err.stack && verbose) {
         process.stderr.write(`${err.stack}\n`);
       }
     }
