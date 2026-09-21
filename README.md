@@ -174,6 +174,8 @@ hand-copied metric is exactly the kind of number that goes stale and then lies.
 | `node bin/atlas.js gate` | Apply the release rule to what was captured |
 | `node bin/atlas.js compare` | §4.4 — both engines over the same fixtures |
 | `node bin/atlas.js report` | Render `artifacts/report.html` from what is on disk |
+| `node bin/atlas.js fixtures` | Write the illustrative Jev fixtures and `examples/traces/` |
+| `node bin/atlas.js assets` | Generate the tier assets (`all` does this on demand) |
 | `node bin/atlas.js serve` | Serve the experience locally and drive it by hand |
 | `npm test` | `node --test tests/` — no network, no browser, no key |
 
@@ -205,7 +207,8 @@ src/image/              PNG codec and perceptual diff, both hand-written
 src/gate/               the release rule
 src/report/             the engine comparison and the HTML report
 tests/                  six suites, run with node:test
-examples/traces/        ten example traces (synthetic, labelled as such)
+scripts/                deterministic asset and fixture generators
+examples/traces/        ten example traces — written by `atlas fixtures`
 docs/trace-schema.md    what a trace contains and why
 docs/adr/               why things are the way they are
 ```
