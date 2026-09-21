@@ -197,7 +197,7 @@ a command.
 bin/atlas.js            the single entry point
 experience/             the Orbital demo — the thing under test
 src/manifest/           the quality ladder as validated, hashed data
-src/capability/         the probe and its normalisation (privacy boundary)
+src/capability/         bucketing and path resolution — the privacy boundary
 src/decision/           the DecisionEngine interface + all three implementations
 src/trace/              the flight recorder schema, normalisation and hashing
 src/runner/             CDP, WebSocket, profiles, the matrix and replay runners
