@@ -79,11 +79,13 @@ report.*
 
 > "A release rule reads what was captured and exits non-zero when it says hold.
 > Missing coverage on a critical profile, a failure, a severity at or above major,
-> a business invariant that didn't hold, an inconclusive run, a low-confidence
-> decision, a replay that didn't reproduce."
+> a business invariant that didn't hold, an inconclusive run, a replay that didn't
+> reproduce."
 
-> "And it deliberately *doesn't* block on budget warnings or on the excluded
-> baseline. What doesn't stop a release is the half of a gate people get wrong."
+> "And it deliberately *doesn't* block on budget breaches, on a low-confidence
+> decision — that one ships with a note for a human — or on the baseline, which is
+> excluded from grading because it's the control and it's supposed to fail. What
+> doesn't stop a release is the half of a gate people get wrong."
 
 ## 1:22 – 1:30 — What it is and isn't
 
