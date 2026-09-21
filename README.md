@@ -46,7 +46,7 @@ Five things, each of which is a real artifact on disk after one command:
 3. **Records a privacy-safe trace** of every session: state transitions,
    asset timings, interaction latencies, checkpoint screenshots. No raw camera
    frames, no raw audio, no wall-clock timestamps inside the event stream, ever.
-   [PRIVACY.md](PRIVACY.md)
+   [Trace schema](docs/trace-schema.md) · [PRIVACY.md](PRIVACY.md)
 
 4. **Replays a captured session and proves it reproduces** — causal structure,
    quantised timing, and perceptual pixel comparison, with the clock left
@@ -205,6 +205,8 @@ src/image/              PNG codec and perceptual diff, both hand-written
 src/gate/               the release rule
 src/report/             the engine comparison and the HTML report
 tests/                  six suites, run with node:test
+examples/traces/        ten example traces (synthetic, labelled as such)
+docs/trace-schema.md    what a trace contains and why
 docs/adr/               why things are the way they are
 ```
 
