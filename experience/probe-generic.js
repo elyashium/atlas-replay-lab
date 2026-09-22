@@ -220,13 +220,14 @@
   /* ── errors ───────────────────────────────────────────────────────────── */
 
   function recordError(code, text, fatal) {
+    var scrubbed = scrubText(text);
     if (rec.consoleErrors.length < MAX_ERRORS) {
-      rec.consoleErrors.push({ tOffsetMs: now(), code: code, message: clip(text) });
+      rec.consoleErrors.push({ tOffsetMs: now(), code: code, message: scrubbed });
     }
     // `code` and `fatal` are in the normaliser's allow-list for `error` events
     // and therefore causal; the message text is not, because error strings
     // carry line numbers and hashes that legitimately differ between runs.
-    push(code, "error", { code: code, fatal: Boolean(fatal), message: clip(text) });
+    push(code, "error", { code: code, fatal: Boolean(fatal), message: scrubbed });
   }
 
   var nativeConsoleError = console.error ? console.error.bind(console) : null;

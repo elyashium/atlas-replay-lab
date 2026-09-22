@@ -90,6 +90,14 @@ export function newTrace(init) {
     startedAtIso: new Date().toISOString(),
     durationMs: 0,
     notes: [],
+    // Generic ingestion only. Initialised empty rather than left undefined so
+    // that every consumer can read `trace.frameTimes.length` without a guard,
+    // and so an Orbital trace and a `--url` trace have the same shape. They
+    // are invisible to `normalizeTrace`, so their presence cannot move the
+    // determinism hash — see the note on Trace in types/atlas.d.ts.
+    frameTimes: [],
+    xrSessionEvents: [],
+    consoleErrors: [],
   };
 }
 

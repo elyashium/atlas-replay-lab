@@ -125,7 +125,13 @@ export interface TierSpec {
 export interface AssetSpec {
   id: string;
   url: string;
-  kind: "texture" | "geometry" | "audio" | "poster";
+  /**
+   * `"document"` is the generic-ingestion case: a `--url` run does not know
+   * the visitor's files, so each tier declares one payload envelope instead of
+   * a file list, and the real per-asset events come from the probe's resource
+   * timing. See `src/manifest/generic.manifest.js`.
+   */
+  kind: "texture" | "geometry" | "audio" | "poster" | "document";
   /** Declared size; verified against the real file by `atlas assets --verify`. */
   approxBytes: number;
   critical: boolean;
@@ -191,6 +197,15 @@ export interface ValidationResult {
 /* Experience state machine                                                    */
 /* ────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * Every state either manifest's transition graph can name.
+ *
+ * The first block is Orbital's flow. The second is the generic spine a `--url`
+ * run walks (`docs/showcase-roadmap.md` Slice 1): a third-party app has no
+ * cart and no checkout, so `session-complete` is what stands in for the
+ * business end state. Note that generic runs never enter `routing` — Atlas
+ * routes Orbital and only observes everyone else.
+ */
 export type ExperienceState =
   | "boot"
   | "probing"
@@ -202,7 +217,11 @@ export type ExperienceState =
   | "cart"
   | "checkout-complete"
   | "degraded"
-  | "error";
+  | "error"
+  /* generic ingestion */
+  | "looking"
+  | "xr-session"
+  | "session-complete";
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /* Decision layer                                                              */
@@ -387,6 +406,38 @@ export interface Trace {
   startedAtIso: string;
   durationMs: number;
   notes: string[];
+
+  /* ── additive, generic-ingestion only (Slice 1) ─────────────────────────
+   *
+   * All three are optional, and all three are invisible to `normalizeTrace`,
+   * which reads a closed set of top-level fields with a per-kind attribute
+   * allow-list. That is deliberate and load-bearing: a trace captured before
+   * these existed still validates, and adding them cannot perturb
+   * `determinismHash` or `causalHash`. The causal *structure* of what they
+   * describe is already in the hash as lifecycle and error events; these carry
+   * the detail that legitimately differs run to run.
+   */
+
+  /**
+   * Per-frame durations in ms, in order, from the page's `requestAnimationFrame`
+   * loop. Capped at 3600 samples with a note when truncated. Never sent to a
+   * model as a series — `summariseTraceForJev` compresses it to histogram
+   * buckets first.
+   */
+  frameTimes?: number[];
+  /** XR session lifecycle as the probe observed it, oldest first. */
+  xrSessionEvents?: Array<{
+    tOffsetMs: number;
+    phase: "request" | "session-start" | "session-refused" | "session-end" | "unavailable";
+    mode: string;
+    error: string | null;
+  }>;
+  /**
+   * Console errors, uncaught exceptions, rejections and context loss.
+   * `message` is truncated and scrubbed of URLs and token-shaped runs; only
+   * `code` is ever summarised for a model.
+   */
+  consoleErrors?: Array<{ tOffsetMs: number; code: string; message: string }>;
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
@@ -422,6 +473,16 @@ export interface Profile {
   prefersReducedMotion: boolean;
   /** Profiles in this set must pass for the release gate to go green. */
   critical: boolean;
+  /**
+   * Inject Atlas's own synthetic `navigator.xr` (`src/runner/xr-stub.js`).
+   *
+   * Absent on the six original profiles, which is why they behave exactly as
+   * before. `"granted"` resolves `requestSession`, `"denied"` rejects it with
+   * a real `NotAllowedError` so the app's refusal path runs. Every run that
+   * sets this records the stub's limits as a trace note — it is a lifecycle
+   * and pose harness, not a headset.
+   */
+  xr?: "granted" | "denied";
 }
 
 export interface GateRule {
