@@ -14,22 +14,7 @@ or Edge.
 
 ---
 
-## This is not a Flam integration
 
-**Nothing in this repository is built with, on, or against any Flam product.**
-To be explicit, because this artifact was written with Flam's problem space in
-mind and the distinction matters:
-
-- No Flam branding, logo, copy, or asset appears anywhere in this repo.
-- No Flam SDK, API, or endpoint is used, mocked, stubbed, or named in code.
-- There is no integration, partnership, endorsement, or affiliation of any kind.
-- The demo experience ("Orbital") is original and synthetic, written for this
-  repo. See [ADR-0001](docs/adr/0001-original-experience-no-flam-integration.md).
-
-The manifest itself carries that statement as data, so it travels with every
-trace and every report rather than living only in this file.
-
----
 
 ## What it actually does
 
