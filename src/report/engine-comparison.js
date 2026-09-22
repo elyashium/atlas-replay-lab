@@ -44,6 +44,7 @@ import { selectEngine } from "../decision/index.js";
 import { SYNTHETIC_STATES } from "../decision/fixtures/states.js";
 import { TRACE_SCENARIOS, buildScenarioTrace } from "../decision/fixtures/traces.js";
 import { SEVERITY_LEVELS } from "../decision/questions.js";
+import { estimateCostUsd } from "../decision/jev-transport.js";
 import { writeJson, fromRoot } from "../util/fsx.js";
 import { logger, banner } from "../util/log.js";
 
@@ -203,6 +204,21 @@ export async function runComparison(opts = {}) {
         : null,
     },
     calibration: buildCalibration(selection.mode, tierRows, traceRows),
+    // Measured run telemetry: what the Jev side actually cost in calls,
+    // latency, and tokens. In fixture mode tokens/latency are the fixtures'
+    // (zeros), which is why the note above travels with these numbers.
+    jevRun: comparable
+      ? {
+          calls: selection.jev.stats.calls,
+          totalLatencyMs: Math.round(selection.jev.stats.totalLatencyMs * 100) / 100,
+          meanLatencyMs: selection.jev.stats.calls
+            ? Math.round((selection.jev.stats.totalLatencyMs / selection.jev.stats.calls) * 100) / 100
+            : 0,
+          inputTokens: selection.jev.stats.inputTokens,
+          estimatedUsd: estimateCostUsd(selection.jev.stats.inputTokens),
+          model: selection.jev.stats.model,
+        }
+      : null,
     tierRows,
     traceRows,
   };
@@ -450,6 +466,17 @@ function printReport(report, file) {
         b.observedAccuracy === null ? "-" : b.observedAccuracy.toFixed(3),
         b.gap === null ? "-" : (b.gap >= 0 ? "+" : "") + b.gap.toFixed(3),
       ]),
+    );
+  }
+
+  banner("Jev run (measured cost/latency)");
+  if (!report.jevRun) {
+    log.info("no Jev engine configured — nothing was called, nothing was spent.");
+  } else {
+    const j = report.jevRun;
+    log.info(
+      `${j.calls} call(s), mean ${j.meanLatencyMs}ms, ${j.inputTokens} input tokens, ` +
+        `≈$${j.estimatedUsd} (output free), model ${j.model}`,
     );
   }
 

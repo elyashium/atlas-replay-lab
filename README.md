@@ -67,7 +67,7 @@ Both go through one `DecisionEngine` interface with three implementations:
 | | |
 |---|---|
 | **`RuleBasedDecisionEngine`** | The default. Zero external calls, zero API key, zero network. This is what CI runs and what a fresh clone runs. |
-| **`JevDecisionEngine`** | Optional. Active only when `TYPESAFE_API_KEY` is present, or against hand-authored fixtures with `ATLAS_JEV_FIXTURES=1`. |
+| **`JevDecisionEngine`** | Optional. Active only when `TYPESAFE_API_KEY` is present, or against hand-authored fixtures with `ATLAS_JEV_FIXTURES=1`. Live calls go to `POST /v1/systemone` (see `atlas jev-check`). |
 | **`GuardedDecisionEngine`** | A wrapper, not an engine. Whenever a model is configured, this is what runs: it overrides on error, on infeasibility, and on low confidence, in that order — and verdicts fail closed, so a model may tighten a verdict but never loosen one. |
 
 [ADR-0005](docs/adr/0005-decision-engine-interface.md) covers the interface and
@@ -81,9 +81,39 @@ node bin/atlas.js compare
 ```
 
 Runs every synthetic packet and trace through **both** engines and reports the
-agreement rate. It runs end to end with no key — in that state it reports
+agreement rate, plus the Jev side's measured calls/latency/tokens/cost. It runs
+end to end with no key — in that state it reports
 `agreement N/A — no live Jev key` rather than failing, because a harness that
 requires a credential to run is a harness nobody runs.
+
+### Judging captured traces at volume
+
+```bash
+node bin/atlas.js judge
+```
+
+Points the same trace judge at real captured traces (`artifacts/matrix`,
+`artifacts/live-traces`, `artifacts/replay` by default; `--trace`/`--dir` to
+override) and writes `artifacts/judge/judge-report.json`: per-trace verdicts,
+outcome/root-cause tallies, agreement, and measured Jev latency/tokens/cost.
+Rule-based judging always runs; Jev joins in when configured. Always exits 0 —
+judging observes, `gate` decides. This is the Stage 4 production-triage shape,
+already pointed at a trace stream.
+
+### Waking up the live Jev path
+
+```bash
+export TYPESAFE_API_KEY=<key from console.typesafe.ai/settings/keys>
+node bin/atlas.js jev-check
+```
+
+Validates the key (`GET /v1/models`) and sends one minimal smoke decision,
+reporting latency, input tokens, and the versioned model id that answered
+(`jev-latest` currently resolves to `jev-1.13.0`). Every other command picks up
+the key automatically once set; `TYPESAFE_MODEL` pins the model id (pin a
+versioned id once thresholds are tuned — aliases move), `TYPESAFE_BASE_URL`
+points at a gateway instead, `TYPESAFE_TIMEOUT_MS` overrides the 4s default.
+`atlas doctor` keeps passing without a key; only `jev-check` requires one.
 
 ## Jev: what is claimed, and by whom
 
@@ -173,6 +203,8 @@ hand-copied metric is exactly the kind of number that goes stale and then lies.
 | `node bin/atlas.js replay` | Re-run a captured trace and prove it reproduces |
 | `node bin/atlas.js gate` | Apply the release rule to what was captured |
 | `node bin/atlas.js compare` | §4.4 — both engines over the same fixtures |
+| `node bin/atlas.js judge` | batch-judge captured traces + Jev cost/latency |
+| `node bin/atlas.js jev-check` | validate `TYPESAFE_API_KEY` with one live call |
 | `node bin/atlas.js report` | Render `artifacts/report.html` from what is on disk |
 | `node bin/atlas.js fixtures` | Write the illustrative Jev fixtures and `examples/traces/` |
 | `node bin/atlas.js assets` | Generate the tier assets (`all` does this on demand) |
@@ -185,7 +217,10 @@ hand-copied metric is exactly the kind of number that goes stale and then lies.
 
 | | |
 |---|---|
-| `TYPESAFE_API_KEY` | Enables the live `JevDecisionEngine`. Absent by default; nothing here requires it. |
+| `TYPESAFE_API_KEY` | Enables the live `JevDecisionEngine`. Absent by default; only `jev-check` requires it. |
+| `TYPESAFE_MODEL` | Model id (default `jev-latest`; pin e.g. `jev-1.13.0` once thresholds are tuned). |
+| `TYPESAFE_BASE_URL` | API base override (default `https://api.typesafe.ai`). |
+| `TYPESAFE_TIMEOUT_MS` | Live-call timeout (default 4000). |
 | `ATLAS_JEV_FIXTURES=1` | Runs the Jev code path against hand-authored illustrative fixtures. |
 | `ATLAS_CHROME` | Path to a Chromium-family browser, if detection fails. |
 | `ATLAS_HEADFUL=1` | Run the browser visibly. |
@@ -201,6 +236,7 @@ experience/             the Orbital demo — the thing under test
 src/manifest/           the quality ladder as validated, hashed data
 src/capability/         bucketing and path resolution — the privacy boundary
 src/decision/           the DecisionEngine interface + all three implementations
+src/judge/              batch trace triage over captured traces
 src/trace/              the flight recorder schema, normalisation and hashing
 src/runner/             CDP, WebSocket, profiles, the matrix and replay runners
 src/image/              PNG codec and perceptual diff, both hand-written
@@ -227,7 +263,8 @@ docs/adr/               why things are the way they are
 ## Scope
 
 This is a proof-of-work artifact, not a product. It has no auth, no persistence
-beyond `artifacts/`, no multi-user story, and no CI configuration. The things it
+beyond `artifacts/`, no multi-user story, and a unit-only CI workflow (browser
+stages stay local). The things it
 does claim to do are the things it can be run to demonstrate, which is the whole
 point of shipping it as a repository rather than as a deck.
 

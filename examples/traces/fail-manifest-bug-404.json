@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "traceId": "synthetic-fail-manifest-bug-404",
+  "resource": {
+    "service.name": "atlas-replay-lab",
+    "service.version": "0.1.0",
+    "atlas.manifest.id": "orbital",
+    "atlas.manifest.version": "1.4.0",
+    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.profile.id": "mid-android-4g",
+    "atlas.run.kind": "adaptive",
+    "atlas.emulated": true,
+    "atlas.seed": 1592590337
+  },
+  "capability": {
+    "deviceMemoryGB": 8,
+    "hardwareConcurrency": 8,
+    "gpuTier": "high",
+    "webglVersion": 2,
+    "webgpuAvailable": false,
+    "webcodecsAvailable": true,
+    "cameraPermission": "granted",
+    "effectiveConnectionType": "4g",
+    "downlinkMbps": 18,
+    "rttMs": 40,
+    "reducedMotionPreferred": false,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "recentFrameTimeMsP95": null
+  },
+  "capabilityBucket": {
+    "compute": "strong",
+    "network": "good",
+    "graphics": "accelerated",
+    "camera": "usable",
+    "id": "strong/good/accelerated/usable"
+  },
+  "decision": null,
+  "servedTier": "mid",
+  "servedPath": "interactive-2d",
+  "states": [
+    "boot",
+    "probing",
+    "routing",
+    "loading",
+    "error"
+  ],
+  "events": [
+    {
+      "tOffsetMs": 0,
+      "name": "boot",
+      "kind": "lifecycle",
+      "attributes": {
+        "schemaVersion": 1
+      }
+    },
+    {
+      "tOffsetMs": 0,
+      "name": "state:boot",
+      "kind": "state",
+      "attributes": {
+        "from": null,
+        "to": "boot",
+        "index": 0
+      }
+    },
+    {
+      "tOffsetMs": 12,
+      "name": "probe-complete",
+      "kind": "lifecycle",
+      "attributes": {
+        "gpuTier": "high",
+        "webglVersion": 2,
+        "effectiveConnectionType": "4g"
+      }
+    },
+    {
+      "tOffsetMs": 18,
+      "name": "tier-selected",
+      "kind": "decision",
+      "attributes": {
+        "tier": "mid",
+        "path": "interactive-2d",
+        "bypassed": false
+      }
+    },
+    {
+      "tOffsetMs": 42,
+      "name": "asset:geo-mid",
+      "kind": "asset",
+      "attributes": {
+        "id": "geo-mid",
+        "bytes": 0,
+        "ok": false,
+        "critical": true,
+        "durationMs": 42,
+        "error": "HTTP 404"
+      }
+    },
+    {
+      "tOffsetMs": 190,
+      "name": "asset:tex-mid",
+      "kind": "asset",
+      "attributes": {
+        "id": "tex-mid",
+        "bytes": 240000,
+        "ok": true,
+        "critical": true,
+        "durationMs": 190
+      }
+    },
+    {
+      "tOffsetMs": 260,
+      "name": "asset-failed",
+      "kind": "error",
+      "attributes": {
+        "code": "HTTP_404",
+        "detail": "assets/generated/orbital-geo-mid.bin"
+      }
+    },
+    {
+      "tOffsetMs": 300,
+      "name": "fatal",
+      "kind": "error",
+      "attributes": {
+        "code": "CRITICAL_ASSET_MISSING"
+      }
+    },
+    {
+      "tOffsetMs": 613,
+      "name": "state:probing",
+      "kind": "state",
+      "attributes": {
+        "from": "boot",
+        "to": "probing",
+        "index": 1
+      }
+    },
+    {
+      "tOffsetMs": 1226,
+      "name": "state:routing",
+      "kind": "state",
+      "attributes": {
+        "from": "probing",
+        "to": "routing",
+        "index": 2
+      }
+    },
+    {
+      "tOffsetMs": 1839,
+      "name": "state:loading",
+      "kind": "state",
+      "attributes": {
+        "from": "routing",
+        "to": "loading",
+        "index": 3
+      }
+    },
+    {
+      "tOffsetMs": 2452,
+      "name": "state:error",
+      "kind": "state",
+      "attributes": {
+        "from": "loading",
+        "to": "error",
+        "index": 4
+      }
+    },
+    {
+      "tOffsetMs": 3400,
+      "name": "session-end",
+      "kind": "lifecycle",
+      "attributes": {
+        "reason": "fatal"
+      }
+    }
+  ],
+  "checkpoints": [],
+  "metrics": {
+    "firstFrameMs": null,
+    "timeToInteractiveMs": null,
+    "p50InteractionMs": null,
+    "p95InteractionMs": null,
+    "interactionCount": 0,
+    "framesRendered": 0,
+    "framesDropped": 0,
+    "droppedFrameRatio": null,
+    "transferBytes": 240000,
+    "assetFailures": 1,
+    "jsHeapUsedMB": null,
+    "reachedEndState": false,
+    "stepsToEndState": null,
+    "firstFrameNonBlank": null
+  },
+  "inputClasses": [],
+  "determinismHash": "64edd7ca00671a0531940b630dfa547a",
+  "startedAtIso": "2026-01-01T00:00:00.000Z",
+  "durationMs": 3400,
+  "notes": [
+    "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented."
+  ]
+}

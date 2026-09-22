@@ -1,0 +1,266 @@
+{
+  "schemaVersion": 1,
+  "traceId": "synthetic-fail-baseline-low-cpu-3g",
+  "resource": {
+    "service.name": "atlas-replay-lab",
+    "service.version": "0.1.0",
+    "atlas.manifest.id": "orbital",
+    "atlas.manifest.version": "1.4.0",
+    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.profile.id": "low-cpu-3g",
+    "atlas.run.kind": "baseline",
+    "atlas.emulated": true,
+    "atlas.seed": 1592590337
+  },
+  "capability": {
+    "deviceMemoryGB": 2,
+    "hardwareConcurrency": 2,
+    "gpuTier": "low",
+    "webglVersion": 1,
+    "webgpuAvailable": false,
+    "webcodecsAvailable": false,
+    "cameraPermission": "granted",
+    "effectiveConnectionType": "3g",
+    "downlinkMbps": 1.1,
+    "rttMs": 350,
+    "reducedMotionPreferred": false,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "recentFrameTimeMsP95": 48
+  },
+  "capabilityBucket": {
+    "compute": "weak",
+    "network": "poor",
+    "graphics": "basic",
+    "camera": "usable",
+    "id": "weak/poor/basic/usable"
+  },
+  "decision": null,
+  "servedTier": "high",
+  "servedPath": "interactive-2d",
+  "states": [
+    "boot",
+    "probing",
+    "routing",
+    "loading",
+    "first-frame",
+    "degraded"
+  ],
+  "events": [
+    {
+      "tOffsetMs": 0,
+      "name": "boot",
+      "kind": "lifecycle",
+      "attributes": {
+        "schemaVersion": 1
+      }
+    },
+    {
+      "tOffsetMs": 0,
+      "name": "state:boot",
+      "kind": "state",
+      "attributes": {
+        "from": null,
+        "to": "boot",
+        "index": 0
+      }
+    },
+    {
+      "tOffsetMs": 12,
+      "name": "probe-complete",
+      "kind": "lifecycle",
+      "attributes": {
+        "gpuTier": "low",
+        "webglVersion": 1,
+        "effectiveConnectionType": "3g"
+      }
+    },
+    {
+      "tOffsetMs": 18,
+      "name": "tier-selected",
+      "kind": "decision",
+      "attributes": {
+        "tier": "high",
+        "path": "interactive-2d",
+        "bypassed": true
+      }
+    },
+    {
+      "tOffsetMs": 1297,
+      "name": "state:probing",
+      "kind": "state",
+      "attributes": {
+        "from": "boot",
+        "to": "probing",
+        "index": 1
+      }
+    },
+    {
+      "tOffsetMs": 2594,
+      "name": "state:routing",
+      "kind": "state",
+      "attributes": {
+        "from": "probing",
+        "to": "routing",
+        "index": 2
+      }
+    },
+    {
+      "tOffsetMs": 3620,
+      "name": "asset:tex-hi",
+      "kind": "asset",
+      "attributes": {
+        "id": "tex-hi",
+        "bytes": 900000,
+        "ok": true,
+        "critical": true,
+        "durationMs": 3620
+      }
+    },
+    {
+      "tOffsetMs": 3891,
+      "name": "state:loading",
+      "kind": "state",
+      "attributes": {
+        "from": "routing",
+        "to": "loading",
+        "index": 3
+      }
+    },
+    {
+      "tOffsetMs": 4310,
+      "name": "state:first-frame",
+      "kind": "state",
+      "attributes": {
+        "from": "loading",
+        "to": "first-frame",
+        "index": 4
+      }
+    },
+    {
+      "tOffsetMs": 4310,
+      "name": "first-frame",
+      "kind": "lifecycle",
+      "attributes": {
+        "nonBlank": false,
+        "focalCoverage": 0.008,
+        "tier": "high"
+      }
+    },
+    {
+      "tOffsetMs": 5000,
+      "name": "asset:geo-hi",
+      "kind": "asset",
+      "attributes": {
+        "id": "geo-hi",
+        "bytes": 420000,
+        "ok": false,
+        "critical": true,
+        "durationMs": 5000,
+        "error": "net::ERR_TIMED_OUT"
+      }
+    },
+    {
+      "tOffsetMs": 5000,
+      "name": "frame-sample",
+      "kind": "frame",
+      "attributes": {
+        "rendered": 9,
+        "dropped": 21,
+        "jsHeapUsedMB": 164
+      }
+    },
+    {
+      "tOffsetMs": 5000,
+      "name": "asset-failed",
+      "kind": "error",
+      "attributes": {
+        "code": "ERR_TIMED_OUT",
+        "detail": "geo-hi exceeded the load deadline"
+      }
+    },
+    {
+      "tOffsetMs": 5040,
+      "name": "degraded-entry",
+      "kind": "error",
+      "attributes": {
+        "code": "CRITICAL_ASSET_MISSING"
+      }
+    },
+    {
+      "tOffsetMs": 6100,
+      "name": "interaction:tap:product",
+      "kind": "interaction",
+      "attributes": {
+        "class": "tap:product",
+        "latencyMs": 890
+      }
+    },
+    {
+      "tOffsetMs": 6485,
+      "name": "state:degraded",
+      "kind": "state",
+      "attributes": {
+        "from": "first-frame",
+        "to": "degraded",
+        "index": 5
+      }
+    },
+    {
+      "tOffsetMs": 7000,
+      "name": "frame-sample",
+      "kind": "frame",
+      "attributes": {
+        "rendered": 7,
+        "dropped": 23,
+        "jsHeapUsedMB": 178
+      }
+    },
+    {
+      "tOffsetMs": 9000,
+      "name": "session-end",
+      "kind": "lifecycle",
+      "attributes": {
+        "reason": "complete"
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "cp-first-frame",
+      "state": "first-frame",
+      "tOffsetMs": 4310,
+      "screenshotPath": null,
+      "focalCoverage": 0.008,
+      "alphaEdgeDrift": null
+    }
+  ],
+  "metrics": {
+    "firstFrameMs": 4310,
+    "timeToInteractiveMs": null,
+    "p50InteractionMs": 890,
+    "p95InteractionMs": 890,
+    "interactionCount": 1,
+    "framesRendered": 16,
+    "framesDropped": 44,
+    "droppedFrameRatio": 0.7333,
+    "transferBytes": 1320000,
+    "assetFailures": 1,
+    "jsHeapUsedMB": 178,
+    "reachedEndState": false,
+    "stepsToEndState": null,
+    "firstFrameNonBlank": false
+  },
+  "inputClasses": [
+    "tap:product"
+  ],
+  "determinismHash": "2845a1f93713f6e28166517c45fb5de6",
+  "startedAtIso": "2026-01-01T00:00:00.000Z",
+  "durationMs": 9000,
+  "notes": [
+    "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented.",
+    "baseline run: the tier router was bypassed and 'high' pinned by the harness"
+  ]
+}

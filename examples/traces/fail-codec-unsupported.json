@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "traceId": "synthetic-fail-codec-unsupported",
+  "resource": {
+    "service.name": "atlas-replay-lab",
+    "service.version": "0.1.0",
+    "atlas.manifest.id": "orbital",
+    "atlas.manifest.version": "1.4.0",
+    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.profile.id": "no-webgl",
+    "atlas.run.kind": "adaptive",
+    "atlas.emulated": true,
+    "atlas.seed": 1592590337
+  },
+  "capability": {
+    "deviceMemoryGB": 4,
+    "hardwareConcurrency": 4,
+    "gpuTier": "none",
+    "webglVersion": 0,
+    "webgpuAvailable": false,
+    "webcodecsAvailable": false,
+    "cameraPermission": "denied",
+    "effectiveConnectionType": "4g",
+    "downlinkMbps": 10,
+    "rttMs": 50,
+    "reducedMotionPreferred": false,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "recentFrameTimeMsP95": null
+  },
+  "capabilityBucket": {
+    "compute": "weak",
+    "network": "good",
+    "graphics": "none",
+    "camera": "blocked",
+    "id": "weak/good/none/blocked"
+  },
+  "decision": null,
+  "servedTier": "low",
+  "servedPath": "interactive-2d",
+  "states": [
+    "boot",
+    "probing",
+    "routing",
+    "loading",
+    "error"
+  ],
+  "events": [
+    {
+      "tOffsetMs": 0,
+      "name": "boot",
+      "kind": "lifecycle",
+      "attributes": {
+        "schemaVersion": 1
+      }
+    },
+    {
+      "tOffsetMs": 0,
+      "name": "state:boot",
+      "kind": "state",
+      "attributes": {
+        "from": null,
+        "to": "boot",
+        "index": 0
+      }
+    },
+    {
+      "tOffsetMs": 12,
+      "name": "probe-complete",
+      "kind": "lifecycle",
+      "attributes": {
+        "gpuTier": "none",
+        "webglVersion": 0,
+        "effectiveConnectionType": "4g"
+      }
+    },
+    {
+      "tOffsetMs": 18,
+      "name": "tier-selected",
+      "kind": "decision",
+      "attributes": {
+        "tier": "low",
+        "path": "interactive-2d",
+        "bypassed": false
+      }
+    },
+    {
+      "tOffsetMs": 210,
+      "name": "asset:tex-low",
+      "kind": "asset",
+      "attributes": {
+        "id": "tex-low",
+        "bytes": 62000,
+        "ok": false,
+        "critical": true,
+        "durationMs": 210,
+        "error": "DECODE_UNSUPPORTED"
+      }
+    },
+    {
+      "tOffsetMs": 210,
+      "name": "decode-failed",
+      "kind": "error",
+      "attributes": {
+        "code": "DECODE_UNSUPPORTED",
+        "detail": "no WebCodecs and no fallback decoder"
+      }
+    },
+    {
+      "tOffsetMs": 240,
+      "name": "fatal",
+      "kind": "error",
+      "attributes": {
+        "code": "CRITICAL_ASSET_MISSING"
+      }
+    },
+    {
+      "tOffsetMs": 523,
+      "name": "state:probing",
+      "kind": "state",
+      "attributes": {
+        "from": "boot",
+        "to": "probing",
+        "index": 1
+      }
+    },
+    {
+      "tOffsetMs": 1046,
+      "name": "state:routing",
+      "kind": "state",
+      "attributes": {
+        "from": "probing",
+        "to": "routing",
+        "index": 2
+      }
+    },
+    {
+      "tOffsetMs": 1569,
+      "name": "state:loading",
+      "kind": "state",
+      "attributes": {
+        "from": "routing",
+        "to": "loading",
+        "index": 3
+      }
+    },
+    {
+      "tOffsetMs": 2092,
+      "name": "state:error",
+      "kind": "state",
+      "attributes": {
+        "from": "loading",
+        "to": "error",
+        "index": 4
+      }
+    },
+    {
+      "tOffsetMs": 2900,
+      "name": "session-end",
+      "kind": "lifecycle",
+      "attributes": {
+        "reason": "fatal"
+      }
+    }
+  ],
+  "checkpoints": [],
+  "metrics": {
+    "firstFrameMs": null,
+    "timeToInteractiveMs": null,
+    "p50InteractionMs": null,
+    "p95InteractionMs": null,
+    "interactionCount": 0,
+    "framesRendered": 0,
+    "framesDropped": 0,
+    "droppedFrameRatio": null,
+    "transferBytes": 62000,
+    "assetFailures": 1,
+    "jsHeapUsedMB": null,
+    "reachedEndState": false,
+    "stepsToEndState": null,
+    "firstFrameNonBlank": null
+  },
+  "inputClasses": [],
+  "determinismHash": "0f07c83725406bf7b66a853a7a02f52b",
+  "startedAtIso": "2026-01-01T00:00:00.000Z",
+  "durationMs": 2900,
+  "notes": [
+    "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented."
+  ]
+}

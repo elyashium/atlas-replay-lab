@@ -1,0 +1,342 @@
+{
+  "schemaVersion": 1,
+  "traceId": "synthetic-pass-high-desktop",
+  "resource": {
+    "service.name": "atlas-replay-lab",
+    "service.version": "0.1.0",
+    "atlas.manifest.id": "orbital",
+    "atlas.manifest.version": "1.4.0",
+    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.profile.id": "high-end-wifi",
+    "atlas.run.kind": "adaptive",
+    "atlas.emulated": true,
+    "atlas.seed": 1592590337
+  },
+  "capability": {
+    "deviceMemoryGB": 16,
+    "hardwareConcurrency": 12,
+    "gpuTier": "high",
+    "webglVersion": 2,
+    "webgpuAvailable": true,
+    "webcodecsAvailable": true,
+    "cameraPermission": "granted",
+    "effectiveConnectionType": "4g",
+    "downlinkMbps": 45,
+    "rttMs": 15,
+    "reducedMotionPreferred": false,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "recentFrameTimeMsP95": null
+  },
+  "capabilityBucket": {
+    "compute": "strong",
+    "network": "good",
+    "graphics": "accelerated",
+    "camera": "usable",
+    "id": "strong/good/accelerated/usable"
+  },
+  "decision": null,
+  "servedTier": "high",
+  "servedPath": "camera-xr",
+  "states": [
+    "boot",
+    "probing",
+    "routing",
+    "loading",
+    "first-frame",
+    "interactive",
+    "product-detail",
+    "cart",
+    "checkout-complete"
+  ],
+  "events": [
+    {
+      "tOffsetMs": 0,
+      "name": "boot",
+      "kind": "lifecycle",
+      "attributes": {
+        "schemaVersion": 1
+      }
+    },
+    {
+      "tOffsetMs": 0,
+      "name": "state:boot",
+      "kind": "state",
+      "attributes": {
+        "from": null,
+        "to": "boot",
+        "index": 0
+      }
+    },
+    {
+      "tOffsetMs": 12,
+      "name": "probe-complete",
+      "kind": "lifecycle",
+      "attributes": {
+        "gpuTier": "high",
+        "webglVersion": 2,
+        "effectiveConnectionType": "4g"
+      }
+    },
+    {
+      "tOffsetMs": 18,
+      "name": "tier-selected",
+      "kind": "decision",
+      "attributes": {
+        "tier": "high",
+        "path": "camera-xr",
+        "bypassed": false
+      }
+    },
+    {
+      "tOffsetMs": 180,
+      "name": "asset:geo-hi",
+      "kind": "asset",
+      "attributes": {
+        "id": "geo-hi",
+        "bytes": 420000,
+        "ok": true,
+        "critical": true,
+        "durationMs": 180
+      }
+    },
+    {
+      "tOffsetMs": 340,
+      "name": "asset:tex-hi",
+      "kind": "asset",
+      "attributes": {
+        "id": "tex-hi",
+        "bytes": 900000,
+        "ok": true,
+        "critical": true,
+        "durationMs": 340
+      }
+    },
+    {
+      "tOffsetMs": 584,
+      "name": "state:probing",
+      "kind": "state",
+      "attributes": {
+        "from": "boot",
+        "to": "probing",
+        "index": 1
+      }
+    },
+    {
+      "tOffsetMs": 612,
+      "name": "state:first-frame",
+      "kind": "state",
+      "attributes": {
+        "from": "loading",
+        "to": "first-frame",
+        "index": 4
+      }
+    },
+    {
+      "tOffsetMs": 612,
+      "name": "first-frame",
+      "kind": "lifecycle",
+      "attributes": {
+        "nonBlank": true,
+        "focalCoverage": 0.184,
+        "tier": "high"
+      }
+    },
+    {
+      "tOffsetMs": 940,
+      "name": "state:interactive",
+      "kind": "state",
+      "attributes": {
+        "from": "first-frame",
+        "to": "interactive",
+        "index": 5
+      }
+    },
+    {
+      "tOffsetMs": 940,
+      "name": "interactive",
+      "kind": "lifecycle",
+      "attributes": {
+        "path": "camera-xr"
+      }
+    },
+    {
+      "tOffsetMs": 1168,
+      "name": "state:routing",
+      "kind": "state",
+      "attributes": {
+        "from": "probing",
+        "to": "routing",
+        "index": 2
+      }
+    },
+    {
+      "tOffsetMs": 1200,
+      "name": "frame-sample",
+      "kind": "frame",
+      "attributes": {
+        "rendered": 58,
+        "dropped": 1,
+        "jsHeapUsedMB": 74
+      }
+    },
+    {
+      "tOffsetMs": 1480,
+      "name": "interaction:tap:product",
+      "kind": "interaction",
+      "attributes": {
+        "class": "tap:product",
+        "latencyMs": 34
+      }
+    },
+    {
+      "tOffsetMs": 1753,
+      "name": "state:loading",
+      "kind": "state",
+      "attributes": {
+        "from": "routing",
+        "to": "loading",
+        "index": 3
+      }
+    },
+    {
+      "tOffsetMs": 3120,
+      "name": "interaction:tap:add-to-cart",
+      "kind": "interaction",
+      "attributes": {
+        "class": "tap:add-to-cart",
+        "latencyMs": 41
+      }
+    },
+    {
+      "tOffsetMs": 3200,
+      "name": "frame-sample",
+      "kind": "frame",
+      "attributes": {
+        "rendered": 119,
+        "dropped": 2,
+        "jsHeapUsedMB": 88
+      }
+    },
+    {
+      "tOffsetMs": 3505,
+      "name": "state:product-detail",
+      "kind": "state",
+      "attributes": {
+        "from": "interactive",
+        "to": "product-detail",
+        "index": 6
+      }
+    },
+    {
+      "tOffsetMs": 4089,
+      "name": "state:cart",
+      "kind": "state",
+      "attributes": {
+        "from": "product-detail",
+        "to": "cart",
+        "index": 7
+      }
+    },
+    {
+      "tOffsetMs": 4674,
+      "name": "state:checkout-complete",
+      "kind": "state",
+      "attributes": {
+        "from": "cart",
+        "to": "checkout-complete",
+        "index": 8
+      }
+    },
+    {
+      "tOffsetMs": 5010,
+      "name": "interaction:tap:checkout",
+      "kind": "interaction",
+      "attributes": {
+        "class": "tap:checkout",
+        "latencyMs": 38
+      }
+    },
+    {
+      "tOffsetMs": 5200,
+      "name": "frame-sample",
+      "kind": "frame",
+      "attributes": {
+        "rendered": 118,
+        "dropped": 1,
+        "jsHeapUsedMB": 91
+      }
+    },
+    {
+      "tOffsetMs": 6480,
+      "name": "session-end",
+      "kind": "lifecycle",
+      "attributes": {
+        "reason": "complete"
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "cp-first-frame",
+      "state": "first-frame",
+      "tOffsetMs": 612,
+      "screenshotPath": null,
+      "focalCoverage": 0.184,
+      "alphaEdgeDrift": null
+    },
+    {
+      "id": "cp-interactive",
+      "state": "interactive",
+      "tOffsetMs": 940,
+      "screenshotPath": null,
+      "focalCoverage": 0.181,
+      "alphaEdgeDrift": 0.041
+    },
+    {
+      "id": "cp-product-detail",
+      "state": "product-detail",
+      "tOffsetMs": 1520,
+      "screenshotPath": null,
+      "focalCoverage": 0.166,
+      "alphaEdgeDrift": 0.128
+    },
+    {
+      "id": "cp-checkout",
+      "state": "checkout-complete",
+      "tOffsetMs": 5060,
+      "screenshotPath": null,
+      "focalCoverage": 0.142,
+      "alphaEdgeDrift": 0.174
+    }
+  ],
+  "metrics": {
+    "firstFrameMs": 612,
+    "timeToInteractiveMs": 940,
+    "p50InteractionMs": 38,
+    "p95InteractionMs": 40.7,
+    "interactionCount": 3,
+    "framesRendered": 295,
+    "framesDropped": 4,
+    "droppedFrameRatio": 0.0134,
+    "transferBytes": 1320000,
+    "assetFailures": 0,
+    "jsHeapUsedMB": 91,
+    "reachedEndState": true,
+    "stepsToEndState": 3,
+    "firstFrameNonBlank": true
+  },
+  "inputClasses": [
+    "tap:product",
+    "tap:add-to-cart",
+    "tap:checkout"
+  ],
+  "determinismHash": "feeb3f9bc035e17b046fdee087a517d3",
+  "startedAtIso": "2026-01-01T00:00:00.000Z",
+  "durationMs": 6480,
+  "notes": [
+    "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented."
+  ]
+}

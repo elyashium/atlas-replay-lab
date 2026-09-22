@@ -331,6 +331,50 @@ const COMMANDS = {
       return doctor();
     },
   },
+
+  "jev-check": {
+    summary: "validate TYPESAFE_API_KEY with one live smoke call",
+    usage: "atlas jev-check [--model <id>]",
+    detail:
+      "The one command where a missing key is an error: GETs /v1/models, then\n" +
+      "sends a single noul probe to prove the live decision path works.\n" +
+      "Reports latency, input tokens, and the versioned model id that answered.\n" +
+      "Pin that id via TYPESAFE_MODEL once thresholds are tuned (aliases move).",
+    flags: {
+      model: { type: "string", describe: "model id (default jev-latest; pin e.g. jev-1.13.0)" },
+    },
+    async run(args) {
+      const { runJevCheck } = await import("../src/decision/jev-check.js");
+      await runJevCheck({ model: args.flags.model });
+      return 0;
+    },
+  },
+
+  judge: {
+    summary: "batch-judge captured traces with the trace judge",
+    usage: "atlas judge [--trace <file>]... [--dir <dir>]... [--out <dir>]",
+    detail:
+      "Runs every captured trace (default: artifacts/matrix + live-traces + replay)\n" +
+      "through the rule-based judge, plus Jev when configured (live key or\n" +
+      "ATLAS_JEV_FIXTURES=1). Reports verdict tallies, agreement, and the Jev\n" +
+      "run's measured latency/tokens/cost — the Stage 4 production-triage shape.\n" +
+      "Always exits 0: judging observes, `gate` decides.",
+    flags: {
+      trace: { type: "list", describe: "judge only these trace files (repeatable)" },
+      dir: { type: "list", describe: "judge every trace JSON in these dirs (repeatable)" },
+      out: { type: "string", describe: "output directory (default artifacts/judge)" },
+    },
+    async run(args) {
+      const { runJudge } = await import("../src/judge/run-judge.js");
+      await runJudge({
+        traceFiles: (args.flags.trace ?? []).map((/** @type {string} */ f) => path.resolve(f)),
+        dirs: (args.flags.dir ?? []).map((/** @type {string} */ d) => path.resolve(d)),
+        outDir: args.flags.out ? path.resolve(args.flags.out) : undefined,
+        quiet,
+      });
+      return 0;
+    },
+  },
 };
 
 /* ── doctor ──────────────────────────────────────────────────────────────── */
@@ -591,7 +635,9 @@ function printRootHelp(version) {
       "",
       "Environment:",
       "  TYPESAFE_API_KEY     enables the live JevDecisionEngine. Absent by default;",
-      "                       nothing here requires it.",
+      "                       nothing here requires it (except `jev-check`).",
+      "  TYPESAFE_MODEL       model id (default jev-latest; pin e.g. jev-1.13.0).",
+      "  TYPESAFE_BASE_URL    override the API base (default https://api.typesafe.ai).",
       "  ATLAS_JEV_FIXTURES=1 runs the Jev code path against hand-authored fixtures.",
       "  ATLAS_CHROME         path to a Chromium-family browser, if detection fails.",
       "  ATLAS_HEADFUL=1      run the browser visibly (useful while debugging a profile).",

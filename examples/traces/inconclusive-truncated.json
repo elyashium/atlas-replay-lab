@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "traceId": "synthetic-inconclusive-truncated",
+  "resource": {
+    "service.name": "atlas-replay-lab",
+    "service.version": "0.1.0",
+    "atlas.manifest.id": "orbital",
+    "atlas.manifest.version": "1.4.0",
+    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.profile.id": "mid-android-4g",
+    "atlas.run.kind": "adaptive",
+    "atlas.emulated": true,
+    "atlas.seed": 1592590337
+  },
+  "capability": {
+    "deviceMemoryGB": 4,
+    "hardwareConcurrency": 4,
+    "gpuTier": "mid",
+    "webglVersion": 2,
+    "webgpuAvailable": false,
+    "webcodecsAvailable": true,
+    "cameraPermission": "granted",
+    "effectiveConnectionType": "3g",
+    "downlinkMbps": 1.4,
+    "rttMs": 300,
+    "reducedMotionPreferred": false,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "recentFrameTimeMsP95": null
+  },
+  "capabilityBucket": {
+    "compute": "weak",
+    "network": "poor",
+    "graphics": "accelerated",
+    "camera": "usable",
+    "id": "weak/poor/accelerated/usable"
+  },
+  "decision": null,
+  "servedTier": "mid",
+  "servedPath": "interactive-2d",
+  "states": [
+    "boot",
+    "probing",
+    "routing",
+    "loading"
+  ],
+  "events": [
+    {
+      "tOffsetMs": 0,
+      "name": "boot",
+      "kind": "lifecycle",
+      "attributes": {
+        "schemaVersion": 1
+      }
+    },
+    {
+      "tOffsetMs": 0,
+      "name": "state:boot",
+      "kind": "state",
+      "attributes": {
+        "from": null,
+        "to": "boot",
+        "index": 0
+      }
+    },
+    {
+      "tOffsetMs": 12,
+      "name": "probe-complete",
+      "kind": "lifecycle",
+      "attributes": {
+        "gpuTier": "mid",
+        "webglVersion": 2,
+        "effectiveConnectionType": "3g"
+      }
+    },
+    {
+      "tOffsetMs": 18,
+      "name": "tier-selected",
+      "kind": "decision",
+      "attributes": {
+        "tier": "mid",
+        "path": "interactive-2d",
+        "bypassed": false
+      }
+    },
+    {
+      "tOffsetMs": 433,
+      "name": "state:probing",
+      "kind": "state",
+      "attributes": {
+        "from": "boot",
+        "to": "probing",
+        "index": 1
+      }
+    },
+    {
+      "tOffsetMs": 866,
+      "name": "state:routing",
+      "kind": "state",
+      "attributes": {
+        "from": "probing",
+        "to": "routing",
+        "index": 2
+      }
+    },
+    {
+      "tOffsetMs": 1299,
+      "name": "state:loading",
+      "kind": "state",
+      "attributes": {
+        "from": "routing",
+        "to": "loading",
+        "index": 3
+      }
+    },
+    {
+      "tOffsetMs": 1420,
+      "name": "asset:tex-mid",
+      "kind": "asset",
+      "attributes": {
+        "id": "tex-mid",
+        "bytes": 240000,
+        "ok": true,
+        "critical": true,
+        "durationMs": 1420
+      }
+    },
+    {
+      "tOffsetMs": 1800,
+      "name": "session-end",
+      "kind": "lifecycle",
+      "attributes": {
+        "reason": "complete"
+      }
+    }
+  ],
+  "checkpoints": [],
+  "metrics": {
+    "firstFrameMs": null,
+    "timeToInteractiveMs": null,
+    "p50InteractionMs": null,
+    "p95InteractionMs": null,
+    "interactionCount": 0,
+    "framesRendered": 0,
+    "framesDropped": 0,
+    "droppedFrameRatio": null,
+    "transferBytes": 240000,
+    "assetFailures": 0,
+    "jsHeapUsedMB": null,
+    "reachedEndState": false,
+    "stepsToEndState": null,
+    "firstFrameNonBlank": null
+  },
+  "inputClasses": [],
+  "determinismHash": "6fbccd7970c0b2cff823058d6cbe8d33",
+  "startedAtIso": "2026-01-01T00:00:00.000Z",
+  "durationMs": 1800,
+  "notes": [
+    "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented.",
+    "trace truncated: the runner lost its CDP connection before session end"
+  ]
+}

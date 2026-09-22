@@ -18,6 +18,8 @@
     "replay": "node bin/atlas.js replay",
     "gate": "node bin/atlas.js gate",
     "compare": "node bin/atlas.js compare",
+    "judge": "node bin/atlas.js judge",
+    "jev-check": "node bin/atlas.js jev-check",
     "report": "node bin/atlas.js report",
     "serve": "node bin/atlas.js serve",
     "doctor": "node bin/atlas.js doctor",

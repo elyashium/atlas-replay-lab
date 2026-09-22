@@ -1,0 +1,302 @@
+{
+  "schemaVersion": 1,
+  "traceId": "synthetic-fail-render-stall",
+  "resource": {
+    "service.name": "atlas-replay-lab",
+    "service.version": "0.1.0",
+    "atlas.manifest.id": "orbital",
+    "atlas.manifest.version": "1.4.0",
+    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.profile.id": "high-end-wifi",
+    "atlas.run.kind": "adaptive",
+    "atlas.emulated": true,
+    "atlas.seed": 1592590337
+  },
+  "capability": {
+    "deviceMemoryGB": 8,
+    "hardwareConcurrency": 8,
+    "gpuTier": "high",
+    "webglVersion": 2,
+    "webgpuAvailable": false,
+    "webcodecsAvailable": true,
+    "cameraPermission": "granted",
+    "effectiveConnectionType": "4g",
+    "downlinkMbps": 30,
+    "rttMs": 25,
+    "reducedMotionPreferred": false,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "recentFrameTimeMsP95": 180
+  },
+  "capabilityBucket": {
+    "compute": "strong",
+    "network": "good",
+    "graphics": "accelerated",
+    "camera": "usable",
+    "id": "strong/good/accelerated/usable"
+  },
+  "decision": null,
+  "servedTier": "high",
+  "servedPath": "camera-xr",
+  "states": [
+    "boot",
+    "probing",
+    "routing",
+    "loading",
+    "first-frame",
+    "interactive",
+    "degraded"
+  ],
+  "events": [
+    {
+      "tOffsetMs": 0,
+      "name": "boot",
+      "kind": "lifecycle",
+      "attributes": {
+        "schemaVersion": 1
+      }
+    },
+    {
+      "tOffsetMs": 0,
+      "name": "state:boot",
+      "kind": "state",
+      "attributes": {
+        "from": null,
+        "to": "boot",
+        "index": 0
+      }
+    },
+    {
+      "tOffsetMs": 12,
+      "name": "probe-complete",
+      "kind": "lifecycle",
+      "attributes": {
+        "gpuTier": "high",
+        "webglVersion": 2,
+        "effectiveConnectionType": "4g"
+      }
+    },
+    {
+      "tOffsetMs": 18,
+      "name": "tier-selected",
+      "kind": "decision",
+      "attributes": {
+        "tier": "high",
+        "path": "camera-xr",
+        "bypassed": false
+      }
+    },
+    {
+      "tOffsetMs": 141,
+      "name": "asset:geo-hi",
+      "kind": "asset",
+      "attributes": {
+        "id": "geo-hi",
+        "bytes": 420000,
+        "ok": true,
+        "critical": true,
+        "durationMs": 141
+      }
+    },
+    {
+      "tOffsetMs": 268,
+      "name": "asset:tex-hi",
+      "kind": "asset",
+      "attributes": {
+        "id": "tex-hi",
+        "bytes": 900000,
+        "ok": true,
+        "critical": true,
+        "durationMs": 268
+      }
+    },
+    {
+      "tOffsetMs": 680,
+      "name": "state:first-frame",
+      "kind": "state",
+      "attributes": {
+        "from": "loading",
+        "to": "first-frame",
+        "index": 4
+      }
+    },
+    {
+      "tOffsetMs": 680,
+      "name": "first-frame",
+      "kind": "lifecycle",
+      "attributes": {
+        "nonBlank": true,
+        "focalCoverage": 0.181,
+        "tier": "high"
+      }
+    },
+    {
+      "tOffsetMs": 1020,
+      "name": "state:interactive",
+      "kind": "state",
+      "attributes": {
+        "from": "first-frame",
+        "to": "interactive",
+        "index": 5
+      }
+    },
+    {
+      "tOffsetMs": 1020,
+      "name": "interactive",
+      "kind": "lifecycle",
+      "attributes": {
+        "path": "camera-xr"
+      }
+    },
+    {
+      "tOffsetMs": 1441,
+      "name": "state:probing",
+      "kind": "state",
+      "attributes": {
+        "from": "boot",
+        "to": "probing",
+        "index": 1
+      }
+    },
+    {
+      "tOffsetMs": 2882,
+      "name": "state:routing",
+      "kind": "state",
+      "attributes": {
+        "from": "probing",
+        "to": "routing",
+        "index": 2
+      }
+    },
+    {
+      "tOffsetMs": 3000,
+      "name": "frame-sample",
+      "kind": "frame",
+      "attributes": {
+        "rendered": 22,
+        "dropped": 38,
+        "jsHeapUsedMB": 94
+      }
+    },
+    {
+      "tOffsetMs": 4200,
+      "name": "interaction:tap:product",
+      "kind": "interaction",
+      "attributes": {
+        "class": "tap:product",
+        "latencyMs": 1240
+      }
+    },
+    {
+      "tOffsetMs": 4323,
+      "name": "state:loading",
+      "kind": "state",
+      "attributes": {
+        "from": "routing",
+        "to": "loading",
+        "index": 3
+      }
+    },
+    {
+      "tOffsetMs": 6000,
+      "name": "frame-sample",
+      "kind": "frame",
+      "attributes": {
+        "rendered": 14,
+        "dropped": 46,
+        "jsHeapUsedMB": 97
+      }
+    },
+    {
+      "tOffsetMs": 8100,
+      "name": "interaction:tap:add-to-cart",
+      "kind": "interaction",
+      "attributes": {
+        "class": "tap:add-to-cart",
+        "latencyMs": 1810
+      }
+    },
+    {
+      "tOffsetMs": 8646,
+      "name": "state:degraded",
+      "kind": "state",
+      "attributes": {
+        "from": "interactive",
+        "to": "degraded",
+        "index": 6
+      }
+    },
+    {
+      "tOffsetMs": 9000,
+      "name": "frame-sample",
+      "kind": "frame",
+      "attributes": {
+        "rendered": 11,
+        "dropped": 49,
+        "jsHeapUsedMB": 99
+      }
+    },
+    {
+      "tOffsetMs": 9400,
+      "name": "degraded-entry",
+      "kind": "error",
+      "attributes": {
+        "code": "FRAME_BUDGET_COLLAPSE"
+      }
+    },
+    {
+      "tOffsetMs": 12000,
+      "name": "session-end",
+      "kind": "lifecycle",
+      "attributes": {
+        "reason": "complete"
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "cp-first-frame",
+      "state": "first-frame",
+      "tOffsetMs": 680,
+      "screenshotPath": null,
+      "focalCoverage": 0.181,
+      "alphaEdgeDrift": null
+    },
+    {
+      "id": "cp-interactive",
+      "state": "interactive",
+      "tOffsetMs": 1020,
+      "screenshotPath": null,
+      "focalCoverage": 0.177,
+      "alphaEdgeDrift": 0.044
+    }
+  ],
+  "metrics": {
+    "firstFrameMs": 680,
+    "timeToInteractiveMs": 1020,
+    "p50InteractionMs": 1525,
+    "p95InteractionMs": 1781.5,
+    "interactionCount": 2,
+    "framesRendered": 47,
+    "framesDropped": 133,
+    "droppedFrameRatio": 0.7389,
+    "transferBytes": 1320000,
+    "assetFailures": 0,
+    "jsHeapUsedMB": 99,
+    "reachedEndState": false,
+    "stepsToEndState": null,
+    "firstFrameNonBlank": true
+  },
+  "inputClasses": [
+    "tap:product",
+    "tap:add-to-cart"
+  ],
+  "determinismHash": "f61cadfac32adc0103a6d7030a562f85",
+  "startedAtIso": "2026-01-01T00:00:00.000Z",
+  "durationMs": 12000,
+  "notes": [
+    "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented."
+  ]
+}

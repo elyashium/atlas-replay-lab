@@ -63,7 +63,7 @@ export class JevDecisionEngine {
     this.transport = opts.transport;
     this.model = opts.model ?? process.env.TYPESAFE_MODEL ?? DEFAULT_MODEL;
     /** Per-run telemetry about the engine itself, surfaced in the report. */
-    this.stats = { calls: 0, totalLatencyMs: 0, inputTokens: 0 };
+    this.stats = { calls: 0, totalLatencyMs: 0, inputTokens: 0, outputTokens: 0, model: this.model };
   }
 
   /**
@@ -156,7 +156,12 @@ export class JevDecisionEngine {
     const res = await this.transport.send({ ...req, model: this.model });
     this.stats.calls += 1;
     this.stats.totalLatencyMs += res.latencyMs ?? Date.now() - started;
-    this.stats.inputTokens += res.usage?.inputTokens ?? 0;
+    this.stats.inputTokens += res.usage?.inputTokens ?? res.usage?.input_tokens ?? 0;
+    this.stats.outputTokens += res.usage?.outputTokens ?? res.usage?.output_tokens ?? 0;
+    // The API echoes the exact versioned id that answered even when an alias
+    // was sent — keep the last one seen so reports record what was tuned
+    // against. Aliases move; thresholds should not silently follow them.
+    if (typeof res.model === "string" && res.model) this.stats.model = res.model;
     if (!res || typeof res !== "object" || !res.answers) {
       throw new Error("Jev response did not contain an `answers` object");
     }
@@ -262,7 +267,10 @@ export function summariseTraceForJev(trace, ctx) {
 }
 
 /* ── tolerant response adapters ──────────────────────────────────────────── */
-/* These exist because the wire shape is a reconstruction (see jev-transport.js). */
+/* Field names below are the verified live shape (choice/confidence/
+   probabilities, score/confidence/legend/probabilities, noul); the extra
+   aliases stay as defence against gateway rewrites (Vercel/OpenRouter/
+   Cloudflare rename some fields). */
 
 /**
  * @param {unknown} answer

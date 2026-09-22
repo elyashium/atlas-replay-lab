@@ -1,29 +1,39 @@
 /**
  * Transport layer for TypeSafe AI's Jev ("System One" model).
  *
- * ── Read this before trusting the wire format ────────────────────────────────
- * This project was built offline. The request/response shape below is a
- * reconstruction from TypeSafe's documented question primitives (choice /
- * score / noul, batched against one state, typed answers with probability
- * distributions and no text output) rather than something verified against a
- * live endpoint.
+ * ── Wire format provenance ──────────────────────────────────────────────────
+ * Verified Sept 2026 against TypeSafe's public docs plus independent live-call
+ * reports (checked against live calls Sept 19, 2026):
  *
- * What the reconstruction is based on, so a human with a key knows what to
- * check first:
+ *  - Endpoint: `POST https://api.typesafe.ai/v1/systemone`, bearer auth with
+ *    `TYPESAFE_API_KEY`. Models: `jev-latest` (stable alias), `jev-preview`,
+ *    or a versioned id such as `jev-1.13.0` (recommended once thresholds are
+ *    tuned — aliases move). `GET /v1/models` lists the aliases.
+ *  - Body: `{ model, state, questions }` where each question is
+ *    `{ type, instructions, criteria }`: noul takes optional
+ *    `{ true, false }` criteria; choice takes a required map of
+ *    option-name → description (2–255 options); score takes a required
+ *    ordered array of level descriptions (2–10 levels).
+ *  - Answers come back under `answers` keyed by the caller's own question
+ *    ids: choice → `{ choice, confidence, probabilities }`,
+ *    score → `{ score, confidence, legend, probabilities }` (score may be
+ *    fractional, e.g. 1.05), noul → `{ noul }` (a 0–1 probability, no
+ *    confidence field). `usage` carries `{ input_tokens, output_tokens }`
+ *    (output is reported but not billed) and `model` echoes the exact
+ *    versioned id that answered — log it when tuning thresholds.
+ *  - State+question budget: 64k tokens per request, 32k for state plus the
+ *    longest question. Rate limits published as 1200 req/min, 250k tok/s.
+ *    Errors arrive as JSON under a `detail` key (401/403 auth, 400 usage or
+ *    max_tokens_exceeded, 422 missing fields, 429 rate limit, 529 overload).
  *
- *  - The documented client call is shaped `systemOne({ state, questions })`,
- *    where each question is `{ type, instructions, criteria }` and `criteria`
- *    maps each declared option to its description. That is the shape
- *    `src/decision/questions.js` emits and this file forwards unchanged.
- *  - Documented answer access is `result.<id>.choice` with
- *    `result.<id>.probabilities` for a choice, and `result.<id>.noul` for a
- *    noul. The adapters in `jev.js` read those names first and fall back to
- *    plausible aliases.
- *  - The endpoint path and envelope (`POST /v1/answer`, `{model, state,
- *    questions}` → `{answers}`) are the least certain part and the most likely
- *    thing to need correcting. Jev is also reachable through Vercel AI Gateway,
- *    Cloudflare Workers AI, Netlify AI Gateway and OpenRouter; pointing
- *    TYPESAFE_BASE_URL at one of those is the intended way to switch.
+ *  - Jev is also reachable through Vercel AI Gateway, Cloudflare Workers AI,
+ *    Netlify AI Gateway and OpenRouter with different endpoints/field names;
+ *    pointing TYPESAFE_BASE_URL at one of those is the intended way to switch,
+ *    but the default below is TypeSafe's own API.
+ *
+ * This repository itself has still never run against a live Jev deployment
+ * (no key in this environment) — the shape above is verified from docs, not
+ * from a call made here. `atlas jev-check` performs the first live call.
  *
  * All of it is deliberately isolated in this one file, so correcting the shape
  * touches nothing in the engine, the guard, or anything downstream.
@@ -31,7 +41,7 @@
  * Nothing else in Atlas imports this file directly.
  *
  * @typedef {import("./questions.js").Question} Question
- * @typedef {{ answers: Record<string, RawAnswer>; usage?: { inputTokens?: number }; latencyMs?: number }} JevResponse
+ * @typedef {{ answers: Record<string, RawAnswer>; model?: string; usage?: { inputTokens?: number; input_tokens?: number; outputTokens?: number; output_tokens?: number }; latencyMs?: number }} JevResponse
  * @typedef {Record<string, unknown>} RawAnswer
  * @typedef {{ state: unknown; questions: Record<string, Question>; model: string }} JevRequest
  * @typedef {{ name: string; send(req: JevRequest): Promise<JevResponse> }} JevTransport
@@ -43,8 +53,13 @@ import { logger } from "../util/log.js";
 
 const log = logger("jev");
 
-export const DEFAULT_MODEL = "jev-1";
+export const DEFAULT_MODEL = "jev-latest";
+export const PINNED_MODEL = "jev-1.13.0";
 export const DEFAULT_BASE_URL = "https://api.typesafe.ai";
+export const SYSTEMONE_PATH = "/v1/systemone";
+export const MODELS_PATH = "/v1/models";
+/** Price per TypeSafe's published pricing: $0.042 / 1M input tokens, output free. */
+export const INPUT_USD_PER_MTOK = 0.042;
 /** Vendor-reported end-to-end range is 70-500ms; allow generous headroom. */
 export const DEFAULT_TIMEOUT_MS = 4000;
 
@@ -79,7 +94,7 @@ export class HttpJevTransport {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     const startedAt = Date.now();
     try {
-      const res = await this.fetchImpl(`${this.baseUrl}/v1/answer`, {
+      const res = await this.fetchImpl(`${this.baseUrl}${SYSTEMONE_PATH}`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -91,7 +106,7 @@ export class HttpJevTransport {
       });
       if (!res.ok) {
         const body = await res.text().catch(() => "");
-        throw new Error(`Jev HTTP ${res.status}: ${body.slice(0, 300)}`);
+        throw new Error(mapHttpError(res.status, body));
       }
       /** @type {JevResponse} */
       const json = /** @type {any} */ (await res.json());
@@ -101,8 +116,67 @@ export class HttpJevTransport {
       clearTimeout(timer);
     }
   }
+
+  /**
+   * Validates a key without spending a decision: `GET /v1/models` is
+   * authenticated and cheap. Used by `atlas jev-check`.
+   * @returns {Promise<{ ok: boolean; models?: unknown; latencyMs: number }>}
+   */
+  async checkKey() {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const startedAt = Date.now();
+    try {
+      const res = await this.fetchImpl(`${this.baseUrl}${MODELS_PATH}`, {
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${this.apiKey}`,
+          "user-agent": "atlas-replay-lab/0.1 (proof-of-work prototype)",
+        },
+        signal: controller.signal,
+      });
+      const latencyMs = Date.now() - startedAt;
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(mapHttpError(res.status, body));
+      }
+      return { ok: true, models: await res.json().catch(() => null), latencyMs };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
+/**
+ * Maps an HTTP failure to an actionable message, from the error shapes
+ * reproduced against the official endpoint (errors arrive as JSON under a
+ * `detail` key).
+ * @param {number} status
+ * @param {string} body
+ */
+export function mapHttpError(status, body) {
+  const detail = body.slice(0, 300) || "(empty body)";
+  if (status === 401) return `Jev HTTP 401 (bad or revoked key): ${detail}`;
+  if (status === 403) return `Jev HTTP 403 (missing Authorization header — key never sent): ${detail}`;
+  if (status === 429) return `Jev HTTP 429 (rate limit: 1200 req/min, 250k tok/s): ${detail}`;
+  if (status === 529) return `Jev HTTP 529 (service overloaded, retry with backoff): ${detail}`;
+  if (status === 400 && /max_tokens_exceeded/i.test(body)) {
+    return `Jev HTTP 400 (state too large — 64k tokens/request, 32k state+longest-question): ${detail}`;
+  }
+  if (status === 400 && /unknown model/i.test(body)) {
+    return `Jev HTTP 400 (unknown model — use jev-latest, jev-preview, or a versioned id like jev-1.13.0): ${detail}`;
+  }
+  if (status === 422) return `Jev HTTP 422 (missing model/questions or a Choice without criteria): ${detail}`;
+  return `Jev HTTP ${status}: ${detail}`;
+}
+
+/**
+ * Estimated spend for a run. Output tokens are reported but free.
+ * @param {number} inputTokens
+ */
+export function estimateCostUsd(inputTokens) {
+  return Math.round(((inputTokens / 1_000_000) * INPUT_USD_PER_MTOK + Number.EPSILON) * 1e9) / 1e9;
+}
 /**
  * Fixture transport used by the test suite and by `atlas compare` when no key
  * is configured. Fixtures are hand-authored and clearly labelled as

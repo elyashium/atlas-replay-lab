@@ -1,0 +1,305 @@
+{
+  "schemaVersion": 1,
+  "traceId": "synthetic-fail-memory-pressure",
+  "resource": {
+    "service.name": "atlas-replay-lab",
+    "service.version": "0.1.0",
+    "atlas.manifest.id": "orbital",
+    "atlas.manifest.version": "1.4.0",
+    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.profile.id": "mid-android-4g",
+    "atlas.run.kind": "baseline",
+    "atlas.emulated": true,
+    "atlas.seed": 1592590337
+  },
+  "capability": {
+    "deviceMemoryGB": 4,
+    "hardwareConcurrency": 4,
+    "gpuTier": "mid",
+    "webglVersion": 2,
+    "webgpuAvailable": false,
+    "webcodecsAvailable": true,
+    "cameraPermission": "granted",
+    "effectiveConnectionType": "4g",
+    "downlinkMbps": 8,
+    "rttMs": 70,
+    "reducedMotionPreferred": false,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "recentFrameTimeMsP95": null
+  },
+  "capabilityBucket": {
+    "compute": "weak",
+    "network": "good",
+    "graphics": "accelerated",
+    "camera": "usable",
+    "id": "weak/good/accelerated/usable"
+  },
+  "decision": null,
+  "servedTier": "high",
+  "servedPath": "camera-xr",
+  "states": [
+    "boot",
+    "probing",
+    "routing",
+    "loading",
+    "first-frame",
+    "interactive",
+    "degraded",
+    "error"
+  ],
+  "events": [
+    {
+      "tOffsetMs": 0,
+      "name": "boot",
+      "kind": "lifecycle",
+      "attributes": {
+        "schemaVersion": 1
+      }
+    },
+    {
+      "tOffsetMs": 0,
+      "name": "state:boot",
+      "kind": "state",
+      "attributes": {
+        "from": null,
+        "to": "boot",
+        "index": 0
+      }
+    },
+    {
+      "tOffsetMs": 12,
+      "name": "probe-complete",
+      "kind": "lifecycle",
+      "attributes": {
+        "gpuTier": "mid",
+        "webglVersion": 2,
+        "effectiveConnectionType": "4g"
+      }
+    },
+    {
+      "tOffsetMs": 18,
+      "name": "tier-selected",
+      "kind": "decision",
+      "attributes": {
+        "tier": "high",
+        "path": "camera-xr",
+        "bypassed": true
+      }
+    },
+    {
+      "tOffsetMs": 340,
+      "name": "asset:geo-hi",
+      "kind": "asset",
+      "attributes": {
+        "id": "geo-hi",
+        "bytes": 420000,
+        "ok": true,
+        "critical": true,
+        "durationMs": 340
+      }
+    },
+    {
+      "tOffsetMs": 720,
+      "name": "asset:tex-hi",
+      "kind": "asset",
+      "attributes": {
+        "id": "tex-hi",
+        "bytes": 900000,
+        "ok": true,
+        "critical": true,
+        "durationMs": 720
+      }
+    },
+    {
+      "tOffsetMs": 1050,
+      "name": "state:probing",
+      "kind": "state",
+      "attributes": {
+        "from": "boot",
+        "to": "probing",
+        "index": 1
+      }
+    },
+    {
+      "tOffsetMs": 1140,
+      "name": "state:first-frame",
+      "kind": "state",
+      "attributes": {
+        "from": "loading",
+        "to": "first-frame",
+        "index": 4
+      }
+    },
+    {
+      "tOffsetMs": 1140,
+      "name": "first-frame",
+      "kind": "lifecycle",
+      "attributes": {
+        "nonBlank": true,
+        "focalCoverage": 0.169,
+        "tier": "high"
+      }
+    },
+    {
+      "tOffsetMs": 1720,
+      "name": "state:interactive",
+      "kind": "state",
+      "attributes": {
+        "from": "first-frame",
+        "to": "interactive",
+        "index": 5
+      }
+    },
+    {
+      "tOffsetMs": 1720,
+      "name": "interactive",
+      "kind": "lifecycle",
+      "attributes": {
+        "path": "camera-xr"
+      }
+    },
+    {
+      "tOffsetMs": 2100,
+      "name": "state:routing",
+      "kind": "state",
+      "attributes": {
+        "from": "probing",
+        "to": "routing",
+        "index": 2
+      }
+    },
+    {
+      "tOffsetMs": 3000,
+      "name": "frame-sample",
+      "kind": "frame",
+      "attributes": {
+        "rendered": 44,
+        "dropped": 16,
+        "jsHeapUsedMB": 198
+      }
+    },
+    {
+      "tOffsetMs": 3150,
+      "name": "state:loading",
+      "kind": "state",
+      "attributes": {
+        "from": "routing",
+        "to": "loading",
+        "index": 3
+      }
+    },
+    {
+      "tOffsetMs": 3200,
+      "name": "interaction:tap:product",
+      "kind": "interaction",
+      "attributes": {
+        "class": "tap:product",
+        "latencyMs": 420
+      }
+    },
+    {
+      "tOffsetMs": 6000,
+      "name": "frame-sample",
+      "kind": "frame",
+      "attributes": {
+        "rendered": 31,
+        "dropped": 29,
+        "jsHeapUsedMB": 241
+      }
+    },
+    {
+      "tOffsetMs": 6301,
+      "name": "state:degraded",
+      "kind": "state",
+      "attributes": {
+        "from": "interactive",
+        "to": "degraded",
+        "index": 6
+      }
+    },
+    {
+      "tOffsetMs": 7351,
+      "name": "state:error",
+      "kind": "state",
+      "attributes": {
+        "from": "degraded",
+        "to": "error",
+        "index": 7
+      }
+    },
+    {
+      "tOffsetMs": 9000,
+      "name": "frame-sample",
+      "kind": "frame",
+      "attributes": {
+        "rendered": 18,
+        "dropped": 42,
+        "jsHeapUsedMB": 268
+      }
+    },
+    {
+      "tOffsetMs": 9600,
+      "name": "context-lost",
+      "kind": "error",
+      "attributes": {
+        "code": "WEBGL_CONTEXT_LOST",
+        "detail": "heap ceiling exceeded"
+      }
+    },
+    {
+      "tOffsetMs": 10200,
+      "name": "session-end",
+      "kind": "lifecycle",
+      "attributes": {
+        "reason": "fatal"
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "cp-first-frame",
+      "state": "first-frame",
+      "tOffsetMs": 1140,
+      "screenshotPath": null,
+      "focalCoverage": 0.169,
+      "alphaEdgeDrift": null
+    },
+    {
+      "id": "cp-interactive",
+      "state": "interactive",
+      "tOffsetMs": 1720,
+      "screenshotPath": null,
+      "focalCoverage": 0.164,
+      "alphaEdgeDrift": 0.057
+    }
+  ],
+  "metrics": {
+    "firstFrameMs": 1140,
+    "timeToInteractiveMs": 1720,
+    "p50InteractionMs": 420,
+    "p95InteractionMs": 420,
+    "interactionCount": 1,
+    "framesRendered": 93,
+    "framesDropped": 87,
+    "droppedFrameRatio": 0.4833,
+    "transferBytes": 1320000,
+    "assetFailures": 0,
+    "jsHeapUsedMB": 268,
+    "reachedEndState": false,
+    "stepsToEndState": null,
+    "firstFrameNonBlank": true
+  },
+  "inputClasses": [
+    "tap:product"
+  ],
+  "determinismHash": "c8332a08ee753324259cd668bb0f54e7",
+  "startedAtIso": "2026-01-01T00:00:00.000Z",
+  "durationMs": 10200,
+  "notes": [
+    "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented.",
+    "baseline run: the tier router was bypassed and 'high' pinned by the harness"
+  ]
+}
