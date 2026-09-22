@@ -83,7 +83,7 @@ export class JevDecisionEngine {
       readChoiceValue(res.answers.tier, TIER_OPTIONS) ?? argmaxKey(tierDist)
     );
     const pCamera = readProbability(res.answers.cameraPathSafe);
-    const riskDist = normalizeDistribution(readDistribution(res.answers.firstFrameRisk), RISK_LEVELS);
+    const riskDist = normalizeDistribution(readScoreDistribution(res.answers.firstFrameRisk, RISK_LEVELS), RISK_LEVELS);
 
     return {
       tier,
@@ -112,7 +112,7 @@ export class JevDecisionEngine {
 
     const outcomeDist = normalizeDistribution(readDistribution(res.answers.outcome), OUTCOME_OPTIONS);
     const causeDist = normalizeDistribution(readDistribution(res.answers.rootCause), ROOT_CAUSE_OPTIONS);
-    const sevDist = normalizeDistribution(readDistribution(res.answers.releaseBlocking), SEVERITY_LEVELS);
+    const sevDist = normalizeDistribution(readScoreDistribution(res.answers.releaseBlocking, SEVERITY_LEVELS), SEVERITY_LEVELS);
     const pVisual = readProbability(res.answers.visualInvariantHeld);
     const pInteraction = readProbability(res.answers.interactionInvariantHeld);
     const pBusiness = readProbability(res.answers.businessInvariantHeld);
@@ -300,6 +300,32 @@ export function readDistribution(answer) {
     return out;
   }
   return {};
+}
+
+/**
+ * Reads a score answer's distribution against the declared level names.
+ *
+ * Live score answers key `probabilities` by CRITERION INDEX ("0".."n", see the
+ * answer's `legend`), not by level name — so reading them directly against
+ * `levels` yields an all-zero map and a fake-uniform fallback. When the keys
+ * already name the levels (as hand-authored fixtures do), the map is used
+ * as-is; otherwise indices are resolved positionally, which is sound because
+ * the request sends criteria index-aligned with `levels` (see questions.js).
+ *
+ * @param {unknown} answer
+ * @param {readonly string[]} levels
+ * @returns {Record<string, number>}
+ */
+export function readScoreDistribution(answer, levels) {
+  const raw = readDistribution(answer);
+  if (levels.every((l) => typeof raw[l] === "number")) return raw;
+  /** @type {Record<string, number>} */
+  const out = {};
+  levels.forEach((level, i) => {
+    const v = raw[String(i)];
+    if (typeof v === "number" && Number.isFinite(v)) out[level] = v;
+  });
+  return out;
 }
 
 /**

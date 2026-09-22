@@ -6,7 +6,7 @@
   "$manifestHash": "2fbb0d61d98c6439",
   "cases": [
     {
-      "key": "1bff5862ba66b904",
+      "key": "3d9748838b2c72e9",
       "label": "tier/camera-denied@ci-matrix",
       "request": {
         "state": {
@@ -101,13 +101,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -139,12 +139,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 967
         }
       }
     },
     {
-      "key": "b341f3ebbe8ff087",
+      "key": "bdd2213a8c6fddf6",
       "label": "tier/camera-denied@production",
       "request": {
         "state": {
@@ -239,13 +239,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -277,12 +277,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "4715f59642c90f0e",
+      "key": "8e19cad5b1c070e3",
       "label": "tier/desktop-wifi-strong@ci-matrix",
       "request": {
         "state": {
@@ -377,13 +377,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -415,12 +415,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "54c98825e9cfd826",
+      "key": "ce12ee00a5e1b448",
       "label": "tier/desktop-wifi-strong@production",
       "request": {
         "state": {
@@ -515,13 +515,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -553,12 +553,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 984
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "3e4a464a3767c372",
+      "key": "3675a1cfbfef5e2a",
       "label": "tier/flagship-android-4g@ci-matrix",
       "request": {
         "state": {
@@ -653,13 +653,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -691,12 +691,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "5cca36c191c66e82",
+      "key": "c73a0891abb0c83b",
       "label": "tier/flagship-android-4g@production",
       "request": {
         "state": {
@@ -791,13 +791,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -829,12 +829,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "1b77d9340447d2c8",
+      "key": "784bc1f27dd7b877",
       "label": "tier/low-cpu-3g@ci-matrix",
       "request": {
         "state": {
@@ -929,13 +929,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -967,12 +967,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "bedd57054e0bb370",
+      "key": "4e19b3b35be62be0",
       "label": "tier/low-cpu-3g@production",
       "request": {
         "state": {
@@ -1067,13 +1067,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -1105,12 +1105,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "1c1adfcd1a7275f8",
+      "key": "1e6bd94d9f93f671",
       "label": "tier/mid-android-3g@ci-matrix",
       "request": {
         "state": {
@@ -1205,13 +1205,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -1243,12 +1243,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "80f472745a408871",
+      "key": "55dcdb564a3a5310",
       "label": "tier/mid-android-3g@production",
       "request": {
         "state": {
@@ -1343,13 +1343,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -1381,12 +1381,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "84201529007e60ce",
+      "key": "8e91c5d70fa06ad7",
       "label": "tier/mid-android-4g@ci-matrix",
       "request": {
         "state": {
@@ -1481,13 +1481,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -1519,12 +1519,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 982
+          "inputTokens": 967
         }
       }
     },
     {
-      "key": "639fbf5f100a596a",
+      "key": "38d56a24fa80b011",
       "label": "tier/mid-android-4g@production",
       "request": {
         "state": {
@@ -1619,13 +1619,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -1657,12 +1657,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 967
         }
       }
     },
     {
-      "key": "f0b37a1d4097a125",
+      "key": "13d36e0c71a24bbe",
       "label": "tier/no-webgl@ci-matrix",
       "request": {
         "state": {
@@ -1757,13 +1757,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -1795,12 +1795,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "1e0f27d7008acef8",
+      "key": "fc88df3a9efd7e29",
       "label": "tier/no-webgl@production",
       "request": {
         "state": {
@@ -1895,13 +1895,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -1933,12 +1933,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "12a810cbe2ddea32",
+      "key": "fe9637273700d231",
       "label": "tier/packet-loss-4g@ci-matrix",
       "request": {
         "state": {
@@ -2033,13 +2033,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -2071,12 +2071,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 982
+          "inputTokens": 967
         }
       }
     },
     {
-      "key": "612a60dec5877e9b",
+      "key": "1203356de404f810",
       "label": "tier/packet-loss-4g@production",
       "request": {
         "state": {
@@ -2171,13 +2171,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -2209,12 +2209,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 982
+          "inputTokens": 967
         }
       }
     },
     {
-      "key": "40c6874632589317",
+      "key": "3443f495bcb89a10",
       "label": "tier/reduced-motion@ci-matrix",
       "request": {
         "state": {
@@ -2309,13 +2309,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -2347,12 +2347,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 967
         }
       }
     },
     {
-      "key": "4324b31ed3215ce9",
+      "key": "1a9f9ddc89e68ad2",
       "label": "tier/reduced-motion@production",
       "request": {
         "state": {
@@ -2447,13 +2447,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -2485,12 +2485,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "13140890c7db9dfe",
+      "key": "ada823de0997d516",
       "label": "tier/slow-2g-minimal@ci-matrix",
       "request": {
         "state": {
@@ -2585,13 +2585,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -2623,12 +2623,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 986
+          "inputTokens": 971
         }
       }
     },
     {
-      "key": "e00c06c7d7c1340f",
+      "key": "e0dcb4957abf210d",
       "label": "tier/slow-2g-minimal@production",
       "request": {
         "state": {
@@ -2723,13 +2723,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -2761,12 +2761,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 986
+          "inputTokens": 971
         }
       }
     },
     {
-      "key": "50993c0ad517bb73",
+      "key": "3ab31d7c20238ebc",
       "label": "tier/stalling-midsession@ci-matrix",
       "request": {
         "state": {
@@ -2861,13 +2861,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -2899,12 +2899,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 967
         }
       }
     },
     {
-      "key": "1c26475aaca55b17",
+      "key": "dffca308eeaaa42a",
       "label": "tier/stalling-midsession@production",
       "request": {
         "state": {
@@ -2999,13 +2999,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -3037,12 +3037,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 983
+          "inputTokens": 968
         }
       }
     },
     {
-      "key": "6927ee9870d6c82a",
+      "key": "3b292a233591580e",
       "label": "tier/unknown-everything@ci-matrix",
       "request": {
         "state": {
@@ -3137,13 +3137,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -3175,12 +3175,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 987
+          "inputTokens": 972
         }
       }
     },
     {
-      "key": "f8cdd4c8a8e155e2",
+      "key": "23b157489e1dd49d",
       "label": "tier/unknown-everything@production",
       "request": {
         "state": {
@@ -3275,13 +3275,13 @@
               "likely",
               "very likely"
             ],
-            "criteria": {
-              "very unlikely": "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
-              "unlikely": "Comfortably inside the budget, with modest but real headroom.",
-              "possible": "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
-              "likely": "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
-              "very likely": "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
-            }
+            "criteria": [
+              "Fast connection and capable hardware; the mid tier's assets arrive and render with substantial headroom against the budget.",
+              "Comfortably inside the budget, with modest but real headroom.",
+              "Roughly at the budget; plausible either way depending on cache state and how the connection behaves during the load.",
+              "Constrained connection or hardware; the budget is expected to be exceeded, though not catastrophically.",
+              "Severely constrained (slow-2g/2g, very high RTT, minimal memory or cores); the budget is expected to be exceeded by a wide margin."
+            ]
           }
         },
         "model": "jev-latest"
@@ -3313,12 +3313,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 988
+          "inputTokens": 972
         }
       }
     },
     {
-      "key": "c87339b16e8a8b6b",
+      "key": "3d8517a5570f7727",
       "label": "trace/degraded-packet-loss",
       "request": {
         "state": {
@@ -3681,13 +3681,13 @@
               "major",
               "hard block"
             ],
-            "criteria": {
-              "not blocking": "No user-visible problem. Ship it.",
-              "minor": "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
-              "moderate": "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
-              "major": "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
-              "hard block": "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
-            }
+            "criteria": [
+              "No user-visible problem. Ship it.",
+              "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
+              "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
+              "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
+              "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
+            ]
           },
           "visualInvariantHeld": {
             "type": "noul",
@@ -3761,12 +3761,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2638
+          "inputTokens": 2625
         }
       }
     },
     {
-      "key": "6cd0f1ba7e5337b7",
+      "key": "485a3dd2adfbd560",
       "label": "trace/fail-baseline-low-cpu-3g",
       "request": {
         "state": {
@@ -4062,13 +4062,13 @@
               "major",
               "hard block"
             ],
-            "criteria": {
-              "not blocking": "No user-visible problem. Ship it.",
-              "minor": "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
-              "moderate": "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
-              "major": "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
-              "hard block": "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
-            }
+            "criteria": [
+              "No user-visible problem. Ship it.",
+              "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
+              "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
+              "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
+              "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
+            ]
           },
           "visualInvariantHeld": {
             "type": "noul",
@@ -4142,12 +4142,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2397
+          "inputTokens": 2384
         }
       }
     },
     {
-      "key": "e43d274dd39437e5",
+      "key": "335abe9ff4799490",
       "label": "trace/fail-codec-unsupported",
       "request": {
         "state": {
@@ -4390,13 +4390,13 @@
               "major",
               "hard block"
             ],
-            "criteria": {
-              "not blocking": "No user-visible problem. Ship it.",
-              "minor": "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
-              "moderate": "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
-              "major": "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
-              "hard block": "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
-            }
+            "criteria": [
+              "No user-visible problem. Ship it.",
+              "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
+              "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
+              "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
+              "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
+            ]
           },
           "visualInvariantHeld": {
             "type": "noul",
@@ -4470,12 +4470,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2221
+          "inputTokens": 2207
         }
       }
     },
     {
-      "key": "f3b5dac9d542aeb3",
+      "key": "989d448d8d32bfb1",
       "label": "trace/fail-manifest-bug-404",
       "request": {
         "state": {
@@ -4730,13 +4730,13 @@
               "major",
               "hard block"
             ],
-            "criteria": {
-              "not blocking": "No user-visible problem. Ship it.",
-              "minor": "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
-              "moderate": "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
-              "major": "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
-              "hard block": "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
-            }
+            "criteria": [
+              "No user-visible problem. Ship it.",
+              "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
+              "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
+              "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
+              "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
+            ]
           },
           "visualInvariantHeld": {
             "type": "noul",
@@ -4810,12 +4810,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2254
+          "inputTokens": 2240
         }
       }
     },
     {
-      "key": "3602eac8a09964b4",
+      "key": "06462620f4631468",
       "label": "trace/fail-memory-pressure",
       "request": {
         "state": {
@@ -5140,13 +5140,13 @@
               "major",
               "hard block"
             ],
-            "criteria": {
-              "not blocking": "No user-visible problem. Ship it.",
-              "minor": "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
-              "moderate": "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
-              "major": "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
-              "hard block": "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
-            }
+            "criteria": [
+              "No user-visible problem. Ship it.",
+              "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
+              "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
+              "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
+              "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
+            ]
           },
           "visualInvariantHeld": {
             "type": "noul",
@@ -5220,12 +5220,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2481
+          "inputTokens": 2468
         }
       }
     },
     {
-      "key": "5b4fe1c9ef82f3ec",
+      "key": "ee7daa0c9be99ee0",
       "label": "trace/fail-render-stall",
       "request": {
         "state": {
@@ -5548,13 +5548,13 @@
               "major",
               "hard block"
             ],
-            "criteria": {
-              "not blocking": "No user-visible problem. Ship it.",
-              "minor": "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
-              "moderate": "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
-              "major": "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
-              "hard block": "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
-            }
+            "criteria": [
+              "No user-visible problem. Ship it.",
+              "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
+              "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
+              "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
+              "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
+            ]
           },
           "visualInvariantHeld": {
             "type": "noul",
@@ -5628,12 +5628,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2485
+          "inputTokens": 2471
         }
       }
     },
     {
-      "key": "e5f289b7061acbc9",
+      "key": "b2ba6fa195017094",
       "label": "trace/inconclusive-truncated",
       "request": {
         "state": {
@@ -5847,13 +5847,13 @@
               "major",
               "hard block"
             ],
-            "criteria": {
-              "not blocking": "No user-visible problem. Ship it.",
-              "minor": "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
-              "moderate": "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
-              "major": "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
-              "hard block": "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
-            }
+            "criteria": [
+              "No user-visible problem. Ship it.",
+              "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
+              "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
+              "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
+              "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
+            ]
           },
           "visualInvariantHeld": {
             "type": "noul",
@@ -5927,12 +5927,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2128
+          "inputTokens": 2114
         }
       }
     },
     {
-      "key": "dcaed35bb9a69119",
+      "key": "d4fca622b7c80cf0",
       "label": "trace/pass-adaptive-low-cpu-3g",
       "request": {
         "state": {
@@ -6283,13 +6283,13 @@
               "major",
               "hard block"
             ],
-            "criteria": {
-              "not blocking": "No user-visible problem. Ship it.",
-              "minor": "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
-              "moderate": "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
-              "major": "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
-              "hard block": "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
-            }
+            "criteria": [
+              "No user-visible problem. Ship it.",
+              "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
+              "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
+              "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
+              "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
+            ]
           },
           "visualInvariantHeld": {
             "type": "noul",
@@ -6363,12 +6363,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2599
+          "inputTokens": 2585
         }
       }
     },
     {
-      "key": "38452ddee724a20f",
+      "key": "39cede33628c794c",
       "label": "trace/pass-camera-denied-fallback",
       "request": {
         "state": {
@@ -6739,13 +6739,13 @@
               "major",
               "hard block"
             ],
-            "criteria": {
-              "not blocking": "No user-visible problem. Ship it.",
-              "minor": "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
-              "moderate": "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
-              "major": "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
-              "hard block": "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
-            }
+            "criteria": [
+              "No user-visible problem. Ship it.",
+              "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
+              "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
+              "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
+              "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
+            ]
           },
           "visualInvariantHeld": {
             "type": "noul",
@@ -6819,12 +6819,12 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2661
+          "inputTokens": 2648
         }
       }
     },
     {
-      "key": "0a3f894f8f7323c9",
+      "key": "5540fbde3992aa46",
       "label": "trace/pass-high-desktop",
       "request": {
         "state": {
@@ -7187,13 +7187,13 @@
               "major",
               "hard block"
             ],
-            "criteria": {
-              "not blocking": "No user-visible problem. Ship it.",
-              "minor": "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
-              "moderate": "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
-              "major": "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
-              "hard block": "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
-            }
+            "criteria": [
+              "No user-visible problem. Ship it.",
+              "A small degradation a user might not notice — a slightly missed timing budget, or a non-critical asset absent without visible effect.",
+              "A noticeable degradation that still leaves the experience usable and the business flow completable: visible stutter, a slow first frame, or a lower tier than the device deserved.",
+              "The experience is substantially broken for this profile — the flow is completable only with difficulty, or the rendering is badly wrong — but some users on this profile could still get through.",
+              "The experience is unusable on this profile: the business end state is unreachable (\"checkout-complete\" never entered), the first frame is blank, or a critical asset failure prevents rendering entirely."
+            ]
           },
           "visualInvariantHeld": {
             "type": "noul",
@@ -7267,7 +7267,7 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2633
+          "inputTokens": 2619
         }
       }
     }

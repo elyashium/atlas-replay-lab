@@ -31,9 +31,16 @@
  *    pointing TYPESAFE_BASE_URL at one of those is the intended way to switch,
  *    but the default below is TypeSafe's own API.
  *
- * This repository itself has still never run against a live Jev deployment
- * (no key in this environment) — the shape above is verified from docs, not
- * from a call made here. `atlas jev-check` performs the first live call.
+ * This repository HAS run against a live Jev deployment: on 2026-09-22 a
+ * keyed run (`atlas jev-check`, `atlas compare`, `atlas judge`) against
+ * `jev-latest` (answered by `jev-1.13.0`) succeeded — 22/22 compare calls
+ * plus 10/10 judge calls, zero transport errors. Two corrections came out of
+ * that run and are already in the code: score `criteria` must be an array
+ * (an object 422s), and score `probabilities` are keyed by criterion index
+ * (see `readScoreDistribution` in jev.js). Observed end-to-end latency was
+ * ~0.5–1.3s per call from this machine — above TypeSafe's published
+ * 70–500ms band on some calls; treat their band as their claim, these
+ * numbers as one datapoint.
  *
  * All of it is deliberately isolated in this one file, so correcting the shape
  * touches nothing in the engine, the guard, or anything downstream.

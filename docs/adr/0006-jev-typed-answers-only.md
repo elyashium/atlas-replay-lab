@@ -134,10 +134,13 @@ cost, accepted deliberately.
 part of this to test. The structural tests catch missing and duplicated criteria;
 they cannot catch a criterion that is merely badly worded.
 
-**Honest limitation.** This repository has never run against a live Jev
-deployment. The comparison harness reports `agreement N/A — no live Jev key` in
-that state and says so in the output rather than quietly reporting the fixture
-agreement as if it were a live measurement.
+**Honest limitation.** As of 2026-09-22 this repository has made exactly one
+small live run (32 calls total: `jev-check` + `compare` + `judge`, all against
+`jev-1.13.0`, all on synthetic inputs). The comparison harness reports
+`agreement N/A — no live Jev key` without a key and says so in the output rather
+than quietly reporting fixture agreement as if it were a live measurement; with
+a key it reports measured agreement, latency, tokens, and cost with the
+small-sample caveat attached.
 
 ## Alternatives considered
 

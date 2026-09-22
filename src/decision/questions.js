@@ -34,9 +34,16 @@
  *    question that was answerable in the first place.
  *
  * @typedef {{ type: "choice"; instructions: string; criteria: Record<string, string> }} ChoiceQuestion
- * @typedef {{ type: "score"; instructions: string; levels: string[]; criteria: Record<string, string> }} ScoreQuestion
+ * @typedef {{ type: "score"; instructions: string; levels: string[]; criteria: string[] }} ScoreQuestion
  * @typedef {{ type: "noul"; instructions: string; criteria: { true: string; false: string } }} NoulQuestion
  * @typedef {ChoiceQuestion | ScoreQuestion | NoulQuestion} Question
+ *
+ * Wire note (verified live Sept 2026): a score's `criteria` is an ORDERED ARRAY
+ * of level descriptions, index-aligned with `levels` — the API rejects an
+ * object there with a 422 (`score.criteria: Input should be a valid list`).
+ * `levels` itself carries the short level names the rest of Atlas reasons
+ * about; the deployment tolerates and ignores that extra field, so it stays
+ * for local use (report rendering, `expectedScore`, fixture readability).
  */
 
 /** @type {readonly string[]} */
@@ -133,21 +140,20 @@ export function tierQuestions(budgets) {
         "Judge the combination of asset transfer time on this connection and " +
         "decode/render time on this hardware.",
       levels: [...RISK_LEVELS],
-      criteria: {
-        "very unlikely":
-          "Fast connection and capable hardware; the mid tier's assets arrive and " +
+      // Index-aligned with `levels`: criteria[0] describes levels[0]. The
+      // budget number lives in the criterion text, not just `instructions`,
+      // so a per-level description cannot drift from the contract.
+      criteria: [
+        "Fast connection and capable hardware; the mid tier's assets arrive and " +
           "render with substantial headroom against the budget.",
-        unlikely: "Comfortably inside the budget, with modest but real headroom.",
-        possible:
-          "Roughly at the budget; plausible either way depending on cache state " +
+        "Comfortably inside the budget, with modest but real headroom.",
+        "Roughly at the budget; plausible either way depending on cache state " +
           "and how the connection behaves during the load.",
-        likely:
-          "Constrained connection or hardware; the budget is expected to be " +
+        "Constrained connection or hardware; the budget is expected to be " +
           "exceeded, though not catastrophically.",
-        "very likely":
-          "Severely constrained (slow-2g/2g, very high RTT, minimal memory or " +
+        "Severely constrained (slow-2g/2g, very high RTT, minimal memory or " +
           "cores); the budget is expected to be exceeded by a wide margin.",
-      },
+      ],
     },
   };
 }
@@ -241,25 +247,21 @@ export function traceQuestions(manifest) {
         "How severe is this session for release-gating purposes? Judge the impact " +
         "on a real user encountering this, not the difficulty of fixing it.",
       levels: [...SEVERITY_LEVELS],
-      criteria: {
-        "not blocking":
-          "No user-visible problem. Ship it.",
-        minor:
-          "A small degradation a user might not notice — a slightly missed timing " +
+      // Index-aligned with `levels` (see the wire note at the top of this file).
+      criteria: [
+        "No user-visible problem. Ship it.",
+        "A small degradation a user might not notice — a slightly missed timing " +
           "budget, or a non-critical asset absent without visible effect.",
-        moderate:
-          "A noticeable degradation that still leaves the experience usable and " +
+        "A noticeable degradation that still leaves the experience usable and " +
           "the business flow completable: visible stutter, a slow first frame, or " +
           "a lower tier than the device deserved.",
-        major:
-          "The experience is substantially broken for this profile — the flow is " +
+        "The experience is substantially broken for this profile — the flow is " +
           "completable only with difficulty, or the rendering is badly wrong — but " +
           "some users on this profile could still get through.",
-        "hard block":
-          "The experience is unusable on this profile: the business end state is " +
+        "The experience is unusable on this profile: the business end state is " +
           `unreachable ("${b.endState}" never entered), the first frame is blank, ` +
           "or a critical asset failure prevents rendering entirely.",
-      },
+      ],
     },
     visualInvariantHeld: {
       type: "noul",
@@ -396,20 +398,31 @@ export function validateQuestions(questions) {
       continue;
     }
 
-    const expected = q.type === "score" ? q.levels : Object.keys(q.criteria);
     if (q.type === "score") {
       if (q.levels.length < 2 || q.levels.length > 10) {
         problems.push(`${id}: score must declare 2-10 levels, found ${q.levels.length}`);
       }
-    } else if (expected.length < 2 || expected.length > 255) {
-      problems.push(`${id}: choice must declare 2-255 options, found ${expected.length}`);
+      // The wire format takes an ordered array, index-aligned with `levels`.
+      if (!Array.isArray(q.criteria)) {
+        problems.push(`${id}: score criteria must be an array of level descriptions (the API 422s an object)`);
+        continue;
+      }
+      if (q.criteria.length !== q.levels.length) {
+        problems.push(`${id}: score has ${q.levels.length} levels but ${q.criteria.length} criteria`);
+      }
+      q.levels.forEach((level, i) => {
+        if (!(q.criteria[i] ?? "").trim()) problems.push(`${id}: level "${level}" has no criterion`);
+      });
+      continue;
     }
 
-    for (const option of expected) {
-      if (!(q.criteria[option] ?? "").trim()) problems.push(`${id}: option "${option}" has no criterion`);
+    const options = Object.keys(q.criteria);
+    if (options.length < 2 || options.length > 255) {
+      problems.push(`${id}: choice must declare 2-255 options, found ${options.length}`);
     }
-    for (const option of Object.keys(q.criteria)) {
-      if (!expected.includes(option)) problems.push(`${id}: criterion "${option}" is not a declared option`);
+
+    for (const option of options) {
+      if (!(q.criteria[option] ?? "").trim()) problems.push(`${id}: option "${option}" has no criterion`);
     }
   }
   return problems;

@@ -131,3 +131,34 @@ test("jev-check refuses to run without a key instead of silently falling back", 
   const { runJevCheck } = await import("../src/decision/jev-check.js");
   await assert.rejects(() => runJevCheck({ env: { ...process.env, TYPESAFE_API_KEY: "" } }), /TYPESAFE_API_KEY is not set/);
 });
+
+test("score criteria serialize as an ordered array (the API 422s an object)", async () => {
+  const { tierQuestions, traceQuestions } = await import("../src/decision/questions.js");
+  const { orbitalManifest } = await import("../src/manifest/atlas-orbital.manifest.js");
+  for (const set of [tierQuestions(orbitalManifest.budgets), traceQuestions(orbitalManifest)]) {
+    for (const [id, q] of Object.entries(set)) {
+      if (q.type === "score") {
+        assert.ok(Array.isArray(q.criteria), `${id}: score criteria must be an array`);
+        assert.equal(q.criteria.length, q.levels.length, `${id}: criteria align with levels`);
+      }
+    }
+  }
+});
+
+test("readScoreDistribution resolves legend indices to level names", async () => {
+  const { readScoreDistribution, normalizeDistribution } = await import("../src/decision/jev.js");
+  const { RISK_LEVELS } = await import("../src/decision/questions.js");
+  // Live shape: probabilities keyed "0".."n" with a legend.
+  const live = {
+    type: "score",
+    score: 1.05,
+    confidence: 0.92,
+    legend: { 0: "Calm", 1: "Frustrated", 2: "Very angry" },
+    probabilities: { 0: 0, 1: 0.95, 2: 0.05 },
+  };
+  const dist = normalizeDistribution(readScoreDistribution(live, ["Calm", "Frustrated", "Very angry"]), ["Calm", "Frustrated", "Very angry"]);
+  assert.equal(dist.Frustrated, 0.95);
+  // Fixture shape: keys already name the levels — used as-is.
+  const named = { type: "score", score: 4, probabilities: Object.fromEntries(RISK_LEVELS.map((l, i) => [l, i === 4 ? 1 : 0])) };
+  assert.equal(readScoreDistribution(named, RISK_LEVELS)["very likely"], 1);
+});

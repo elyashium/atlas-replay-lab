@@ -129,12 +129,16 @@ a measurement made here:
   batch of questions costs approximately what one question costs.
 - *TypeSafe describes* it as RLCD-trained for calibration.
 
-**What this repository independently verified: none of the above.** The only
-measurement made here is the two-engine agreement comparison above, which
-compares two engines against each other on synthetic inputs. That is not a
-calibration study, not a latency benchmark, and not an audit. This repo has never
-run against a live Jev deployment, and nothing here claims Jev is
-production-hardened or that any company uses it.
+**What this repository independently verified:** one live run on 2026-09-22
+(`jev-latest`, answered by `jev-1.13.0`): `atlas compare` over the 12 synthetic
+packets + 10 synthetic traces (22/22 calls ok, mean ~490ms, 53,583 input tokens
+≈ $0.0023) with outcome agreement 10/10, business-invariant agreement 10/10,
+release-blocking agreement 9/10, tier agreement 1/12 — and `atlas judge` over the
+10 example traces (10/10 ok, ≈ $0.00015/trace, one outcome disagreement on the
+packet-loss trace). That is a smoke test on synthetic inputs (n=22), not a
+calibration study, not a latency benchmark, and not an audit. Nothing here claims
+Jev is production-hardened or that any company uses it. Observed latency here
+(~0.5–1.3s/call) exceeded TypeSafe's published 70–500ms band on some calls.
 
 The bundled fixtures are **hand-authored and illustrative**. They are labelled
 `ILLUSTRATIVE` in the fixture file itself and in every test that consumes them.
