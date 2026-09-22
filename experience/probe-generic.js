@@ -112,6 +112,26 @@
     return String(value === undefined || value === null ? "" : value).slice(0, MAX_TEXT);
   }
 
+  /**
+   * Redacts an error string before it is recorded.
+   *
+   * Error text is the one free-text field a generic trace carries, and it is
+   * developer-authored diagnostics rather than user input. But a stack trace
+   * can still contain a signed asset URL, and a validation message can still
+   * echo something a user typed. So URLs lose their query strings and any long
+   * unbroken token-shaped run is replaced before the string is stored. What
+   * survives is the part that identifies the *class* of failure, which is all
+   * the judge is asked about — and `summariseTraceForJev` ships only the code,
+   * never this text.
+   */
+  function scrubText(value) {
+    return clip(
+      String(value === undefined || value === null ? "" : value)
+        .replace(/([?#])[^\s"')]*/g, "$1<stripped>")
+        .replace(/[A-Za-z0-9_\-]{24,}/g, "<token>")
+    );
+  }
+
   function push(name, kind, attributes) {
     if (rec.events.length >= MAX_EVENTS) return;
     rec.events.push({ tOffsetMs: now(), name: name, kind: kind, attributes: attributes || {} });
