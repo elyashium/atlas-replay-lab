@@ -373,6 +373,11 @@ test("the handshake times out instead of waiting forever", async () => {
     liveSockets.add(socket);
     socket.on("close", () => liveSockets.delete(socket));
     socket.on("error", () => {});
+    // Drain the HTTP upgrade the client sends on connect. Without a reader the
+    // bytes sit in the socket buffer and, on some platforms, a connection with
+    // unread data never reports 'close' — which wedges `server.close()` below
+    // and, through it, the whole runner. A silent peer still ACKs; so do we.
+    socket.on("data", () => {});
   });
   server.listen(0, "127.0.0.1");
   liveServers.add({ close: () => new Promise((r) => server.close(() => r(undefined))) });
