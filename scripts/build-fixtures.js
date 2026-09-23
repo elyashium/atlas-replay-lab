@@ -25,7 +25,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { orbitalManifest } from "../src/manifest/atlas-orbital.manifest.js";
-import { tierQuestions, traceQuestions, validateQuestions, RISK_LEVELS, SEVERITY_LEVELS, TIER_OPTIONS, OUTCOME_OPTIONS, ROOT_CAUSE_OPTIONS } from "../src/decision/questions.js";
+import { tierQuestions, traceQuestions, validateQuestions, RISK_LEVELS, SEVERITY_LEVELS, TIER_OPTIONS, OUTCOME_OPTIONS, ROOT_CAUSE_OPTIONS, COMFORT_LEVELS } from "../src/decision/questions.js";
 import { tierStateForJev, summariseTraceForJev } from "../src/decision/jev.js";
 import { fixtureKey, DEFAULT_MODEL } from "../src/decision/jev-transport.js";
 import { SYNTHETIC_STATES } from "../src/decision/fixtures/states.js";
@@ -138,6 +138,8 @@ export function buildFixtureFile() {
       ...checkNoul(`${scenario.id}.visualInvariantHeld`, answers.visualInvariantHeld),
       ...checkNoul(`${scenario.id}.interactionInvariantHeld`, answers.interactionInvariantHeld),
       ...checkNoul(`${scenario.id}.businessInvariantHeld`, answers.businessInvariantHeld),
+      ...checkScore(`${scenario.id}.comfortRisk`, answers.comfortRisk, COMFORT_LEVELS),
+      ...checkNoul(`${scenario.id}.accessibleFallback`, answers.accessibleFallback),
     );
 
     const trace = buildScenarioTrace(scenario, manifest);

@@ -3,7 +3,7 @@
   "$note": "ILLUSTRATIVE FIXTURES — hand-authored, NOT captured from a live Jev deployment. Every probability here was written by a human to exercise the Jev code path without an API key. They are not evidence of how Jev behaves, and any agreement rate computed against them measures only this file. Regenerate with: node scripts/build-fixtures.js",
   "$generatedBy": "scripts/build-fixtures.js",
   "$model": "jev-latest",
-  "$manifestHash": "2fbb0d61d98c6439",
+  "$manifestHash": "bbf16c3ba4304ad8",
   "cases": [
     {
       "key": "3d9748838b2c72e9",
@@ -3318,7 +3318,7 @@
       }
     },
     {
-      "key": "3d8517a5570f7727",
+      "key": "493f85883a3e921b",
       "label": "trace/degraded-packet-loss",
       "request": {
         "state": {
@@ -3645,7 +3645,22 @@
             "tap:add-to-cart",
             "tap:checkout"
           ],
-          "durationMs": 11400
+          "durationMs": 11400,
+          "frameProfile": null,
+          "xr": null,
+          "errorCodes": null,
+          "comfort": {
+            "headTracked": false,
+            "sustainedWindowMs": 5000,
+            "frameTimeFloorMs": 20,
+            "worstWindowP95FrameMs": null,
+            "medianWindowP95FrameMs": null,
+            "windowsExamined": 0,
+            "inputToFrameBudgetMs": 120,
+            "inputToFrameP95Ms": 211.4,
+            "inputSamples": 3,
+            "inputMeasurementNote": "Input-to-frame is the interval from the input event to the next animation-frame callback. Paint, composite and display scanout happen after it, so the true figure a person perceives is higher."
+          }
         },
         "questions": {
           "outcome": {
@@ -3712,6 +3727,32 @@
               "true": "The state sequence contains \"checkout-complete\", reached in no more than 4 steps from the interactive state, with no error state in between.",
               "false": "The state sequence never reaches \"checkout-complete\", or reaches it only after more steps than declared, or passes through an error state on the way."
             }
+          },
+          "comfortRisk": {
+            "type": "score",
+            "instructions": "The measurements are already in the state: worst sustained-window p95 frame time, the frame-rate floor it is judged against, input-to-frame latency, and whether the experience was head-tracked or flat-screen. Do not recompute them. Judge what a person would report after two minutes inside this session. Weigh sustained stutter far more heavily than isolated hitches — a single dropped frame is invisible, five seconds of irregular pacing is not — and weigh any of it much more heavily when the session was head-tracked, because a flat screen that stutters is annoying and a headset that stutters makes people ill. If the trace carries no frame-time evidence at all, stay near the middle and expect the low confidence to be read as the absence of evidence it is.",
+            "levels": [
+              "comfortable",
+              "slightly off",
+              "uncomfortable",
+              "queasy",
+              "unusable"
+            ],
+            "criteria": [
+              "Motion is smooth and input is answered immediately. Nothing about the pacing draws attention to itself.",
+              "Occasional hitches an attentive user would notice and a casual one would not. No sustained roughness; nobody would stop using it over this.",
+              "Visibly rough: sustained stretches of irregular pacing, or input that lags noticeably behind the finger. Usable, but the experience is degraded in a way every user would feel.",
+              "Physically unpleasant over a short session — sustained pacing well below the declared floor, or badly laggy input, on content that moves. A susceptible user would feel it in their stomach.",
+              "Cannot reasonably be used: the frame rate collapses for long stretches, or input is effectively unanswered. A user would close the tab rather than endure it."
+            ]
+          },
+          "accessibleFallback": {
+            "type": "noul",
+            "instructions": "Consider a visitor who cannot or will not use the immersive path — no camera permission, no XR hardware, no controllers, or a refusal at the prompt. On the evidence in this trace, did that visitor still get a working experience? Judge what the session actually did after the immersive path was unavailable, not what the app might have intended.",
+            "criteria": {
+              "true": "Either no immersive path was needed, or the immersive path was unavailable and the session carried on anyway: it kept rendering, answered input, and reached \"checkout-complete\" on a 2D, static or DOM path without entering an error state. A simpler experience that works is a pass here.",
+              "false": "The immersive path was unavailable and the session did not recover: it entered an error state, stopped rendering, stalled short of \"checkout-complete\", or left nothing on screen a visitor could act on. Treating the refusal as fatal is the failure this question exists for."
+            }
           }
         },
         "model": "jev-latest"
@@ -3757,16 +3798,29 @@
           },
           "businessInvariantHeld": {
             "noul": 0.97
+          },
+          "comfortRisk": {
+            "score": 1.78,
+            "probabilities": {
+              "comfortable": 0.08,
+              "slightly off": 0.3,
+              "uncomfortable": 0.42,
+              "queasy": 0.16,
+              "unusable": 0.04
+            }
+          },
+          "accessibleFallback": {
+            "noul": 0.88
           }
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2625
+          "inputTokens": 3416
         }
       }
     },
     {
-      "key": "485a3dd2adfbd560",
+      "key": "6ea7c3192bdc063e",
       "label": "trace/fail-baseline-low-cpu-3g",
       "request": {
         "state": {
@@ -4026,7 +4080,22 @@
           "inputClasses": [
             "tap:product"
           ],
-          "durationMs": 9000
+          "durationMs": 9000,
+          "frameProfile": null,
+          "xr": null,
+          "errorCodes": null,
+          "comfort": {
+            "headTracked": false,
+            "sustainedWindowMs": 5000,
+            "frameTimeFloorMs": 20,
+            "worstWindowP95FrameMs": null,
+            "medianWindowP95FrameMs": null,
+            "windowsExamined": 0,
+            "inputToFrameBudgetMs": 120,
+            "inputToFrameP95Ms": 890,
+            "inputSamples": 1,
+            "inputMeasurementNote": "Input-to-frame is the interval from the input event to the next animation-frame callback. Paint, composite and display scanout happen after it, so the true figure a person perceives is higher."
+          }
         },
         "questions": {
           "outcome": {
@@ -4093,6 +4162,32 @@
               "true": "The state sequence contains \"checkout-complete\", reached in no more than 4 steps from the interactive state, with no error state in between.",
               "false": "The state sequence never reaches \"checkout-complete\", or reaches it only after more steps than declared, or passes through an error state on the way."
             }
+          },
+          "comfortRisk": {
+            "type": "score",
+            "instructions": "The measurements are already in the state: worst sustained-window p95 frame time, the frame-rate floor it is judged against, input-to-frame latency, and whether the experience was head-tracked or flat-screen. Do not recompute them. Judge what a person would report after two minutes inside this session. Weigh sustained stutter far more heavily than isolated hitches — a single dropped frame is invisible, five seconds of irregular pacing is not — and weigh any of it much more heavily when the session was head-tracked, because a flat screen that stutters is annoying and a headset that stutters makes people ill. If the trace carries no frame-time evidence at all, stay near the middle and expect the low confidence to be read as the absence of evidence it is.",
+            "levels": [
+              "comfortable",
+              "slightly off",
+              "uncomfortable",
+              "queasy",
+              "unusable"
+            ],
+            "criteria": [
+              "Motion is smooth and input is answered immediately. Nothing about the pacing draws attention to itself.",
+              "Occasional hitches an attentive user would notice and a casual one would not. No sustained roughness; nobody would stop using it over this.",
+              "Visibly rough: sustained stretches of irregular pacing, or input that lags noticeably behind the finger. Usable, but the experience is degraded in a way every user would feel.",
+              "Physically unpleasant over a short session — sustained pacing well below the declared floor, or badly laggy input, on content that moves. A susceptible user would feel it in their stomach.",
+              "Cannot reasonably be used: the frame rate collapses for long stretches, or input is effectively unanswered. A user would close the tab rather than endure it."
+            ]
+          },
+          "accessibleFallback": {
+            "type": "noul",
+            "instructions": "Consider a visitor who cannot or will not use the immersive path — no camera permission, no XR hardware, no controllers, or a refusal at the prompt. On the evidence in this trace, did that visitor still get a working experience? Judge what the session actually did after the immersive path was unavailable, not what the app might have intended.",
+            "criteria": {
+              "true": "Either no immersive path was needed, or the immersive path was unavailable and the session carried on anyway: it kept rendering, answered input, and reached \"checkout-complete\" on a 2D, static or DOM path without entering an error state. A simpler experience that works is a pass here.",
+              "false": "The immersive path was unavailable and the session did not recover: it entered an error state, stopped rendering, stalled short of \"checkout-complete\", or left nothing on screen a visitor could act on. Treating the refusal as fatal is the failure this question exists for."
+            }
           }
         },
         "model": "jev-latest"
@@ -4138,16 +4233,29 @@
           },
           "businessInvariantHeld": {
             "noul": 0.01
+          },
+          "comfortRisk": {
+            "score": 2.63,
+            "probabilities": {
+              "comfortable": 0.02,
+              "slightly off": 0.08,
+              "uncomfortable": 0.3,
+              "queasy": 0.45,
+              "unusable": 0.15
+            }
+          },
+          "accessibleFallback": {
+            "noul": 0.85
           }
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2384
+          "inputTokens": 3174
         }
       }
     },
     {
-      "key": "335abe9ff4799490",
+      "key": "ef22301cb63430d9",
       "label": "trace/fail-codec-unsupported",
       "request": {
         "state": {
@@ -4354,7 +4462,22 @@
             }
           ],
           "inputClasses": [],
-          "durationMs": 2900
+          "durationMs": 2900,
+          "frameProfile": null,
+          "xr": null,
+          "errorCodes": null,
+          "comfort": {
+            "headTracked": false,
+            "sustainedWindowMs": 5000,
+            "frameTimeFloorMs": 20,
+            "worstWindowP95FrameMs": null,
+            "medianWindowP95FrameMs": null,
+            "windowsExamined": 0,
+            "inputToFrameBudgetMs": 120,
+            "inputToFrameP95Ms": null,
+            "inputSamples": 0,
+            "inputMeasurementNote": "Input-to-frame is the interval from the input event to the next animation-frame callback. Paint, composite and display scanout happen after it, so the true figure a person perceives is higher."
+          }
         },
         "questions": {
           "outcome": {
@@ -4421,6 +4544,32 @@
               "true": "The state sequence contains \"checkout-complete\", reached in no more than 4 steps from the interactive state, with no error state in between.",
               "false": "The state sequence never reaches \"checkout-complete\", or reaches it only after more steps than declared, or passes through an error state on the way."
             }
+          },
+          "comfortRisk": {
+            "type": "score",
+            "instructions": "The measurements are already in the state: worst sustained-window p95 frame time, the frame-rate floor it is judged against, input-to-frame latency, and whether the experience was head-tracked or flat-screen. Do not recompute them. Judge what a person would report after two minutes inside this session. Weigh sustained stutter far more heavily than isolated hitches — a single dropped frame is invisible, five seconds of irregular pacing is not — and weigh any of it much more heavily when the session was head-tracked, because a flat screen that stutters is annoying and a headset that stutters makes people ill. If the trace carries no frame-time evidence at all, stay near the middle and expect the low confidence to be read as the absence of evidence it is.",
+            "levels": [
+              "comfortable",
+              "slightly off",
+              "uncomfortable",
+              "queasy",
+              "unusable"
+            ],
+            "criteria": [
+              "Motion is smooth and input is answered immediately. Nothing about the pacing draws attention to itself.",
+              "Occasional hitches an attentive user would notice and a casual one would not. No sustained roughness; nobody would stop using it over this.",
+              "Visibly rough: sustained stretches of irregular pacing, or input that lags noticeably behind the finger. Usable, but the experience is degraded in a way every user would feel.",
+              "Physically unpleasant over a short session — sustained pacing well below the declared floor, or badly laggy input, on content that moves. A susceptible user would feel it in their stomach.",
+              "Cannot reasonably be used: the frame rate collapses for long stretches, or input is effectively unanswered. A user would close the tab rather than endure it."
+            ]
+          },
+          "accessibleFallback": {
+            "type": "noul",
+            "instructions": "Consider a visitor who cannot or will not use the immersive path — no camera permission, no XR hardware, no controllers, or a refusal at the prompt. On the evidence in this trace, did that visitor still get a working experience? Judge what the session actually did after the immersive path was unavailable, not what the app might have intended.",
+            "criteria": {
+              "true": "Either no immersive path was needed, or the immersive path was unavailable and the session carried on anyway: it kept rendering, answered input, and reached \"checkout-complete\" on a 2D, static or DOM path without entering an error state. A simpler experience that works is a pass here.",
+              "false": "The immersive path was unavailable and the session did not recover: it entered an error state, stopped rendering, stalled short of \"checkout-complete\", or left nothing on screen a visitor could act on. Treating the refusal as fatal is the failure this question exists for."
+            }
           }
         },
         "model": "jev-latest"
@@ -4466,16 +4615,29 @@
           },
           "businessInvariantHeld": {
             "noul": 0.005
+          },
+          "comfortRisk": {
+            "score": 3.51,
+            "probabilities": {
+              "comfortable": 0.005,
+              "slightly off": 0.02,
+              "uncomfortable": 0.08,
+              "queasy": 0.25,
+              "unusable": 0.645
+            }
+          },
+          "accessibleFallback": {
+            "noul": 0.2
           }
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2207
+          "inputTokens": 2998
         }
       }
     },
     {
-      "key": "989d448d8d32bfb1",
+      "key": "abf7171c2261c916",
       "label": "trace/fail-manifest-bug-404",
       "request": {
         "state": {
@@ -4694,7 +4856,22 @@
             }
           ],
           "inputClasses": [],
-          "durationMs": 3400
+          "durationMs": 3400,
+          "frameProfile": null,
+          "xr": null,
+          "errorCodes": null,
+          "comfort": {
+            "headTracked": false,
+            "sustainedWindowMs": 5000,
+            "frameTimeFloorMs": 20,
+            "worstWindowP95FrameMs": null,
+            "medianWindowP95FrameMs": null,
+            "windowsExamined": 0,
+            "inputToFrameBudgetMs": 120,
+            "inputToFrameP95Ms": null,
+            "inputSamples": 0,
+            "inputMeasurementNote": "Input-to-frame is the interval from the input event to the next animation-frame callback. Paint, composite and display scanout happen after it, so the true figure a person perceives is higher."
+          }
         },
         "questions": {
           "outcome": {
@@ -4761,6 +4938,32 @@
               "true": "The state sequence contains \"checkout-complete\", reached in no more than 4 steps from the interactive state, with no error state in between.",
               "false": "The state sequence never reaches \"checkout-complete\", or reaches it only after more steps than declared, or passes through an error state on the way."
             }
+          },
+          "comfortRisk": {
+            "type": "score",
+            "instructions": "The measurements are already in the state: worst sustained-window p95 frame time, the frame-rate floor it is judged against, input-to-frame latency, and whether the experience was head-tracked or flat-screen. Do not recompute them. Judge what a person would report after two minutes inside this session. Weigh sustained stutter far more heavily than isolated hitches — a single dropped frame is invisible, five seconds of irregular pacing is not — and weigh any of it much more heavily when the session was head-tracked, because a flat screen that stutters is annoying and a headset that stutters makes people ill. If the trace carries no frame-time evidence at all, stay near the middle and expect the low confidence to be read as the absence of evidence it is.",
+            "levels": [
+              "comfortable",
+              "slightly off",
+              "uncomfortable",
+              "queasy",
+              "unusable"
+            ],
+            "criteria": [
+              "Motion is smooth and input is answered immediately. Nothing about the pacing draws attention to itself.",
+              "Occasional hitches an attentive user would notice and a casual one would not. No sustained roughness; nobody would stop using it over this.",
+              "Visibly rough: sustained stretches of irregular pacing, or input that lags noticeably behind the finger. Usable, but the experience is degraded in a way every user would feel.",
+              "Physically unpleasant over a short session — sustained pacing well below the declared floor, or badly laggy input, on content that moves. A susceptible user would feel it in their stomach.",
+              "Cannot reasonably be used: the frame rate collapses for long stretches, or input is effectively unanswered. A user would close the tab rather than endure it."
+            ]
+          },
+          "accessibleFallback": {
+            "type": "noul",
+            "instructions": "Consider a visitor who cannot or will not use the immersive path — no camera permission, no XR hardware, no controllers, or a refusal at the prompt. On the evidence in this trace, did that visitor still get a working experience? Judge what the session actually did after the immersive path was unavailable, not what the app might have intended.",
+            "criteria": {
+              "true": "Either no immersive path was needed, or the immersive path was unavailable and the session carried on anyway: it kept rendering, answered input, and reached \"checkout-complete\" on a 2D, static or DOM path without entering an error state. A simpler experience that works is a pass here.",
+              "false": "The immersive path was unavailable and the session did not recover: it entered an error state, stopped rendering, stalled short of \"checkout-complete\", or left nothing on screen a visitor could act on. Treating the refusal as fatal is the failure this question exists for."
+            }
           }
         },
         "model": "jev-latest"
@@ -4806,16 +5009,29 @@
           },
           "businessInvariantHeld": {
             "noul": 0.005
+          },
+          "comfortRisk": {
+            "score": 3.6,
+            "probabilities": {
+              "comfortable": 0.005,
+              "slightly off": 0.015,
+              "uncomfortable": 0.06,
+              "queasy": 0.22,
+              "unusable": 0.7
+            }
+          },
+          "accessibleFallback": {
+            "noul": 0.1
           }
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2240
+          "inputTokens": 3031
         }
       }
     },
     {
-      "key": "06462620f4631468",
+      "key": "caf514bae1ad15cd",
       "label": "trace/fail-memory-pressure",
       "request": {
         "state": {
@@ -5104,7 +5320,22 @@
           "inputClasses": [
             "tap:product"
           ],
-          "durationMs": 10200
+          "durationMs": 10200,
+          "frameProfile": null,
+          "xr": null,
+          "errorCodes": null,
+          "comfort": {
+            "headTracked": true,
+            "sustainedWindowMs": 5000,
+            "frameTimeFloorMs": 20,
+            "worstWindowP95FrameMs": null,
+            "medianWindowP95FrameMs": null,
+            "windowsExamined": 0,
+            "inputToFrameBudgetMs": 120,
+            "inputToFrameP95Ms": 420,
+            "inputSamples": 1,
+            "inputMeasurementNote": "Input-to-frame is the interval from the input event to the next animation-frame callback. Paint, composite and display scanout happen after it, so the true figure a person perceives is higher."
+          }
         },
         "questions": {
           "outcome": {
@@ -5171,6 +5402,32 @@
               "true": "The state sequence contains \"checkout-complete\", reached in no more than 4 steps from the interactive state, with no error state in between.",
               "false": "The state sequence never reaches \"checkout-complete\", or reaches it only after more steps than declared, or passes through an error state on the way."
             }
+          },
+          "comfortRisk": {
+            "type": "score",
+            "instructions": "The measurements are already in the state: worst sustained-window p95 frame time, the frame-rate floor it is judged against, input-to-frame latency, and whether the experience was head-tracked or flat-screen. Do not recompute them. Judge what a person would report after two minutes inside this session. Weigh sustained stutter far more heavily than isolated hitches — a single dropped frame is invisible, five seconds of irregular pacing is not — and weigh any of it much more heavily when the session was head-tracked, because a flat screen that stutters is annoying and a headset that stutters makes people ill. If the trace carries no frame-time evidence at all, stay near the middle and expect the low confidence to be read as the absence of evidence it is.",
+            "levels": [
+              "comfortable",
+              "slightly off",
+              "uncomfortable",
+              "queasy",
+              "unusable"
+            ],
+            "criteria": [
+              "Motion is smooth and input is answered immediately. Nothing about the pacing draws attention to itself.",
+              "Occasional hitches an attentive user would notice and a casual one would not. No sustained roughness; nobody would stop using it over this.",
+              "Visibly rough: sustained stretches of irregular pacing, or input that lags noticeably behind the finger. Usable, but the experience is degraded in a way every user would feel.",
+              "Physically unpleasant over a short session — sustained pacing well below the declared floor, or badly laggy input, on content that moves. A susceptible user would feel it in their stomach.",
+              "Cannot reasonably be used: the frame rate collapses for long stretches, or input is effectively unanswered. A user would close the tab rather than endure it."
+            ]
+          },
+          "accessibleFallback": {
+            "type": "noul",
+            "instructions": "Consider a visitor who cannot or will not use the immersive path — no camera permission, no XR hardware, no controllers, or a refusal at the prompt. On the evidence in this trace, did that visitor still get a working experience? Judge what the session actually did after the immersive path was unavailable, not what the app might have intended.",
+            "criteria": {
+              "true": "Either no immersive path was needed, or the immersive path was unavailable and the session carried on anyway: it kept rendering, answered input, and reached \"checkout-complete\" on a 2D, static or DOM path without entering an error state. A simpler experience that works is a pass here.",
+              "false": "The immersive path was unavailable and the session did not recover: it entered an error state, stopped rendering, stalled short of \"checkout-complete\", or left nothing on screen a visitor could act on. Treating the refusal as fatal is the failure this question exists for."
+            }
           }
         },
         "model": "jev-latest"
@@ -5216,16 +5473,29 @@
           },
           "businessInvariantHeld": {
             "noul": 0.06
+          },
+          "comfortRisk": {
+            "score": 2.06,
+            "probabilities": {
+              "comfortable": 0.05,
+              "slightly off": 0.2,
+              "uncomfortable": 0.45,
+              "queasy": 0.24,
+              "unusable": 0.06
+            }
+          },
+          "accessibleFallback": {
+            "noul": 0.6
           }
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2468
+          "inputTokens": 3258
         }
       }
     },
     {
-      "key": "ee7daa0c9be99ee0",
+      "key": "00d2b0d5c734679a",
       "label": "trace/fail-render-stall",
       "request": {
         "state": {
@@ -5512,7 +5782,22 @@
             "tap:product",
             "tap:add-to-cart"
           ],
-          "durationMs": 12000
+          "durationMs": 12000,
+          "frameProfile": null,
+          "xr": null,
+          "errorCodes": null,
+          "comfort": {
+            "headTracked": true,
+            "sustainedWindowMs": 5000,
+            "frameTimeFloorMs": 20,
+            "worstWindowP95FrameMs": null,
+            "medianWindowP95FrameMs": null,
+            "windowsExamined": 0,
+            "inputToFrameBudgetMs": 120,
+            "inputToFrameP95Ms": 1781.5,
+            "inputSamples": 2,
+            "inputMeasurementNote": "Input-to-frame is the interval from the input event to the next animation-frame callback. Paint, composite and display scanout happen after it, so the true figure a person perceives is higher."
+          }
         },
         "questions": {
           "outcome": {
@@ -5579,6 +5864,32 @@
               "true": "The state sequence contains \"checkout-complete\", reached in no more than 4 steps from the interactive state, with no error state in between.",
               "false": "The state sequence never reaches \"checkout-complete\", or reaches it only after more steps than declared, or passes through an error state on the way."
             }
+          },
+          "comfortRisk": {
+            "type": "score",
+            "instructions": "The measurements are already in the state: worst sustained-window p95 frame time, the frame-rate floor it is judged against, input-to-frame latency, and whether the experience was head-tracked or flat-screen. Do not recompute them. Judge what a person would report after two minutes inside this session. Weigh sustained stutter far more heavily than isolated hitches — a single dropped frame is invisible, five seconds of irregular pacing is not — and weigh any of it much more heavily when the session was head-tracked, because a flat screen that stutters is annoying and a headset that stutters makes people ill. If the trace carries no frame-time evidence at all, stay near the middle and expect the low confidence to be read as the absence of evidence it is.",
+            "levels": [
+              "comfortable",
+              "slightly off",
+              "uncomfortable",
+              "queasy",
+              "unusable"
+            ],
+            "criteria": [
+              "Motion is smooth and input is answered immediately. Nothing about the pacing draws attention to itself.",
+              "Occasional hitches an attentive user would notice and a casual one would not. No sustained roughness; nobody would stop using it over this.",
+              "Visibly rough: sustained stretches of irregular pacing, or input that lags noticeably behind the finger. Usable, but the experience is degraded in a way every user would feel.",
+              "Physically unpleasant over a short session — sustained pacing well below the declared floor, or badly laggy input, on content that moves. A susceptible user would feel it in their stomach.",
+              "Cannot reasonably be used: the frame rate collapses for long stretches, or input is effectively unanswered. A user would close the tab rather than endure it."
+            ]
+          },
+          "accessibleFallback": {
+            "type": "noul",
+            "instructions": "Consider a visitor who cannot or will not use the immersive path — no camera permission, no XR hardware, no controllers, or a refusal at the prompt. On the evidence in this trace, did that visitor still get a working experience? Judge what the session actually did after the immersive path was unavailable, not what the app might have intended.",
+            "criteria": {
+              "true": "Either no immersive path was needed, or the immersive path was unavailable and the session carried on anyway: it kept rendering, answered input, and reached \"checkout-complete\" on a 2D, static or DOM path without entering an error state. A simpler experience that works is a pass here.",
+              "false": "The immersive path was unavailable and the session did not recover: it entered an error state, stopped rendering, stalled short of \"checkout-complete\", or left nothing on screen a visitor could act on. Treating the refusal as fatal is the failure this question exists for."
+            }
           }
         },
         "model": "jev-latest"
@@ -5624,16 +5935,29 @@
           },
           "businessInvariantHeld": {
             "noul": 0.02
+          },
+          "comfortRisk": {
+            "score": 2.82,
+            "probabilities": {
+              "comfortable": 0.01,
+              "slightly off": 0.05,
+              "uncomfortable": 0.22,
+              "queasy": 0.55,
+              "unusable": 0.17
+            }
+          },
+          "accessibleFallback": {
+            "noul": 0.42
           }
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2471
+          "inputTokens": 3262
         }
       }
     },
     {
-      "key": "b2ba6fa195017094",
+      "key": "b23c9a21f600ac68",
       "label": "trace/inconclusive-truncated",
       "request": {
         "state": {
@@ -5811,7 +6135,22 @@
             }
           ],
           "inputClasses": [],
-          "durationMs": 1800
+          "durationMs": 1800,
+          "frameProfile": null,
+          "xr": null,
+          "errorCodes": null,
+          "comfort": {
+            "headTracked": false,
+            "sustainedWindowMs": 5000,
+            "frameTimeFloorMs": 20,
+            "worstWindowP95FrameMs": null,
+            "medianWindowP95FrameMs": null,
+            "windowsExamined": 0,
+            "inputToFrameBudgetMs": 120,
+            "inputToFrameP95Ms": null,
+            "inputSamples": 0,
+            "inputMeasurementNote": "Input-to-frame is the interval from the input event to the next animation-frame callback. Paint, composite and display scanout happen after it, so the true figure a person perceives is higher."
+          }
         },
         "questions": {
           "outcome": {
@@ -5878,6 +6217,32 @@
               "true": "The state sequence contains \"checkout-complete\", reached in no more than 4 steps from the interactive state, with no error state in between.",
               "false": "The state sequence never reaches \"checkout-complete\", or reaches it only after more steps than declared, or passes through an error state on the way."
             }
+          },
+          "comfortRisk": {
+            "type": "score",
+            "instructions": "The measurements are already in the state: worst sustained-window p95 frame time, the frame-rate floor it is judged against, input-to-frame latency, and whether the experience was head-tracked or flat-screen. Do not recompute them. Judge what a person would report after two minutes inside this session. Weigh sustained stutter far more heavily than isolated hitches — a single dropped frame is invisible, five seconds of irregular pacing is not — and weigh any of it much more heavily when the session was head-tracked, because a flat screen that stutters is annoying and a headset that stutters makes people ill. If the trace carries no frame-time evidence at all, stay near the middle and expect the low confidence to be read as the absence of evidence it is.",
+            "levels": [
+              "comfortable",
+              "slightly off",
+              "uncomfortable",
+              "queasy",
+              "unusable"
+            ],
+            "criteria": [
+              "Motion is smooth and input is answered immediately. Nothing about the pacing draws attention to itself.",
+              "Occasional hitches an attentive user would notice and a casual one would not. No sustained roughness; nobody would stop using it over this.",
+              "Visibly rough: sustained stretches of irregular pacing, or input that lags noticeably behind the finger. Usable, but the experience is degraded in a way every user would feel.",
+              "Physically unpleasant over a short session — sustained pacing well below the declared floor, or badly laggy input, on content that moves. A susceptible user would feel it in their stomach.",
+              "Cannot reasonably be used: the frame rate collapses for long stretches, or input is effectively unanswered. A user would close the tab rather than endure it."
+            ]
+          },
+          "accessibleFallback": {
+            "type": "noul",
+            "instructions": "Consider a visitor who cannot or will not use the immersive path — no camera permission, no XR hardware, no controllers, or a refusal at the prompt. On the evidence in this trace, did that visitor still get a working experience? Judge what the session actually did after the immersive path was unavailable, not what the app might have intended.",
+            "criteria": {
+              "true": "Either no immersive path was needed, or the immersive path was unavailable and the session carried on anyway: it kept rendering, answered input, and reached \"checkout-complete\" on a 2D, static or DOM path without entering an error state. A simpler experience that works is a pass here.",
+              "false": "The immersive path was unavailable and the session did not recover: it entered an error state, stopped rendering, stalled short of \"checkout-complete\", or left nothing on screen a visitor could act on. Treating the refusal as fatal is the failure this question exists for."
+            }
           }
         },
         "model": "jev-latest"
@@ -5923,16 +6288,29 @@
           },
           "businessInvariantHeld": {
             "noul": 0.05
+          },
+          "comfortRisk": {
+            "score": 1.7,
+            "probabilities": {
+              "comfortable": 0.2,
+              "slightly off": 0.25,
+              "uncomfortable": 0.3,
+              "queasy": 0.15,
+              "unusable": 0.1
+            }
+          },
+          "accessibleFallback": {
+            "noul": 0.5
           }
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2114
+          "inputTokens": 2905
         }
       }
     },
     {
-      "key": "d4fca622b7c80cf0",
+      "key": "a59a52de1fd79c5f",
       "label": "trace/pass-adaptive-low-cpu-3g",
       "request": {
         "state": {
@@ -6247,7 +6625,22 @@
             "tap:add-to-cart",
             "tap:checkout"
           ],
-          "durationMs": 8200
+          "durationMs": 8200,
+          "frameProfile": null,
+          "xr": null,
+          "errorCodes": null,
+          "comfort": {
+            "headTracked": false,
+            "sustainedWindowMs": 5000,
+            "frameTimeFloorMs": 20,
+            "worstWindowP95FrameMs": null,
+            "medianWindowP95FrameMs": null,
+            "windowsExamined": 0,
+            "inputToFrameBudgetMs": 120,
+            "inputToFrameP95Ms": 159.7,
+            "inputSamples": 3,
+            "inputMeasurementNote": "Input-to-frame is the interval from the input event to the next animation-frame callback. Paint, composite and display scanout happen after it, so the true figure a person perceives is higher."
+          }
         },
         "questions": {
           "outcome": {
@@ -6314,6 +6707,32 @@
               "true": "The state sequence contains \"checkout-complete\", reached in no more than 4 steps from the interactive state, with no error state in between.",
               "false": "The state sequence never reaches \"checkout-complete\", or reaches it only after more steps than declared, or passes through an error state on the way."
             }
+          },
+          "comfortRisk": {
+            "type": "score",
+            "instructions": "The measurements are already in the state: worst sustained-window p95 frame time, the frame-rate floor it is judged against, input-to-frame latency, and whether the experience was head-tracked or flat-screen. Do not recompute them. Judge what a person would report after two minutes inside this session. Weigh sustained stutter far more heavily than isolated hitches — a single dropped frame is invisible, five seconds of irregular pacing is not — and weigh any of it much more heavily when the session was head-tracked, because a flat screen that stutters is annoying and a headset that stutters makes people ill. If the trace carries no frame-time evidence at all, stay near the middle and expect the low confidence to be read as the absence of evidence it is.",
+            "levels": [
+              "comfortable",
+              "slightly off",
+              "uncomfortable",
+              "queasy",
+              "unusable"
+            ],
+            "criteria": [
+              "Motion is smooth and input is answered immediately. Nothing about the pacing draws attention to itself.",
+              "Occasional hitches an attentive user would notice and a casual one would not. No sustained roughness; nobody would stop using it over this.",
+              "Visibly rough: sustained stretches of irregular pacing, or input that lags noticeably behind the finger. Usable, but the experience is degraded in a way every user would feel.",
+              "Physically unpleasant over a short session — sustained pacing well below the declared floor, or badly laggy input, on content that moves. A susceptible user would feel it in their stomach.",
+              "Cannot reasonably be used: the frame rate collapses for long stretches, or input is effectively unanswered. A user would close the tab rather than endure it."
+            ]
+          },
+          "accessibleFallback": {
+            "type": "noul",
+            "instructions": "Consider a visitor who cannot or will not use the immersive path — no camera permission, no XR hardware, no controllers, or a refusal at the prompt. On the evidence in this trace, did that visitor still get a working experience? Judge what the session actually did after the immersive path was unavailable, not what the app might have intended.",
+            "criteria": {
+              "true": "Either no immersive path was needed, or the immersive path was unavailable and the session carried on anyway: it kept rendering, answered input, and reached \"checkout-complete\" on a 2D, static or DOM path without entering an error state. A simpler experience that works is a pass here.",
+              "false": "The immersive path was unavailable and the session did not recover: it entered an error state, stopped rendering, stalled short of \"checkout-complete\", or left nothing on screen a visitor could act on. Treating the refusal as fatal is the failure this question exists for."
+            }
           }
         },
         "model": "jev-latest"
@@ -6359,16 +6778,29 @@
           },
           "businessInvariantHeld": {
             "noul": 0.98
+          },
+          "comfortRisk": {
+            "score": 0.9,
+            "probabilities": {
+              "comfortable": 0.35,
+              "slightly off": 0.45,
+              "uncomfortable": 0.16,
+              "queasy": 0.03,
+              "unusable": 0.01
+            }
+          },
+          "accessibleFallback": {
+            "noul": 0.93
           }
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2585
+          "inputTokens": 3376
         }
       }
     },
     {
-      "key": "39cede33628c794c",
+      "key": "96fa8ad2121c2021",
       "label": "trace/pass-camera-denied-fallback",
       "request": {
         "state": {
@@ -6703,7 +7135,22 @@
             "tap:add-to-cart",
             "tap:checkout"
           ],
-          "durationMs": 7100
+          "durationMs": 7100,
+          "frameProfile": null,
+          "xr": null,
+          "errorCodes": null,
+          "comfort": {
+            "headTracked": false,
+            "sustainedWindowMs": 5000,
+            "frameTimeFloorMs": 20,
+            "worstWindowP95FrameMs": null,
+            "medianWindowP95FrameMs": null,
+            "windowsExamined": 0,
+            "inputToFrameBudgetMs": 120,
+            "inputToFrameP95Ms": 43.6,
+            "inputSamples": 3,
+            "inputMeasurementNote": "Input-to-frame is the interval from the input event to the next animation-frame callback. Paint, composite and display scanout happen after it, so the true figure a person perceives is higher."
+          }
         },
         "questions": {
           "outcome": {
@@ -6770,6 +7217,32 @@
               "true": "The state sequence contains \"checkout-complete\", reached in no more than 4 steps from the interactive state, with no error state in between.",
               "false": "The state sequence never reaches \"checkout-complete\", or reaches it only after more steps than declared, or passes through an error state on the way."
             }
+          },
+          "comfortRisk": {
+            "type": "score",
+            "instructions": "The measurements are already in the state: worst sustained-window p95 frame time, the frame-rate floor it is judged against, input-to-frame latency, and whether the experience was head-tracked or flat-screen. Do not recompute them. Judge what a person would report after two minutes inside this session. Weigh sustained stutter far more heavily than isolated hitches — a single dropped frame is invisible, five seconds of irregular pacing is not — and weigh any of it much more heavily when the session was head-tracked, because a flat screen that stutters is annoying and a headset that stutters makes people ill. If the trace carries no frame-time evidence at all, stay near the middle and expect the low confidence to be read as the absence of evidence it is.",
+            "levels": [
+              "comfortable",
+              "slightly off",
+              "uncomfortable",
+              "queasy",
+              "unusable"
+            ],
+            "criteria": [
+              "Motion is smooth and input is answered immediately. Nothing about the pacing draws attention to itself.",
+              "Occasional hitches an attentive user would notice and a casual one would not. No sustained roughness; nobody would stop using it over this.",
+              "Visibly rough: sustained stretches of irregular pacing, or input that lags noticeably behind the finger. Usable, but the experience is degraded in a way every user would feel.",
+              "Physically unpleasant over a short session — sustained pacing well below the declared floor, or badly laggy input, on content that moves. A susceptible user would feel it in their stomach.",
+              "Cannot reasonably be used: the frame rate collapses for long stretches, or input is effectively unanswered. A user would close the tab rather than endure it."
+            ]
+          },
+          "accessibleFallback": {
+            "type": "noul",
+            "instructions": "Consider a visitor who cannot or will not use the immersive path — no camera permission, no XR hardware, no controllers, or a refusal at the prompt. On the evidence in this trace, did that visitor still get a working experience? Judge what the session actually did after the immersive path was unavailable, not what the app might have intended.",
+            "criteria": {
+              "true": "Either no immersive path was needed, or the immersive path was unavailable and the session carried on anyway: it kept rendering, answered input, and reached \"checkout-complete\" on a 2D, static or DOM path without entering an error state. A simpler experience that works is a pass here.",
+              "false": "The immersive path was unavailable and the session did not recover: it entered an error state, stopped rendering, stalled short of \"checkout-complete\", or left nothing on screen a visitor could act on. Treating the refusal as fatal is the failure this question exists for."
+            }
           }
         },
         "model": "jev-latest"
@@ -6815,16 +7288,29 @@
           },
           "businessInvariantHeld": {
             "noul": 0.98
+          },
+          "comfortRisk": {
+            "score": 0.23,
+            "probabilities": {
+              "comfortable": 0.82,
+              "slightly off": 0.14,
+              "uncomfortable": 0.03,
+              "queasy": 0.008,
+              "unusable": 0.002
+            }
+          },
+          "accessibleFallback": {
+            "noul": 0.97
           }
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2648
+          "inputTokens": 3439
         }
       }
     },
     {
-      "key": "5540fbde3992aa46",
+      "key": "38cf0bccb096d361",
       "label": "trace/pass-high-desktop",
       "request": {
         "state": {
@@ -7151,7 +7637,22 @@
             "tap:add-to-cart",
             "tap:checkout"
           ],
-          "durationMs": 6480
+          "durationMs": 6480,
+          "frameProfile": null,
+          "xr": null,
+          "errorCodes": null,
+          "comfort": {
+            "headTracked": true,
+            "sustainedWindowMs": 5000,
+            "frameTimeFloorMs": 20,
+            "worstWindowP95FrameMs": null,
+            "medianWindowP95FrameMs": null,
+            "windowsExamined": 0,
+            "inputToFrameBudgetMs": 120,
+            "inputToFrameP95Ms": 40.7,
+            "inputSamples": 3,
+            "inputMeasurementNote": "Input-to-frame is the interval from the input event to the next animation-frame callback. Paint, composite and display scanout happen after it, so the true figure a person perceives is higher."
+          }
         },
         "questions": {
           "outcome": {
@@ -7218,6 +7719,32 @@
               "true": "The state sequence contains \"checkout-complete\", reached in no more than 4 steps from the interactive state, with no error state in between.",
               "false": "The state sequence never reaches \"checkout-complete\", or reaches it only after more steps than declared, or passes through an error state on the way."
             }
+          },
+          "comfortRisk": {
+            "type": "score",
+            "instructions": "The measurements are already in the state: worst sustained-window p95 frame time, the frame-rate floor it is judged against, input-to-frame latency, and whether the experience was head-tracked or flat-screen. Do not recompute them. Judge what a person would report after two minutes inside this session. Weigh sustained stutter far more heavily than isolated hitches — a single dropped frame is invisible, five seconds of irregular pacing is not — and weigh any of it much more heavily when the session was head-tracked, because a flat screen that stutters is annoying and a headset that stutters makes people ill. If the trace carries no frame-time evidence at all, stay near the middle and expect the low confidence to be read as the absence of evidence it is.",
+            "levels": [
+              "comfortable",
+              "slightly off",
+              "uncomfortable",
+              "queasy",
+              "unusable"
+            ],
+            "criteria": [
+              "Motion is smooth and input is answered immediately. Nothing about the pacing draws attention to itself.",
+              "Occasional hitches an attentive user would notice and a casual one would not. No sustained roughness; nobody would stop using it over this.",
+              "Visibly rough: sustained stretches of irregular pacing, or input that lags noticeably behind the finger. Usable, but the experience is degraded in a way every user would feel.",
+              "Physically unpleasant over a short session — sustained pacing well below the declared floor, or badly laggy input, on content that moves. A susceptible user would feel it in their stomach.",
+              "Cannot reasonably be used: the frame rate collapses for long stretches, or input is effectively unanswered. A user would close the tab rather than endure it."
+            ]
+          },
+          "accessibleFallback": {
+            "type": "noul",
+            "instructions": "Consider a visitor who cannot or will not use the immersive path — no camera permission, no XR hardware, no controllers, or a refusal at the prompt. On the evidence in this trace, did that visitor still get a working experience? Judge what the session actually did after the immersive path was unavailable, not what the app might have intended.",
+            "criteria": {
+              "true": "Either no immersive path was needed, or the immersive path was unavailable and the session carried on anyway: it kept rendering, answered input, and reached \"checkout-complete\" on a 2D, static or DOM path without entering an error state. A simpler experience that works is a pass here.",
+              "false": "The immersive path was unavailable and the session did not recover: it entered an error state, stopped rendering, stalled short of \"checkout-complete\", or left nothing on screen a visitor could act on. Treating the refusal as fatal is the failure this question exists for."
+            }
           }
         },
         "model": "jev-latest"
@@ -7263,11 +7790,24 @@
           },
           "businessInvariantHeld": {
             "noul": 0.99
+          },
+          "comfortRisk": {
+            "score": 0.13,
+            "probabilities": {
+              "comfortable": 0.9,
+              "slightly off": 0.08,
+              "uncomfortable": 0.015,
+              "queasy": 0.004,
+              "unusable": 0.001
+            }
+          },
+          "accessibleFallback": {
+            "noul": 0.95
           }
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2619
+          "inputTokens": 3410
         }
       }
     }

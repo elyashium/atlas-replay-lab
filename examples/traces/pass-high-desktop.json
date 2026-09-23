@@ -6,7 +6,7 @@
     "service.version": "0.1.0",
     "atlas.manifest.id": "orbital",
     "atlas.manifest.version": "1.4.0",
-    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.manifest.hash": "bbf16c3ba4304ad8",
     "atlas.profile.id": "high-end-wifi",
     "atlas.run.kind": "adaptive",
     "atlas.emulated": true,
@@ -333,10 +333,13 @@
     "tap:add-to-cart",
     "tap:checkout"
   ],
-  "determinismHash": "feeb3f9bc035e17b046fdee087a517d3",
+  "determinismHash": "08117ed035bd85262d9a2fad876fd33d",
   "startedAtIso": "2026-01-01T00:00:00.000Z",
   "durationMs": 6480,
   "notes": [
     "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented."
-  ]
+  ],
+  "frameTimes": [],
+  "xrSessionEvents": [],
+  "consoleErrors": []
 }

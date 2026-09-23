@@ -6,7 +6,7 @@
     "service.version": "0.1.0",
     "atlas.manifest.id": "orbital",
     "atlas.manifest.version": "1.4.0",
-    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.manifest.hash": "bbf16c3ba4304ad8",
     "atlas.profile.id": "mid-android-4g",
     "atlas.run.kind": "baseline",
     "atlas.emulated": true,
@@ -295,11 +295,14 @@
   "inputClasses": [
     "tap:product"
   ],
-  "determinismHash": "c8332a08ee753324259cd668bb0f54e7",
+  "determinismHash": "ab3ca72166a10f838b7a59fb3343ced5",
   "startedAtIso": "2026-01-01T00:00:00.000Z",
   "durationMs": 10200,
   "notes": [
     "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented.",
     "baseline run: the tier router was bypassed and 'high' pinned by the harness"
-  ]
+  ],
+  "frameTimes": [],
+  "xrSessionEvents": [],
+  "consoleErrors": []
 }

@@ -6,7 +6,7 @@
     "service.version": "0.1.0",
     "atlas.manifest.id": "orbital",
     "atlas.manifest.version": "1.4.0",
-    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.manifest.hash": "bbf16c3ba4304ad8",
     "atlas.profile.id": "low-cpu-3g",
     "atlas.run.kind": "adaptive",
     "atlas.emulated": true,
@@ -321,10 +321,13 @@
     "tap:add-to-cart",
     "tap:checkout"
   ],
-  "determinismHash": "7ee2b267ca69742b99442476b83700c0",
+  "determinismHash": "44b846c4a723cfb31d8afdf4740f2874",
   "startedAtIso": "2026-01-01T00:00:00.000Z",
   "durationMs": 8200,
   "notes": [
     "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented."
-  ]
+  ],
+  "frameTimes": [],
+  "xrSessionEvents": [],
+  "consoleErrors": []
 }

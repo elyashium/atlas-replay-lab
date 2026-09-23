@@ -171,6 +171,8 @@ export const TIER_ANSWERS = {
  *   visualInvariantHeld: NoulAnswer;
  *   interactionInvariantHeld: NoulAnswer;
  *   businessInvariantHeld: NoulAnswer;
+ *   comfortRisk: ScoreAnswer;
+ *   accessibleFallback: NoulAnswer;
  * }>}
  */
 export const TRACE_ANSWERS = {
@@ -196,6 +198,11 @@ export const TRACE_ANSWERS = {
     visualInvariantHeld: { noul: 0.97 },
     interactionInvariantHeld: { noul: 0.96 },
     businessInvariantHeld: { noul: 0.99 },
+    comfortRisk: {
+      score: 0.13,
+      probabilities: { comfortable: 0.9, "slightly off": 0.08, uncomfortable: 0.015, queasy: 0.004, unusable: 0.001 },
+    },
+    accessibleFallback: { noul: 0.95 },
   },
 
   "fail-baseline-low-cpu-3g": {
@@ -217,6 +224,11 @@ export const TRACE_ANSWERS = {
     visualInvariantHeld: { noul: 0.02 },
     interactionInvariantHeld: { noul: 0.04 },
     businessInvariantHeld: { noul: 0.01 },
+    comfortRisk: {
+      score: 2.63,
+      probabilities: { comfortable: 0.02, "slightly off": 0.08, uncomfortable: 0.3, queasy: 0.45, unusable: 0.15 },
+    },
+    accessibleFallback: { noul: 0.85 },
   },
 
   "pass-adaptive-low-cpu-3g": {
@@ -238,6 +250,11 @@ export const TRACE_ANSWERS = {
     visualInvariantHeld: { noul: 0.93 },
     interactionInvariantHeld: { noul: 0.91 },
     businessInvariantHeld: { noul: 0.98 },
+    comfortRisk: {
+      score: 0.9,
+      probabilities: { comfortable: 0.35, "slightly off": 0.45, uncomfortable: 0.16, queasy: 0.03, unusable: 0.01 },
+    },
+    accessibleFallback: { noul: 0.93 },
   },
 
   "degraded-packet-loss": {
@@ -259,6 +276,11 @@ export const TRACE_ANSWERS = {
     visualInvariantHeld: { noul: 0.9 },
     interactionInvariantHeld: { noul: 0.72 },
     businessInvariantHeld: { noul: 0.97 },
+    comfortRisk: {
+      score: 1.78,
+      probabilities: { comfortable: 0.08, "slightly off": 0.3, uncomfortable: 0.42, queasy: 0.16, unusable: 0.04 },
+    },
+    accessibleFallback: { noul: 0.88 },
   },
 
   "pass-camera-denied-fallback": {
@@ -282,6 +304,14 @@ export const TRACE_ANSWERS = {
     visualInvariantHeld: { noul: 0.96 },
     interactionInvariantHeld: { noul: 0.95 },
     businessInvariantHeld: { noul: 0.98 },
+    // The fallback success story: camera refused, 2D path smooth, nothing to
+    // feel. Comfort confident and the fallback answer is the most certain in
+    // this file — a model unsure here would be unsure everywhere.
+    comfortRisk: {
+      score: 0.23,
+      probabilities: { comfortable: 0.82, "slightly off": 0.14, uncomfortable: 0.03, queasy: 0.008, unusable: 0.002 },
+    },
+    accessibleFallback: { noul: 0.97 },
   },
 
   "fail-manifest-bug-404": {
@@ -303,6 +333,13 @@ export const TRACE_ANSWERS = {
     visualInvariantHeld: { noul: 0.01 },
     interactionInvariantHeld: { noul: 0.03 },
     businessInvariantHeld: { noul: 0.005 },
+    // Broken assets break every path including the fallback — the one scenario
+    // where the fallback answer is confidently false.
+    comfortRisk: {
+      score: 3.6,
+      probabilities: { comfortable: 0.005, "slightly off": 0.015, uncomfortable: 0.06, queasy: 0.22, unusable: 0.7 },
+    },
+    accessibleFallback: { noul: 0.1 },
   },
 
   "fail-render-stall": {
@@ -327,6 +364,13 @@ export const TRACE_ANSWERS = {
     visualInvariantHeld: { noul: 0.82 },
     interactionInvariantHeld: { noul: 0.03 },
     businessInvariantHeld: { noul: 0.02 },
+    // A sustained stall is felt in the stomach before it is seen in the
+    // metrics. The 2D path stalls too, so the fallback answer stays bearish.
+    comfortRisk: {
+      score: 2.82,
+      probabilities: { comfortable: 0.01, "slightly off": 0.05, uncomfortable: 0.22, queasy: 0.55, unusable: 0.17 },
+    },
+    accessibleFallback: { noul: 0.42 },
   },
 
   // Deliberate divergence in the permissive direction: the model reads a
@@ -353,6 +397,11 @@ export const TRACE_ANSWERS = {
     visualInvariantHeld: { noul: 0.78 },
     interactionInvariantHeld: { noul: 0.12 },
     businessInvariantHeld: { noul: 0.06 },
+    comfortRisk: {
+      score: 2.06,
+      probabilities: { comfortable: 0.05, "slightly off": 0.2, uncomfortable: 0.45, queasy: 0.24, unusable: 0.06 },
+    },
+    accessibleFallback: { noul: 0.6 },
   },
 
   "fail-codec-unsupported": {
@@ -374,6 +423,11 @@ export const TRACE_ANSWERS = {
     visualInvariantHeld: { noul: 0.01 },
     interactionInvariantHeld: { noul: 0.02 },
     businessInvariantHeld: { noul: 0.005 },
+    comfortRisk: {
+      score: 3.51,
+      probabilities: { comfortable: 0.005, "slightly off": 0.02, uncomfortable: 0.08, queasy: 0.25, unusable: 0.645 },
+    },
+    accessibleFallback: { noul: 0.2 },
   },
 
   "inconclusive-truncated": {
@@ -397,5 +451,12 @@ export const TRACE_ANSWERS = {
     visualInvariantHeld: { noul: 0.24 },
     interactionInvariantHeld: { noul: 0.21 },
     businessInvariantHeld: { noul: 0.05 },
+    // No evidence either way: the distribution spreads wide and peaks low, and
+    // the fallback answer sits at maximum uncertainty rather than inventing one.
+    comfortRisk: {
+      score: 1.7,
+      probabilities: { comfortable: 0.2, "slightly off": 0.25, uncomfortable: 0.3, queasy: 0.15, unusable: 0.1 },
+    },
+    accessibleFallback: { noul: 0.5 },
   },
 };

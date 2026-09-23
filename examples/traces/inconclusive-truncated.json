@@ -6,7 +6,7 @@
     "service.version": "0.1.0",
     "atlas.manifest.id": "orbital",
     "atlas.manifest.version": "1.4.0",
-    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.manifest.hash": "bbf16c3ba4304ad8",
     "atlas.profile.id": "mid-android-4g",
     "atlas.run.kind": "adaptive",
     "atlas.emulated": true,
@@ -154,11 +154,14 @@
     "firstFrameNonBlank": null
   },
   "inputClasses": [],
-  "determinismHash": "6fbccd7970c0b2cff823058d6cbe8d33",
+  "determinismHash": "cc2c881ba95f9c54990df84eda412e8a",
   "startedAtIso": "2026-01-01T00:00:00.000Z",
   "durationMs": 1800,
   "notes": [
     "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented.",
     "trace truncated: the runner lost its CDP connection before session end"
-  ]
+  ],
+  "frameTimes": [],
+  "xrSessionEvents": [],
+  "consoleErrors": []
 }

@@ -6,7 +6,7 @@
     "service.version": "0.1.0",
     "atlas.manifest.id": "orbital",
     "atlas.manifest.version": "1.4.0",
-    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.manifest.hash": "bbf16c3ba4304ad8",
     "atlas.profile.id": "camera-denied",
     "atlas.run.kind": "adaptive",
     "atlas.emulated": true,
@@ -341,11 +341,14 @@
     "tap:add-to-cart",
     "tap:checkout"
   ],
-  "determinismHash": "95631dee9af966a21c7df1957f0f2da1",
+  "determinismHash": "643c35b65f3fdacefd442a24781b4782",
   "startedAtIso": "2026-01-01T00:00:00.000Z",
   "durationMs": 7100,
   "notes": [
     "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented.",
     "camera permission refused at probe time; routed to the interactive-2d path"
-  ]
+  ],
+  "frameTimes": [],
+  "xrSessionEvents": [],
+  "consoleErrors": []
 }

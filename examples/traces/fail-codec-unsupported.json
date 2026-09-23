@@ -6,7 +6,7 @@
     "service.version": "0.1.0",
     "atlas.manifest.id": "orbital",
     "atlas.manifest.version": "1.4.0",
-    "atlas.manifest.hash": "2fbb0d61d98c6439",
+    "atlas.manifest.hash": "bbf16c3ba4304ad8",
     "atlas.profile.id": "no-webgl",
     "atlas.run.kind": "adaptive",
     "atlas.emulated": true,
@@ -183,10 +183,13 @@
     "firstFrameNonBlank": null
   },
   "inputClasses": [],
-  "determinismHash": "0f07c83725406bf7b66a853a7a02f52b",
+  "determinismHash": "2f2c7375a50fd0e2553d4ef623b0f80a",
   "startedAtIso": "2026-01-01T00:00:00.000Z",
   "durationMs": 2900,
   "notes": [
     "SYNTHETIC: hand-authored fixture, not a captured session. Timings are invented."
-  ]
+  ],
+  "frameTimes": [],
+  "xrSessionEvents": [],
+  "consoleErrors": []
 }
