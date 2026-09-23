@@ -207,7 +207,7 @@ hand-copied metric is exactly the kind of number that goes stale and then lies.
 |---|---|
 | `node bin/atlas.js doctor` | Check Node, the browser, the manifest, assets, engines. Start here. |
 | `node bin/atlas.js all` | Everything: matrix → replay → gate → compare → report. Exits 1 on HOLD. |
-| `node bin/atlas.js matrix` | The six-profile matrix alone |
+| `node bin/atlas.js matrix` | The capability matrix: Orbital, `--url <href>` for a third-party page, `--glb <file>` for an uploaded model in the viewer |
 | `node bin/atlas.js replay` | Re-run a captured trace and prove it reproduces |
 | `node bin/atlas.js gate` | Apply the release rule to what was captured |
 | `node bin/atlas.js compare` | §4.4 — both engines over the same fixtures |
@@ -242,7 +242,8 @@ a command.
 
 ```
 bin/atlas.js            the single entry point
-experience/             the Orbital demo — the thing under test
+experience/             the Orbital demo + the model viewer (`viewer/`, served for `--glb` runs)
+src/viewer/             zero-dep GLB ingest + moderation (the page itself lives in experience/)
 src/manifest/           the quality ladder as validated, hashed data
 src/capability/         bucketing and path resolution — the privacy boundary
 src/decision/           the DecisionEngine interface + all three implementations

@@ -11,6 +11,7 @@ Single entry point: `node bin/atlas.js`. Zero dependencies by design (ADR-0002: 
 - `node bin/atlas.js jev-check` — the one command requiring `TYPESAFE_API_KEY`; validates key + one live smoke call.
 - `node bin/atlas.js preflight --url <https://…>` — static weight assessment, no browser. Private hosts refused unless `ATLAS_PREFLIGHT_ALLOW_PRIVATE=1`. Always exits 0.
 - `node bin/atlas.js matrix --url <https://…>` — run the matrix against a third-party page (generic probe + generic manifest), not Orbital.
+- `node bin/atlas.js matrix --glb <file>` — moderate + stage a model, serve the viewer, same generic pipeline. Needs Chrome; verified live on desktop + xr profiles.
 
 ## Tests
 

@@ -5,11 +5,12 @@ with a degrade report, a replayable failure, and a single rating. No rewrite:
 the matrix / trace / replay / gate / judge stays as-is; each slice adds one
 ingestion path and the invariants needed to rate it.
 
-Status (2026-09-23): Slices 1–2 built and tested — `matrix --url`, generic
+Status (2026-09-24): all three slices built and tested — `matrix --url`, generic
 probe/driver/manifest, comfort invariants, Atlas score, incident memory,
 fan-out judge, score floor in the gate (rule 8), triage in the HTML report,
-and `preflight`. Slice 3 (.glb upload, XR session stub) is still plan only.
-Slices build in order; each is independently demoable.
+`preflight`, and `matrix --glb` (moderated upload → staged viewer → matrix,
+verified live on desktop and xr-granted profiles). Slices build in order; each
+is independently demoable.
 
 ## Constraints carried in (non-negotiable)
 
@@ -77,7 +78,7 @@ with labels, comfort findings, and the measured triage cost.
 - Accept: two different visitor URLs get different scores with legible,
   disputable reasons; preflight prediction matches matrix outcome ≥ direction.
 
-## Slice 3 — Upload a `.glb` ⏳ plan only
+## Slice 3 — Upload a `.glb` ✅ built (tests/viewer.test.js + live matrix runs)
 
 For visitors without a deployed URL.
 
