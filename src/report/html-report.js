@@ -34,6 +34,7 @@ import { MATRIX_DIR } from "../runner/run-matrix.js";
 import { REPLAY_DIR } from "../runner/run-replay.js";
 import { GATE_DIR } from "../gate/release-gate.js";
 import { COMPARE_DIR } from "./engine-comparison.js";
+import { JUDGE_DIR } from "../judge/run-judge.js";
 import { readJson, writeFileEnsured, fromRoot, ROOT } from "../util/fsx.js";
 import { logger } from "../util/log.js";
 
@@ -85,6 +86,7 @@ export async function renderReport(opts = {}) {
     matrix: await load(path.join(MATRIX_DIR, "report.json")),
     gate: await load(path.join(GATE_DIR, "report.json")),
     compare: await load(path.join(COMPARE_DIR, "engine-comparison.json")),
+    judge: await load(path.join(JUDGE_DIR, "judge-report.json")),
     replays: await loadReplays(),
   };
 
@@ -97,6 +99,7 @@ export async function renderReport(opts = {}) {
       sources.replays.length ? `replay×${sources.replays.length}` : null,
       sources.gate ? "gate" : null,
       sources.compare ? "compare" : null,
+      sources.judge ? `judge×${sources.judge.data.counts?.judged ?? "?"}` : null,
     ].filter(Boolean);
     log.info(
       present.length
@@ -166,6 +169,7 @@ function renderHtml(s, outDir) {
     matrixSection(s.matrix, href),
     replaySection(s.replays, href),
     compareSection(s.compare),
+    judgeSection(s.judge),
     provenance(s, generatedAt),
   ].join("\n");
 
@@ -597,6 +601,69 @@ function compareSection(compare) {
 
   <p class="note">${esc(c.groundTruth.caveat)}</p>
   <p class="source">Source: <code>${esc(rel(compare.path))}</code> · reproduce with <code>node bin/atlas.js compare</code></p>
+</section>`;
+}
+
+/**
+ * Batch trace triage: every captured trace judged, scored, and — when a model
+ * is configured — compared. Missing states as missing per the file's rule.
+ * @param {any} judge
+ */
+function judgeSection(judge) {
+  if (!judge) {
+    return notRun(
+      "Batch trace triage",
+      "node bin/atlas.js judge",
+      "No captured traces have been batch-judged. Judging observes; the gate decides.",
+    );
+  }
+  const j = judge.data;
+  const rows = (j.rows ?? [])
+    .map(
+      (/** @type {any} */ r) => {
+        // Rows written before the Atlas score existed carry no `atlasScore`;
+        // state the gap per row rather than crashing the whole page.
+        const a = r.atlasScore ?? null;
+        const v = r.rules ?? {};
+        return `<tr>
+      <td class="mono">${esc(r.traceId)}</td>
+      <td class="mono dim">${esc(r.profile ?? "—")}</td>
+      <td class="num">${a === null || a.score === null ? `<span class="dim">—</span>` : `${a.score} <span class="dim small">${esc(a.label ?? "")}</span>`}</td>
+      <td class="mono">${esc(v.outcome ?? "?")} <span class="dim small">${esc(v.rootCause ?? "")}</span></td>
+      <td class="mono">${r.jev ? `${esc(r.jev.outcome)} <span class="dim small">${esc(r.jev.rootCause)}</span>` : r.jevError ? `<span class="bad small">${esc(r.jevError)}</span>` : `<span class="dim">—</span>`}</td>
+      <td>${r.agreement ? check(r.agreement.outcome) : `<span class="dim">—</span>`}</td>
+    </tr>`;
+      },
+    )
+    .join("");
+
+  const s = j.scores ?? {};
+  const cost = j.jevRun
+    ? `${j.jevRun.calls} call(s), mean ${j.jevRun.meanLatencyMs}ms, ${j.jevRun.inputTokens} input tokens, ≈$${j.jevRun.estimatedUsd} total (≈$${j.jevRun.perTraceUsd}/trace, output free), model ${esc(j.jevRun.model)}`
+    : "rule-based judge only — nothing was called, nothing was spent.";
+
+  return `
+<section>
+  <h2>Batch trace triage</h2>
+  <p class="lede">
+    The same trace judge pointed at captured traces instead of synthetic scenarios — the shape
+    production triage takes. Scores are deterministic (trace + manifest, never a model); verdicts
+    come from the rule engine, plus Jev when configured.
+  </p>
+  <div class="mode-note ${esc(j.mode)}"><b>${esc(j.mode)}</b> — ${esc(j.$note)}</div>
+  <div class="facts">
+    ${fact("judged", `${j.counts?.judged ?? 0}/${j.counts?.files ?? 0} traces`)}
+    ${fact("score median", s.median === null || s.median === undefined ? "—" : String(s.median))}
+    ${fact("below 50", String(s.below50 ?? 0))}
+    ${fact("Jev errors", String(j.counts?.jevErrors ?? 0))}
+    ${fact("open incidents asked", String(j.incidents?.open ?? 0))}
+  </div>
+  <table>
+    <thead><tr><th>trace</th><th>profile</th><th class="num">Atlas score</th><th>rules</th><th>Jev</th><th>agree</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <p class="note">Triage cost: ${cost}</p>
+  <p class="source">Source: <code>${esc(rel(judge.path))}</code> · reproduce with <code>node bin/atlas.js judge</code></p>
 </section>`;
 }
 
