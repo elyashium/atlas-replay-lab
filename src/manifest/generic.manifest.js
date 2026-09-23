@@ -104,6 +104,35 @@ const base = {
       endState: "session-complete",
       maxStepsToEndState: 3,
     },
+    /**
+     * Comfort — what the session felt like, as opposed to whether it worked.
+     *
+     * Additive: `src/gate/comfort.js` falls back to its own defaults when a
+     * manifest omits this block, so every trace captured before these existed
+     * still scores. Declared here rather than left as module constants because
+     * they are the numbers a customer will want to argue with about their own
+     * app, and a threshold you cannot edit is a threshold you will be told is
+     * wrong.
+     */
+    comfort: {
+      id: "cmf.stays-bearable",
+      description:
+        "Motion stays smooth enough not to induce discomfort over a sustained " +
+        "window, a refused XR session still leaves a usable page, and input is " +
+        "answered promptly.",
+      // Flat-screen floor. Deliberately not a headset number: Atlas's XR
+      // sessions run against its own injected stub, so a 90Hz reading here
+      // would be a measurement of requestAnimationFrame and nothing else.
+      sustainedFpsFloor: 30,
+      sustainedWindowMs: 5000,
+      // A refused or unavailable XR session must still reach the end state
+      // without passing through `error`. This is the default-on case: most
+      // users who see a permission prompt decline it.
+      requireUsableXrFallback: true,
+      // Input event to next animation-frame callback — a lower bound on true
+      // input-to-photon, which also includes paint, composite and scanout.
+      p95InputToFrameMs: 200,
+    },
   },
 
   /**

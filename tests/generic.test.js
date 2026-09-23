@@ -211,7 +211,7 @@ test("a heavy payload that renders nothing is a failed heavy delivery, not a fal
   assert.equal(result.tier, "high", "the bytes arrived, so the weight class stands");
   assert.equal(result.path, "static-safe", "and nothing of consequence rendered");
   assert.ok(
-    result.notes.some((n) => /failed, not as a\s+graceful static fallback|heavy delivery that failed/.test(n)),
+    result.notes.some((n) => /heavy delivery that failed/.test(n)),
     "the disagreement between tier and path must be stated",
   );
 });
