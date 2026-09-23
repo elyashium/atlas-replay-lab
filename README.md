@@ -100,6 +100,19 @@ versioned id once thresholds are tuned — aliases move), `TYPESAFE_BASE_URL`
 points at a gateway instead, `TYPESAFE_TIMEOUT_MS` overrides the 4s default.
 `atlas doctor` keeps passing without a key; only `jev-check` requires one.
 
+### Predicting before running: preflight
+
+```bash
+node bin/atlas.js preflight --url <https://…>
+```
+
+Fetches a page, sizes its assets by header (nothing is downloaded or executed),
+and assesses which tier the weight points at — the prediction `atlas matrix
+--url` then confirms or refutes. Rules always; Jev joins in when configured.
+Private hosts are refused unless `ATLAS_PREFLIGHT_ALLOW_PRIVATE=1`. Always
+exits 0: preflight predicts, the matrix decides. Static weight only — decode
+cost, render cost, and runtime behavior are invisible here by construction.
+
 ## Jev: what is claimed, and by whom
 
 The optional model is **Jev**, TypeSafe AI's "System One" model. It answers in a
@@ -194,6 +207,7 @@ hand-copied metric is exactly the kind of number that goes stale and then lies.
 | `node bin/atlas.js compare` | §4.4 — both engines over the same fixtures |
 | `node bin/atlas.js judge` | batch-judge captured traces + Jev cost/latency |
 | `node bin/atlas.js jev-check` | validate `TYPESAFE_API_KEY` with one live call |
+| `node bin/atlas.js preflight --url <u>` | static pre-launch weight assessment |
 | `node bin/atlas.js report` | Render `artifacts/report.html` from what is on disk |
 | `node bin/atlas.js fixtures` | Write the illustrative Jev fixtures and `examples/traces/` |
 | `node bin/atlas.js assets` | Generate the tier assets (`all` does this on demand) |
