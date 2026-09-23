@@ -7,6 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { moderateGlb } from "../src/viewer/parse-glb.js";
+import { viewerTierSettings, viewerTiers } from "../experience/viewer/ladder.js";
 
 /** Minimal single-triangle document: POSITION + NORMAL + USHORT indices. */
 function triangleDoc() {
@@ -146,4 +147,18 @@ test("animations, skins, cameras, and images warn rather than block", () => {
   for (const word of ["animation", "skin", "camera", "image"]) {
     assert.ok(r.warnings.some((w) => w.includes(word)), `no warning for ${word}`);
   }
+});
+
+test("the render ladder descends in cost and never guesses", () => {
+  assert.deepEqual(viewerTiers().sort(), ["high", "low", "mid", "static-fallback"].sort());
+  const high = viewerTierSettings("high");
+  const mid = viewerTierSettings("mid");
+  const low = viewerTierSettings("low");
+  const poster = viewerTierSettings("static-fallback");
+  assert.ok(high.dprCap >= mid.dprCap && mid.dprCap >= low.dprCap, "pixel ratio descends");
+  assert.ok(high.triCap >= mid.triCap && mid.triCap >= low.triCap, "triangle budget descends");
+  assert.equal(poster.animate, false, "the poster rung runs no WebGL loop");
+  assert.equal(high.animate, true);
+  // Unknown tiers fall through to the poster, never to an invented setting.
+  assert.deepEqual(viewerTierSettings("ultra"), poster);
 });
