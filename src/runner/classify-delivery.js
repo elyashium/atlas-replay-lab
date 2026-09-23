@@ -44,6 +44,7 @@
  */
 
 import { percentile, round4 } from "../trace/schema.js";
+import { finalizeTrace } from "../trace/assemble.js";
 
 /**
  * A canvas smaller than this fraction of the viewport is decoration — a logo, a
@@ -244,12 +245,22 @@ export function classifyDelivery(trace, manifest, surface) {
 }
 
 /**
- * Writes the classification onto the trace and appends its notes.
+ * Writes the classification onto the trace, appends its notes, and **re-hashes**.
  *
- * Deliberately does not re-hash: `servedTier`, `servedPath` and `notes` are all
- * outside `normalizeTrace`'s field set, so nothing here can move
- * `determinismHash`. The caller re-derives metrics when it has other reasons to
- * (`finalizeTrace`), not because of this.
+ * The re-hash is not optional and not tidiness. `servedTier` and `servedPath`
+ * are both inside `normalizeTrace`'s field set (`src/trace/normalize.js`), which
+ * is exactly why they are worth recording at all — they are causal structure,
+ * not annotation. Writing them after `finalizeTrace` has already run would
+ * therefore leave a `determinismHash` computed over `servedTier: null` sitting
+ * on a trace whose `servedTier` is `"heavy"`, and the first replay of that trace
+ * would recompute the hash honestly, disagree, and report a divergence that
+ * never happened. A false divergence is worse than no replay at all: it makes
+ * the one claim this project exists to support — *the replay produced the same
+ * trace* — unfalsifiable, because nobody believes the failures either.
+ *
+ * `finalizeTrace` is safe to call twice. It re-derives metrics from the events
+ * and re-hashes; the first-frame visual measurement lives on the `first-frame`
+ * event's attributes, not in `metrics`, so a re-derive preserves it.
  *
  * @param {Trace} trace
  * @param {ExperienceManifest} manifest
@@ -263,6 +274,7 @@ export function applyDeliveryClassification(trace, manifest, surface) {
   trace.notes.push(`observed delivery: tier '${result.tier}' — ${result.tierBasis}`);
   trace.notes.push(`observed path: '${result.path}' — ${result.pathBasis}`);
   for (const n of result.notes) trace.notes.push(n);
+  finalizeTrace(trace, manifest);
   return result;
 }
 
