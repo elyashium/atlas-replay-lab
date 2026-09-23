@@ -32,7 +32,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { orbitalManifest } from "../manifest/atlas-orbital.manifest.js";
-import { genericManifest } from "../manifest/generic.manifest.js";
+import { manifestFor } from "../manifest/select.js";
 import { selectEngine } from "../decision/index.js";
 import { estimateCostUsd } from "../decision/jev-transport.js";
 import { loadIncidents, openIncidents, storeRelPath } from "../gate/incidents.js";
@@ -46,42 +46,6 @@ const log = logger("judge");
 export const JUDGE_DIR = fromRoot("artifacts", "judge");
 
 const DEFAULT_DIRS = ["artifacts/matrix", "artifacts/live-traces", "artifacts/replay"];
-
-/**
- * The manifests a trace can have been captured against, by id.
- *
- * Judging every trace against Orbital's manifest was defensible while Orbital
- * was the only thing Atlas could run. It stopped being defensible the moment
- * `--url` existed: Orbital's invariants name `checkout-complete` as the end
- * state and a stranger's app has no checkout, so every generic trace would be
- * scored against a business invariant it could not possibly satisfy and every
- * `--url` report would read as a catastrophic failure of the visitor's site.
- *
- * Selection is by recorded id, never by a flag, because the trace already knows
- * what it was captured against and a flag could contradict it.
- */
-const MANIFESTS = {
-  [orbitalManifest.id]: orbitalManifest,
-  [genericManifest.id]: genericManifest,
-};
-
-/**
- * @param {Trace} trace
- * @returns {{ manifest: import("../../types/atlas.js").ExperienceManifest; matched: boolean; hashMatches: boolean }}
- */
-function manifestFor(trace) {
-  const id = trace.resource?.["atlas.manifest.id"];
-  const manifest = (id && MANIFESTS[id]) || orbitalManifest;
-  return {
-    manifest,
-    matched: Boolean(id && MANIFESTS[id]),
-    // A trace captured before a manifest edit carries the old hash. The verdict
-    // is still computable — the invariants it is judged against are simply not
-    // byte-identical to the ones it ran under, and saying so is cheaper than
-    // pretending otherwise or refusing to judge.
-    hashMatches: trace.resource?.["atlas.manifest.hash"] === manifest.contentHash,
-  };
-}
 
 /**
  * @param {{ traceFiles?: string[]; dirs?: string[]; outDir?: string; incidentStore?: string; env?: NodeJS.ProcessEnv; quiet?: boolean }} [opts]
@@ -144,6 +108,8 @@ export async function runJudge(opts = {}) {
       servedTier: trace.servedTier,
       manifest: {
         id: chosen.manifest.id,
+        version: chosen.manifest.version,
+        contentHash: chosen.manifest.contentHash,
         recognised: chosen.matched,
         hashMatches: chosen.hashMatches,
       },
@@ -189,11 +155,7 @@ export async function runJudge(opts = {}) {
     generatedAtIso: new Date().toISOString(),
     mode: selection.mode,
     manifest: { id: manifest.id, version: manifest.version, contentHash: manifest.contentHash },
-    manifestsUsed: Object.values(MANIFESTS).map((m) => ({
-      id: m.id,
-      version: m.version,
-      contentHash: m.contentHash,
-    })),
+    manifestsUsed: [...new Map(rows.map((r) => [r.manifest.id, r.manifest])).values()],
     incidents: {
       store: storeRelPath(opts.incidentStore),
       open: incidents.length,

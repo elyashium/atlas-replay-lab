@@ -26,6 +26,19 @@
  *  6. Every decision that drove a shipped run was made at or above the
  *     confidence floor, or was taken over by the rule engine. A decision the
  *     engine was unsure about is routed to a human rather than silently shipped.
+ *  7. Replayed sessions reproduce (see the replay section below).
+ *  8. Every critical profile's **Atlas score** clears the score floor
+ *     (`SCORE_FLOOR`, currently 50). The score is deterministic — computed from
+ *     the trace and the manifest alone, never from a model — so the bar cannot
+ *     move when a model revision ships. Comfort disasters (sustained low fps,
+ *     broken XR fallback) already drag the score down through caps; the floor
+ *     is what turns that drag into a decision.
+ *
+ * The score rule reads the trace file behind each run (`scoreTrace` over the
+ * manifest the trace was captured against, selected by recorded id). A run
+ * whose trace cannot be loaded is skipped by rule 8 without a finding — rule 1
+ * already blocks a critical profile with no trace, and scoring a file that is
+ * not there would double-count the same absence.
  *
  * Budget breaches are **warnings, not blocks**, with one exception: a breach on
  * a critical profile whose verdict is already worse than `pass` is folded into
@@ -50,11 +63,13 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { orbitalManifest } from "../manifest/atlas-orbital.manifest.js";
+import { manifestFor } from "../manifest/select.js";
+import { scoreTrace } from "./atlas-score.js";
 import { PROFILES } from "../runner/profiles.js";
 import { SEVERITY_LEVELS } from "../decision/questions.js";
 import { MATRIX_DIR } from "../runner/run-matrix.js";
 import { REPLAY_DIR } from "../runner/run-replay.js";
-import { readJson, writeJson, fromRoot } from "../util/fsx.js";
+import { readJson, writeJson, fromRoot, ROOT } from "../util/fsx.js";
 import { logger, banner } from "../util/log.js";
 
 const log = logger("gate");
@@ -73,6 +88,14 @@ export const BLOCKING_SEVERITY_INDEX = SEVERITY_LEVELS.indexOf("major");
  * guard's own floor so the gate and the runtime agree on what "unsure" means.
  */
 export const DECISION_CONFIDENCE_FLOOR = 0.55;
+
+/**
+ * Below this Atlas score, a run does not ship. Named for the same reason as
+ * the severity index above: the floor is the policy, and policy should be
+ * arguable in one place. Mirrors the judge's `below50` tally bucket so the
+ * two reports count the same thing.
+ */
+export const SCORE_FLOOR = 50;
 
 /**
  * @typedef {object} Finding
@@ -261,6 +284,38 @@ export async function runGate(opts = {}) {
     /* ── budgets: warnings by design, see the header ────────────────────── */
     if (run.metrics) findings.push(...budgetFindings(run, manifest));
 
+    /* ── rule 8: the Atlas score floor ─────────────────────────────────── */
+    // Needs the trace file, not just the run row: the score is computed from
+    // measurements, and the matrix report carries verdicts, not measurements.
+    // Unreadable trace → skip silently (rule 1 already owns that absence).
+    if (run.tracePath) {
+      const trace = await loadTrace(run.tracePath);
+      if (trace) {
+        const { manifest: traceManifest } = manifestFor(trace);
+        const scored = scoreTrace(trace, traceManifest);
+        if (scored.score !== null && scored.score < SCORE_FLOOR) {
+          findings.push({
+            severity: critical ? "block" : "warn",
+            rule: "8-score-floor",
+            runId: run.runId,
+            message:
+              `Atlas score ${scored.score} ("${scored.label}") is under the ${SCORE_FLOOR} floor` +
+              (scored.capsApplied.length ? ` — capped by ${scored.capsApplied.map((c) => c.id).join(", ")}` : ""),
+            evidence: {
+              score: scored.score,
+              label: scored.label,
+              uncapped: scored.uncappedScore,
+              caps: scored.capsApplied.map((c) => c.id),
+              dimensions: Object.fromEntries(
+                Object.entries(scored.dimensions).map(([k, d]) => [k, { score: d.score, applicable: d.applicable }]),
+              ),
+              comfort: scored.comfort.findings,
+            },
+          });
+        }
+      }
+    }
+
     /* ── page errors are never fatal on their own, always worth surfacing ─ */
     if (run.pageErrors?.length) {
       findings.push({
@@ -312,10 +367,12 @@ export async function runGate(opts = {}) {
     rule: {
       summary:
         "Ship when every critical profile ran, none failed, none scored 'major' or worse, all " +
-        "reached checkout, and none were inconclusive. Budget breaches warn; they do not block.",
+        "reached checkout, none were inconclusive, and every critical profile's Atlas score " +
+        `clears ${SCORE_FLOOR}. Budget breaches warn; they do not block.`,
       blockingSeverityIndex: BLOCKING_SEVERITY_INDEX,
       blockingSeverityLevel: SEVERITY_LEVELS[BLOCKING_SEVERITY_INDEX],
       decisionConfidenceFloor: DECISION_CONFIDENCE_FLOOR,
+      scoreFloor: SCORE_FLOOR,
       businessInvariant: manifest.invariants.business,
       criticalProfiles: [...criticalIds],
       baselineExcluded:
@@ -355,6 +412,36 @@ export async function runGate(opts = {}) {
 }
 
 /* ── budgets ─────────────────────────────────────────────────────────────── */
+
+/**
+ * Loads the trace behind a matrix run, or null when there is nothing usable.
+ * Null is not an error here: rule 1 already blocks a critical profile whose
+ * trace is missing, and rule 8 must not double-count that absence — or fail a
+ * suite whose fixture runs never wrote traces at all.
+ *
+ * @param {unknown} tracePath
+ * @returns {Promise<import("../../types/atlas.js").Trace | null>}
+ */
+async function loadTrace(tracePath) {
+  if (typeof tracePath !== "string" || !tracePath) return null;
+  const candidates = path.isAbsolute(tracePath)
+    ? [tracePath]
+    : [path.join(ROOT, tracePath), path.resolve(tracePath)];
+  for (const file of candidates) {
+    if (!existsSync(file)) continue;
+    try {
+      const parsed = await readJson(file);
+      const trace = /** @type {any} */ (parsed?.trace ?? parsed);
+      if (trace && typeof trace.traceId === "string" && Array.isArray(trace.events)) {
+        return /** @type {import("../../types/atlas.js").Trace} */ (trace);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 
 /**
  * Budget comparisons, emitted as warnings.

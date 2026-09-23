@@ -19,7 +19,8 @@ import path from "node:path";
 import os from "node:os";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 
-import { runGate, BLOCKING_SEVERITY_INDEX, DECISION_CONFIDENCE_FLOOR } from "../src/gate/release-gate.js";
+import { runGate, BLOCKING_SEVERITY_INDEX, DECISION_CONFIDENCE_FLOOR, SCORE_FLOOR } from "../src/gate/release-gate.js";
+import { fromRoot } from "../src/util/fsx.js";
 import { SEVERITY_LEVELS, ROOT_CAUSE_OPTIONS } from "../src/decision/questions.js";
 import { PROFILES } from "../src/runner/profiles.js";
 import { orbitalManifest } from "../src/manifest/atlas-orbital.manifest.js";
@@ -528,4 +529,49 @@ test("the counts add up to the findings actually listed", async (t) => {
   assert.equal(report.counts.info, n("info"));
   assert.equal(report.counts.blocks + report.counts.warnings + report.counts.info, report.findings.length);
   assert.ok(report.counts.blocks >= 3, "fail + severity + business invariant should all fire");
+});
+
+/* ── rule 8: the Atlas score floor ────────────────────────────────────────── */
+
+// Rule 8 reads the trace file behind each run, so these tests point at the
+// checked-in example traces — real trace objects, not hand-built rows. That is
+// the point: the rule must work on what the matrix actually writes.
+
+/** @param {string} name */
+const exampleTrace = (name) => fromRoot("examples", "traces", `${name}.json`);
+
+test("a sub-floor Atlas score blocks on a critical profile", async (t) => {
+  // Verdict and metrics are rigged to pass in isolation: the ONLY reason this
+  // run must not ship is the score of the trace behind it (8, capped by
+  // businessFlowBroken + blankFirstFrame). One rule, one finding.
+  const runs = allPassing().map((r) =>
+    r.profileId === "low-cpu-3g"
+      ? passingRun(r.profileId, { tracePath: exampleTrace("fail-baseline-low-cpu-3g") })
+      : r,
+  );
+  const { report, shipped } = await gate(t, runs);
+  assert.equal(shipped, false);
+  const found = byRule(report, "8-score-floor");
+  assert.equal(found.length, 1, JSON.stringify(found, null, 2));
+  assert.equal(found[0].severity, "block");
+  assert.equal(found[0].evidence.score, 8);
+  assert.match(found[0].message, new RegExp(`under the ${SCORE_FLOOR} floor`));
+});
+
+test("a passing trace adds no score finding", async (t) => {
+  const runs = allPassing().map((r) => passingRun(r.profileId, { tracePath: exampleTrace("pass-high-desktop") }));
+  const { report, shipped } = await gate(t, runs);
+  assert.equal(shipped, true, JSON.stringify(blocks(report), null, 2));
+  assert.equal(byRule(report, "8-score-floor").length, 0);
+});
+
+test("an unreadable trace is skipped by the score rule, not scored as zero", async (t) => {
+  // Scoring a missing file as 0 would double-count rule 1's absence finding.
+  // Scoring it at all would fail every fixture run that never wrote traces.
+  const runs = allPassing().map((r) =>
+    passingRun(r.profileId, { tracePath: path.join(os.tmpdir(), "atlas-no-such-trace.json") }),
+  );
+  const { report, shipped } = await gate(t, runs);
+  assert.equal(shipped, true, JSON.stringify(blocks(report), null, 2));
+  assert.equal(byRule(report, "8-score-floor").length, 0);
 });
