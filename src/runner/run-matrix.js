@@ -312,11 +312,10 @@ export async function runMatrix(opts = {}) {
         extraScripts: extraScripts.length ? extraScripts : undefined,
         // A third-party HTTPS page cannot POST to our loopback control plane
         // (CORS, and mixed content), so its payload is read back over CDP.
-        // `returnByValue` because the payload is a plain JSON object and a
-        // remote-object handle would have to be walked property by property.
+        // `CdpSession.evaluate` always sends `returnByValue`, so what comes
+        // back is the plain object rather than a remote handle to walk.
         harvest: generic
-          ? (session) =>
-              session.evaluate("globalThis.__atlasGeneric.payload()", { returnByValue: true })
+          ? (session) => session.evaluate("globalThis.__atlasGeneric.payload()")
           : undefined,
         // In generic mode a drive that stopped early has still recorded
         // everything up to the failure, and that is the evidence. Waiting out
