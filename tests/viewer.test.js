@@ -162,3 +162,56 @@ test("the render ladder descends in cost and never guesses", () => {
   // Unknown tiers fall through to the poster, never to an invented setting.
   assert.deepEqual(viewerTierSettings("ultra"), poster);
 });
+
+test("stageUpload moderates, hashes, and stages deterministically", async () => {
+  const { stageUpload } = await import("../src/runner/run-matrix.js");
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { readFile } = await import("node:fs/promises");
+  const { json, bin } = triangleDoc();
+  const bytes = toGlb(json, bin);
+  const outDir = await mkdtemp(join(tmpdir(), "atlas-upload-"));
+
+  const first = await stageUpload(bytes, "tri.glb", outDir, {});
+  const second = await stageUpload(bytes, "renamed.glb", outDir, {});
+  assert.equal(first.hash, second.hash, "the filename is content, not the original name");
+  assert.match(first.hash, /^[0-9a-f]{16}$/);
+  const sidecar = JSON.parse(await readFile(join(outDir, "uploads", `${first.hash}.atlas.json`), "utf8"));
+  assert.equal(sidecar.sourceHash, first.hash);
+  assert.equal(sidecar.meshes.length, 1);
+
+  await assert.rejects(
+    stageUpload(Buffer.from("nope"), "nope.glb", outDir, {}),
+    /not a GLB file/,
+    "moderation refusal must name the reason before any browser launches",
+  );
+});
+
+test("aliased mounts serve staged files with their own traversal guard", async () => {
+  const { startServer } = await import("../src/runner/server.js");
+  const { orbitalManifest } = await import("../src/manifest/atlas-orbital.manifest.js");
+  const { RuleBasedDecisionEngine } = await import("../src/decision/rule-based.js");
+  const { mkdtemp, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "atlas-alias-"));
+  await writeFile(join(dir, "a.atlas.json"), JSON.stringify({ hello: "upload" }));
+  const server = await startServer({
+    manifest: orbitalManifest,
+    engine: new RuleBasedDecisionEngine(),
+    traceDir: null,
+    aliases: { "/uploads/": dir },
+  });
+  try {
+    const ok = await fetch(`${server.origin}/uploads/a.atlas.json`);
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { hello: "upload" });
+    const traversal = await fetch(`${server.origin}/uploads/../a.atlas.json`);
+    assert.ok([403, 404].includes(traversal.status), `traversal must not serve, got ${traversal.status}`);
+    const missing = await fetch(`${server.origin}/uploads/nope.json`);
+    assert.equal(missing.status, 404);
+  } finally {
+    await server.close();
+  }
+});

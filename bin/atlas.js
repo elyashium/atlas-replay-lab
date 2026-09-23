@@ -117,8 +117,8 @@ const COMMANDS = {
   },
 
   matrix: {
-    summary: "run the capability matrix in Chrome over CDP — on Orbital, or on any URL",
-    usage: "atlas matrix [--url <href>] [--seed <n>] [--profile <id>]... [--no-baseline] [--out <dir>]",
+    summary: "run the capability matrix in Chrome over CDP — on Orbital, on any URL, or on an uploaded model",
+    usage: "atlas matrix [--url <href> | --glb <file>] [--seed <n>] [--profile <id>]... [--no-baseline] [--out <dir>]",
     detail:
       "Profiles run sequentially, never in parallel: CPU throttling is a whole-browser\n" +
       "setting and two throttled renderers on one machine contend, which would make\n" +
@@ -129,11 +129,20 @@ const COMMANDS = {
       "servedTier/servedPath become readings, not routing decisions, and there is no\n" +
       "baseline half because there is no Atlas router in that loop. The two xr-* profiles\n" +
       "join the default set there; their WebXR is Atlas's own synthetic device, and every\n" +
-      "trace from them says so.",
+      "trace from them says so.\n" +
+      "\n" +
+      "With --glb the target is Atlas's own model viewer over your upload: moderated\n" +
+      "(magic, size and triangle caps), staged under the output dir, served locally.\n" +
+      "The viewer routes itself through the shared control plane; the matrix observes\n" +
+      "it exactly like a stranger page.",
     flags: {
       url: {
         type: "string",
         describe: "run against this http(s) URL instead of the bundled experience",
+      },
+      glb: {
+        type: "string",
+        describe: "run the model viewer against this .glb file (moderated, staged, served locally)",
       },
       seed: { type: "number", describe: "capture seed (default 0x0b17a1)" },
       profile: { type: "list", describe: "run only these profile ids (repeatable)" },
@@ -145,6 +154,7 @@ const COMMANDS = {
       const { runMatrix } = await import("../src/runner/run-matrix.js");
       const result = await runMatrix({
         url: args.flags.url,
+        glb: args.flags.glb,
         seed: args.flags.seed,
         profileIds: args.flags.profile,
         // `undefined` rather than `true` when the switch is absent, so that

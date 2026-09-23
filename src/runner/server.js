@@ -38,6 +38,7 @@ const MIME = {
   ".jpg": "image/jpeg",
   ".svg": "image/svg+xml",
   ".bin": "application/octet-stream",
+  ".glb": "model/gltf-binary",
   ".ico": "image/x-icon",
   ".txt": "text/plain; charset=utf-8",
 };
@@ -72,6 +73,7 @@ const MAX_BODY_BYTES = 8 * 1024 * 1024;
  *   traceDir?: string | null;
  *   emulated?: boolean;
  *   onTrace?: (trace: Trace) => void;
+ *   aliases?: Record<string, string>;
  * }} opts
  * @returns {Promise<AtlasServer>}
  */
@@ -191,6 +193,21 @@ export async function startServer(opts) {
     }
 
     // ── static ────────────────────────────────────────────────────────────
+    // Aliased prefixes (e.g. `/uploads/` → a staging dir outside the root)
+    // are resolved first, each under its own traversal guard. They exist so a
+    // matrix run can serve staged uploads without copying them into the
+    // experience tree, which would mix generated artifacts into versioned code.
+    const aliases = opts.aliases ?? {};
+    for (const [prefix, dir] of Object.entries(aliases)) {
+      if (pathname === prefix || pathname.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`)) {
+        const rel = pathname.slice(prefix.length).replace(/^\/+/, "");
+        const filePath = path.resolve(dir, rel);
+        if (filePath !== dir && !filePath.startsWith(dir + path.sep)) {
+          return sendJson(res, 403, { error: "forbidden" });
+        }
+        return serveFile(res, filePath, rel, stats);
+      }
+    }
     const rel = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
     const filePath = path.resolve(root, rel);
     // Path traversal guard: resolve, then confirm the result is still inside
@@ -198,28 +215,7 @@ export async function startServer(opts) {
     if (filePath !== root && !filePath.startsWith(root + path.sep)) {
       return sendJson(res, 403, { error: "forbidden" });
     }
-
-    /** @type {import("node:fs").Stats} */
-    let info;
-    try {
-      info = await stat(filePath);
-    } catch {
-      return sendJson(res, 404, { error: "not found", path: rel });
-    }
-    if (info.isDirectory()) return sendJson(res, 404, { error: "not found", path: rel });
-
-    res.statusCode = 200;
-    res.setHeader("Content-Type", MIME[path.extname(filePath).toLowerCase()] ?? "application/octet-stream");
-    res.setHeader("Content-Length", String(info.size));
-    stats.bytesServed += info.size;
-    if (req.method === "HEAD") return void res.end();
-
-    await new Promise((resolve, reject) => {
-      const stream = createReadStream(filePath);
-      stream.on("error", reject);
-      stream.on("end", resolve);
-      stream.pipe(res);
-    });
+    return serveFile(res, filePath, rel, stats, req.method);
   }
 
   const port = await new Promise((resolve, reject) => {
@@ -249,9 +245,38 @@ export async function startServer(opts) {
 }
 
 /**
- * @param {http.IncomingMessage} req
- * @returns {Promise<string | null>} null when the body exceeded the cap
+ * Streams one file with correct MIME and length. Shared by the root and every
+ * alias mount so traversal-checked paths all serve identically.
+ *
+ * @param {http.ServerResponse} res
+ * @param {string} filePath   already traversal-checked by the caller
+ * @param {string} rel        display path for 404s
+ * @param {ServerStats} stats
+ * @param {string} [method]
  */
+async function serveFile(res, filePath, rel, stats, method) {
+  /** @type {import("node:fs").Stats} */
+  let info;
+  try {
+    info = await stat(filePath);
+  } catch {
+    return sendJson(res, 404, { error: "not found", path: rel });
+  }
+  if (info.isDirectory()) return sendJson(res, 404, { error: "not found", path: rel });
+
+  res.statusCode = 200;
+  res.setHeader("Content-Type", MIME[path.extname(filePath).toLowerCase()] ?? "application/octet-stream");
+  res.setHeader("Content-Length", String(info.size));
+  stats.bytesServed += info.size;
+  if (method === "HEAD") return void res.end();
+
+  await new Promise((resolve, reject) => {
+    const stream = createReadStream(filePath);
+    stream.on("error", reject);
+    stream.on("end", resolve);
+    stream.pipe(res);
+  });
+}
 function readBody(req) {
   return new Promise((resolve, reject) => {
     /** @type {Buffer[]} */

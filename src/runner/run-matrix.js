@@ -64,11 +64,13 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 
 import { orbitalManifest } from "../manifest/atlas-orbital.manifest.js";
 import { genericManifest } from "../manifest/generic.manifest.js";
 import { validateManifest } from "../manifest/validate.js";
 import { selectEngine } from "../decision/index.js";
+import { moderateGlb } from "../viewer/parse-glb.js";
 import { launchBrowser } from "./cdp.js";
 import { startServer } from "./server.js";
 import { PROFILES, GENERIC_PROFILES, profileById } from "./profiles.js";
@@ -78,7 +80,7 @@ import { driveGeneric } from "./drive-generic.js";
 import { buildXrStubScript, xrStubNote, POSE_SCRIPT_ID } from "./xr-stub.js";
 import { applyDeliveryClassification } from "./classify-delivery.js";
 import { causalHash } from "../trace/normalize.js";
-import { fromRoot, ensureDir, emptyDir, writeJson } from "../util/fsx.js";
+import { fromRoot, ensureDir, emptyDir, writeJson, writeFileEnsured } from "../util/fsx.js";
 import { logger, banner } from "../util/log.js";
 
 
@@ -141,6 +143,54 @@ export function parseTargetUrl(raw) {
   return url;
 }
 
+/** Default caps for `--glb` uploads; overridable per run (see stageUpload). */
+export const DEFAULT_GLB_MAX_BYTES = 50_000_000;
+export const DEFAULT_GLB_MAX_TRIANGLES = 60_000;
+
+/**
+ * Moderates an upload and stages it for serving: `<outDir>/uploads/<hash>.glb`
+ * plus the viewer sidecar `<hash>.atlas.json`.
+ *
+ * The content hash is the filename so a restaged identical file is
+ * byte-identical and the viewer URL (`?model=<hash>`) is deterministic for a
+ * given upload. Moderation runs here — before any browser launches — because
+ * a refused model must cost seconds, not a throttled matrix run. Only the
+ * sidecar is ever served to the page as data; the raw `.glb` rides along so
+ * the artifacts directory is self-describing for anyone re-running the report.
+ *
+ * @param {Buffer} bytes
+ * @param {string} fileName   original path, for messages only
+ * @param {string} outDir
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Promise<{ hash: string; stats: any; warnings: string[]; fileName: string }>}
+ */
+export async function stageUpload(bytes, fileName, outDir, env) {
+  const maxBytes = Number(env.ATLAS_GLB_MAX_BYTES ?? DEFAULT_GLB_MAX_BYTES);
+  const maxTriangles = Number(env.ATLAS_GLB_MAX_TRIANGLES ?? DEFAULT_GLB_MAX_TRIANGLES);
+  const moderated = moderateGlb(bytes, { maxBytes, maxTriangles });
+  if (!moderated.ok || !moderated.sidecar) {
+    throw new Error(`upload refused (${fileName}):\n  ${moderated.errors.join("\n  ")}`);
+  }
+  const hash = createHash("sha256").update(bytes).digest("hex").slice(0, 16);
+  const dir = path.join(outDir, "uploads");
+  await ensureDir(dir);
+  await writeFileEnsured(path.join(dir, `${hash}.glb`), bytes);
+  await writeJson(path.join(dir, `${hash}.atlas.json`), {
+    $note: "Atlas viewer sidecar — parsed from the staged .glb, this is what the page renders.",
+    sourceHash: hash,
+    sourceFile: path.basename(fileName),
+    stats: moderated.stats,
+    warnings: moderated.warnings,
+    ...moderated.sidecar,
+  });
+  return {
+    hash,
+    stats: moderated.stats,
+    warnings: moderated.warnings,
+    fileName: path.basename(fileName),
+  };
+}
+
 
 /**
  * @typedef {object} MatrixRunRow
@@ -177,6 +227,7 @@ export function parseTargetUrl(raw) {
  *   clean?: boolean;
  *   env?: NodeJS.ProcessEnv;
  *   url?: string;
+ *   glb?: string;
  * }} [opts]
  */
 export async function runMatrix(opts = {}) {
@@ -187,13 +238,28 @@ export async function runMatrix(opts = {}) {
 
   // Parsed before anything is launched: a typo in the flag should cost a
   // second, not a browser start and six throttled runs.
+  if (opts.url && opts.glb) {
+    throw new Error("`--url` and `--glb` are mutually exclusive: one run, one target.");
+  }
   const target = opts.url ? parseTargetUrl(opts.url) : null;
-  const generic = target !== null;
+  // The upload is read now (fail fast on a missing file) and moderated later,
+  // after `emptyDir`, so staging never lands in a directory about to be wiped.
+  /** @type {Buffer | null} */
+  let glbBytes = null;
+  if (opts.glb) {
+    const abs = path.resolve(opts.glb);
+    try {
+      glbBytes = await readFile(abs);
+    } catch {
+      throw new Error(`--glb file not found: ${opts.glb}`);
+    }
+  }
+  const generic = target !== null || glbBytes !== null;
   const manifest = generic ? genericManifest : orbitalManifest;
 
   banner(
     generic
-      ? `Atlas Replay Lab — capability matrix against ${target.origin}${target.pathname}`
+      ? `Atlas Replay Lab — capability matrix against ${target ? target.origin + target.pathname : `upload ${opts.glb}`}`
       : "Atlas Replay Lab — capability matrix",
   );
   if (generic) {
@@ -232,6 +298,21 @@ export async function runMatrix(opts = {}) {
   if (opts.clean !== false) await emptyDir(outDir);
   await ensureDir(path.join(outDir, "runs"));
 
+  // Upload moderation + staging, after the wipe and before the browser: a
+  // refused model must cost seconds, and staged files must survive the run.
+  /** @type {{ hash: string; stats: any; warnings: string[]; fileName: string } | null} */
+  let upload = null;
+  let uploadDir = null;
+  if (glbBytes) {
+    upload = await stageUpload(glbBytes, opts.glb, outDir, opts.env ?? process.env);
+    uploadDir = path.join(outDir, "uploads");
+    for (const w of upload.warnings) log.warn(`upload: ${w}`);
+    log.info(
+      `upload: ${upload.fileName} → ${upload.stats.triangleCount} triangles ` +
+        `(${upload.stats.trianglesKept} kept), ${upload.stats.meshCount} mesh(es)`,
+    );
+  }
+
   const browser = await launchBrowser();
   const server = await startServer({
     manifest,
@@ -240,8 +321,16 @@ export async function runMatrix(opts = {}) {
     // Traces are written per-run below, next to their screenshots, so the
     // server's own dump directory would only duplicate them.
     traceDir: null,
+    aliases: uploadDir ? { "/uploads/": uploadDir } : undefined,
   });
   log.info(`control plane on ${server.origin}; chrome at ${browser.executable}`);
+
+  // The target page: a stranger's URL, or our own viewer over the staged
+  // upload. Either way the generic probe, driver, and harvest treat it as a
+  // page Atlas observes but does not route. The viewer URL names index.html
+  // explicitly: the static server has no directory-index fallback (a directory
+  // is a 404), and a matrix target must be the page itself, not a guess.
+  const targetHref = target ? target.href : upload ? `${server.origin}/viewer/index.html?model=${upload.hash}` : null;
 
   const browserVersion = await browser.connection
     .send("Browser.getVersion")
@@ -261,8 +350,9 @@ export async function runMatrix(opts = {}) {
     const baselineWanted = opts.includeBaseline !== false && !generic;
     if (generic && opts.includeBaseline === true) {
       log.warn(
-        "--url runs have no baseline half: Atlas does not route a third-party app, " +
-          "so there is no router to bypass. Running the adaptive set only.",
+        "--url/--glb runs have no baseline half: there is no bypassable router " +
+          "in the loop (a stranger's app is never routed; the viewer has no " +
+          "forced-tier mode). Running the adaptive set only.",
       );
     }
     const baselineProfile = profiles.find((p) => p.id === BASELINE_PROFILE_ID);
@@ -308,7 +398,7 @@ export async function runMatrix(opts = {}) {
         runKind: step.runKind,
         forceTier: step.forcedTier,
         screenshotDir: path.join(runDir, "screenshots"),
-        target: target ? target.href : undefined,
+        target: targetHref ?? undefined,
         extraScripts: extraScripts.length ? extraScripts : undefined,
         // A third-party HTTPS page cannot POST to our loopback control plane
         // (CORS, and mixed content), so its payload is read back over CDP.
@@ -422,33 +512,68 @@ export async function runMatrix(opts = {}) {
     wallMs: Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6),
     seed,
     reproduce: generic
-      ? `node bin/atlas.js matrix --url ${target.href}`
+      ? target
+        ? `node bin/atlas.js matrix --url ${target.href}`
+        : `node bin/atlas.js matrix --glb <file> (upload hash ${upload?.hash ?? "?"})`
       : "node bin/atlas.js matrix",
     // Null on an Orbital run rather than absent, so a consumer can tell "this
     // report is about our own experience" from "this key is from an older
     // schema version" without guessing.
     target: generic
+      ? target
+        ? {
+            url: target.href,
+            origin: target.origin,
+            mode: "generic",
+            // Stated in the report itself, not only in the prose, because this
+            // is the single most misreadable number in a `--url` run: a reader
+            // who assumes Atlas *chose* these tiers would conclude the router
+            // works on any app, which it does not, because it was never asked.
+            routed: false,
+            servedTierMeaning:
+              "measured from what the app delivered (asset bytes, WebGL use, frame " +
+              "pacing), not a tier Atlas selected. No Atlas router ran against this app.",
+            injected: [
+              "capability bootstrap (deterministic RNG, profile hints)",
+              "generic trace recorder (experience/probe-generic.js)",
+              "synthetic WebXR device on the xr-* profiles only (src/runner/xr-stub.js)",
+            ],
+            notServed:
+              "Atlas served this page nothing. The control plane ran only to host the " +
+              "decision engine and the trace assembler; the page loaded entirely from " +
+              "its own origin and never made a request to Atlas.",
+          }
+        : {
+            mode: "viewer",
+            uploadHash: upload?.hash ?? null,
+            // The viewer calls /api/decide itself (same control plane Orbital
+            // uses), so unlike a --url run there IS a router in this loop —
+            // but it routes Atlas's own viewer, not the upload. The model is
+            // data; every decision about it is ours.
+            routed: "viewer-only",
+            servedTierMeaning:
+              "the viewer applied the tier the control plane returned for its own " +
+              "capability snapshot; classify-delivery independently measured what " +
+              "reached the screen.",
+            injected: [
+              "capability bootstrap (deterministic RNG, profile hints)",
+              "generic trace recorder (experience/probe-generic.js)",
+              "synthetic WebXR device on the xr-* profiles only (src/runner/xr-stub.js)",
+            ],
+          }
+      : null,
+    // Null unless --glb staged an upload: the content hash, moderation stats,
+    // and warnings, so a report reader can reproduce the run from the file.
+    upload: upload
       ? {
-          url: target.href,
-          origin: target.origin,
-          mode: "generic",
-          // Stated in the report itself, not only in the prose, because this
-          // is the single most misreadable number in a `--url` run: a reader
-          // who assumes Atlas *chose* these tiers would conclude the router
-          // works on any app, which it does not, because it was never asked.
-          routed: false,
-          servedTierMeaning:
-            "measured from what the app delivered (asset bytes, WebGL use, frame " +
-            "pacing), not a tier Atlas selected. No Atlas router ran against this app.",
-          injected: [
-            "capability bootstrap (deterministic RNG, profile hints)",
-            "generic trace recorder (experience/probe-generic.js)",
-            "synthetic WebXR device on the xr-* profiles only (src/runner/xr-stub.js)",
-          ],
-          notServed:
-            "Atlas served this page nothing. The control plane ran only to host the " +
-            "decision engine and the trace assembler; the page loaded entirely from " +
-            "its own origin and never made a request to Atlas.",
+          fileName: upload.fileName,
+          contentHash: upload.hash,
+          triangleCount: upload.stats.triangleCount,
+          trianglesKept: upload.stats.trianglesKept,
+          decimated: upload.stats.decimated,
+          meshCount: upload.stats.meshCount,
+          byteLength: upload.stats.byteLength,
+          warnings: upload.warnings,
         }
       : null,
     environment: {
