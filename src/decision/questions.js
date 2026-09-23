@@ -432,6 +432,91 @@ export function traceQuestions(manifest, incidents = []) {
 }
 
 /**
+ * Pre-launch static assessment (`atlas preflight`).
+ *
+ * Three questions over measured asset weight — no browser has run, so every
+ * criterion is written in bytes-versus-budget terms. Nothing here references
+ * device capabilities: with no capability snapshot sent, a criterion naming
+ * one would be unanswerable by construction (see the module note on
+ * decidability). Decode/render cost is deliberately NOT modelled — static
+ * weight cannot see it, and pretending otherwise would be the model guessing.
+ * The matrix measures what weight cannot say; preflight predicts what it can.
+ *
+ * @param {{ firstFrameMs: number; maxTransferBytes: number }} budgets
+ * @returns {Record<string, Question>}
+ */
+export function preflightQuestions(budgets) {
+  return {
+    tier: {
+      type: "choice",
+      instructions:
+        "Given only this page's static asset weight, which quality tier will it " +
+        "most likely need? Judge transfer weight against the declared budget, " +
+        "not device capability — a light page earns the rich tier, a heavy one " +
+        "does not, regardless of what any device could render. " +
+        `Declared budgets: first frame <= ${budgets.firstFrameMs}ms, transfer <= ` +
+        `${budgets.maxTransferBytes} bytes.`,
+      criteria: {
+        high:
+          "Total weight sits comfortably inside the transfer budget with clear " +
+          "headroom (well under half), asset count is modest, and no single " +
+          "asset dominates. Nothing in the weight suggests the first frame is " +
+          "at risk.",
+        mid:
+          "Weight is material but inside budget — roughly half the transfer " +
+          "ceiling, or a moderate asset count where one or two large files " +
+          "carry most of it. First frame plausible, not assured.",
+        low:
+          "Weight presses against the budget — near or just over the ceiling, " +
+          "or an asset count high enough that request overhead alone threatens " +
+          "the first frame. Expect the matrix to confirm trouble.",
+        "static-fallback":
+          "Weight is far beyond any interactive tier: several multiples of the " +
+          "transfer budget, or so many assets that no connection class in the " +
+          "matrix could assemble the first frame in time. Do not attempt motion.",
+      },
+    },
+    blowBudget: {
+      type: "score",
+      instructions:
+        "How likely is this page's static weight alone to exceed the transfer " +
+        `budget of ${budgets.maxTransferBytes} bytes? Judge bytes against the ` +
+        "budget only. Unknown-byte assets count against the page: weight that " +
+        "could not be measured cannot be assumed to fit.",
+      levels: [...RISK_LEVELS],
+      // Index-aligned with `levels` (see the wire note at the top of this file).
+      criteria: [
+        "Known weight is a small fraction of the budget with no meaningful " +
+          "unknown mass. Exceeding it would require a measurement error.",
+        "Inside budget with real headroom, or small unknown mass that headroom " +
+          "covers several times over.",
+        "Roughly at the budget once unknown mass is accounted for; plausible " +
+          "either way depending on what the unmeasured assets weigh.",
+        "Known weight already near the ceiling, or unknown mass large enough " +
+          "that the total is expected to exceed it.",
+        "Known weight alone exceeds the budget, or the unknown mass dwarfs " +
+          "what was measured. Exceeding it is the default assumption.",
+      ],
+    },
+    transferFits: {
+      type: "noul",
+      instructions:
+        "Does the measured weight fit inside the declared transfer budget? " +
+        "Count known bytes plus unknown bytes at face value: unmeasured weight " +
+        "is weight, not headroom.",
+      criteria: {
+        true:
+          "Known bytes plus a conservative allowance for the unknown mass sit " +
+          `at or below ${budgets.maxTransferBytes} bytes with room to spare.`,
+        false:
+          "Known bytes alone approach or exceed the budget, or the unknown " +
+          "mass is large enough that fit cannot be established.",
+      },
+    },
+  };
+}
+
+/**
  * Softmax over raw scores, used by the rule-based engine to express its own
  * answers as a distribution so the two engines are directly comparable.
  *

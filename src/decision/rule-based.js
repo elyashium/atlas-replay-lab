@@ -573,6 +573,73 @@ export class RuleBasedDecisionEngine {
       rationale,
     };
   }
+
+  /**
+   * Pre-launch static assessment over measured asset weight.
+   *
+   * Pure arithmetic on bytes-versus-budget: the ratio of total known weight to
+   * `maxTransferBytes` picks the tier, a sigmoid centred on the budget gives
+   * P(fits), and the blowBudget score is the ratio mapped onto the 0..4
+   * rubric. Unknown bytes are treated as weight, not headroom — they pull the
+   * tier down and the risk up through the effective ratio, and the rationale
+   * says by how much rather than silently absorbing them.
+   *
+   * @param {import("../../types/atlas.js").PreflightState} state
+   * @param {DecisionContext} ctx
+   * @returns {Promise<import("../../types/atlas.js").PreflightAssessment>}
+   */
+  async preflightAssess(state, ctx) {
+    const budget = ctx.manifest.budgets.maxTransferBytes;
+    const known = Math.max(0, state.totalBytes);
+    const unknown = Math.max(0, state.unknownBytes);
+    // Unknowns count at half weight: unmeasured is usually overhead (headers,
+    // small files), but assuming zero would bless pages nobody measured.
+    const effective = known + 0.5 * unknown;
+    const ratio = effective / budget;
+    /** @type {string[]} */
+    const rationale = [
+      `measured ${fmtBytes(known)} known + ${fmtBytes(unknown)} unknown across ${state.assetCount} assets against a ${fmtBytes(budget)} transfer budget (effective ratio ${ratio.toFixed(2)}).`,
+    ];
+    if (unknown > 0) {
+      rationale.push(
+        `${fmtBytes(unknown)} could not be sized and counts at half weight — the assessment is conservative by construction.`,
+      );
+    }
+
+    /** @type {Record<string, number>} */
+    const scores = {
+      high: round6(1.0 - 2.5 * ratio),
+      mid: round6(0.7 - 1.2 * ratio),
+      low: round6(0.4 - 0.4 * ratio),
+      "static-fallback": round6(-0.5 + 0.4 * ratio),
+    };
+    const dist = softmax(scores, 0.55);
+    const tier = /** @type {ServeTier} */ (argmax(scores));
+
+    const blow = clamp((ratio - 0.25) / 1.5, 0, 1) * 4;
+    /** @type {Record<string, number>} */
+    const blowScores = {};
+    RISK_LEVELS.forEach((level, i) => {
+      blowScores[level] = -Math.abs(i - blow) * 2;
+    });
+    const blowDist = softmax(blowScores, 0.8);
+
+    const pFits = round6(1 / (1 + Math.exp(6 * (ratio - 1))));
+
+    return {
+      tier,
+      tierAnswer: { value: tier, distribution: dist },
+      blowBudget: {
+        score: round6(blow),
+        levels: [...RISK_LEVELS],
+        distribution: blowDist,
+      },
+      transferFits: { pTrue: pFits },
+      confidence: confidenceOfChoice(dist),
+      engine: this.name,
+      rationale,
+    };
+  }
 }
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
@@ -585,6 +652,13 @@ function argmax(scores) {
 /** @param {number} v @param {number} lo @param {number} hi */
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
+}
+
+/** @param {number} bytes */
+function fmtBytes(bytes) {
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)}MB`;
+  if (bytes >= 1_000) return `${Math.round(bytes / 1_000)}KB`;
+  return `${Math.round(bytes)}B`;
 }
 
 /**

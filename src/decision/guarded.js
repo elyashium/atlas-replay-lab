@@ -136,6 +136,68 @@ export class GuardedDecisionEngine {
   }
 
   /**
+   * @param {import("../../types/atlas.js").PreflightState} state
+   * @param {DecisionContext} ctx
+   * @returns {Promise<import("../../types/atlas.js").PreflightAssessment>}
+   */
+  async preflightAssess(state, ctx) {
+    const safe = await this.fallback.preflightAssess(state, ctx);
+    /** @type {import("../../types/atlas.js").PreflightAssessment} */
+    let primary;
+    try {
+      primary = await this.primary.preflightAssess(state, ctx);
+    } catch (e) {
+      const reason = `primary engine failed: ${errText(e)}`;
+      log.warn(`preflight assessment fell back to ${this.fallback.name}: ${reason}`);
+      return {
+        ...safe,
+        guard: {
+          primaryEngine: this.primary.name,
+          primaryConfidence: 0,
+          threshold: this.tierFloor,
+          overridden: true,
+          reason,
+          error: errText(e),
+        },
+      };
+    }
+
+    // Fail-closed along the richness axis: a model suggesting a richer tier
+    // than the weight arithmetic supports is optimism, and optimistic
+    // pre-launch advice is how heavy pages get waved through.
+    const modelIsRicher = tierRank(primary.tier) > tierRank(safe.tier);
+
+    if (primary.confidence < this.tierFloor || modelIsRicher) {
+      const reason =
+        primary.confidence < this.tierFloor
+          ? `primary confidence ${primary.confidence.toFixed(3)} below floor ${this.tierFloor}`
+          : `primary tier '${primary.tier}' is richer than deterministic '${safe.tier}'; preflight fails closed`;
+      return {
+        ...safe,
+        guard: {
+          primaryEngine: this.primary.name,
+          primaryConfidence: primary.confidence,
+          threshold: this.tierFloor,
+          overridden: true,
+          reason,
+          primaryAnswer: primary.tierAnswer,
+        },
+      };
+    }
+
+    return {
+      ...primary,
+      guard: {
+        primaryEngine: this.primary.name,
+        primaryConfidence: primary.confidence,
+        threshold: this.tierFloor,
+        overridden: false,
+        reason: "primary answer accepted",
+      },
+    };
+  }
+
+  /**
    * @param {Trace} trace
    * @param {DecisionContext} ctx
    * @returns {Promise<TraceVerdict>}
@@ -199,6 +261,17 @@ export class GuardedDecisionEngine {
         reason: "primary answer accepted",
       },
     };
+  }
+}
+
+/** Richer tiers rank higher. Used to detect a model assessment that would loosen pre-launch advice. */
+export function tierRank(/** @type {string} */ tier) {
+  switch (tier) {
+    case "high": return 3;
+    case "mid": return 2;
+    case "low": return 1;
+    case "static-fallback": return 0;
+    default: return -1;
   }
 }
 

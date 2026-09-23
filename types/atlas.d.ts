@@ -340,7 +340,7 @@ export interface GuardReport {
 export interface DecisionContext {
   manifest: ExperienceManifest;
   /** Where this state came from — identical code path either way (see §4.1). */
-  origin: "ci-matrix" | "production";
+  origin: "ci-matrix" | "production" | "judge" | "preflight";
   profileId?: string;
   /**
    * Open incidents to fan out over, already capped and ordered by the caller
@@ -366,6 +366,44 @@ export interface DecisionEngine {
   readonly kind: "deterministic" | "model" | "guarded";
   routeTier(state: CapabilitySnapshot, ctx: DecisionContext): Promise<TierDecision>;
   judgeTrace(trace: Trace, ctx: DecisionContext): Promise<TraceVerdict>;
+  /**
+   * Pre-launch static assessment: which tier this page's weight points at,
+   * before any browser runs. Added for `atlas preflight`; same guard posture
+   * as the other two methods (fail-closed, confidence-floored, contained).
+   */
+  preflightAssess(state: PreflightState, ctx: DecisionContext): Promise<PreflightAssessment>;
+}
+
+/**
+ * What `atlas preflight` measured without running a browser: static asset
+ * weight. URLs are scrubbed at collection (origin + path hash, no query or
+ * fragment) so the state carries sizes, never addresses.
+ */
+export interface PreflightState {
+  /** Page origin + pathname only — no query string, no fragment. */
+  url: string;
+  totalBytes: number;
+  /** Bytes from assets whose size could not be determined (stated, not zeroed). */
+  unknownBytes: number;
+  assetCount: number;
+  /** Per-type counts and known bytes: script, style, image, model, video, font, other. */
+  byType: Record<string, { count: number; bytes: number }>;
+  /** Largest assets, hosts hashed. */
+  largest: Array<{ hostHash: string; type: string; bytes: number }>;
+}
+
+/** Pre-launch verdict over static weight. Model-backed answers stay typed. */
+export interface PreflightAssessment {
+  tier: ServeTier;
+  tierAnswer: ChoiceAnswer<ServeTier>;
+  /** Likelihood the static weight alone blows the transfer/first-frame budget, on RISK_LEVELS. */
+  blowBudget: ScoreAnswer;
+  /** P(total known weight fits maxTransferBytes). Unknown bytes are not assumed to fit. */
+  transferFits: NoulAnswer;
+  confidence: number;
+  engine: string;
+  rationale: string[];
+  guard?: GuardReport;
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */

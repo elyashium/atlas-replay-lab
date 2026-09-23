@@ -46,6 +46,7 @@ import {
   expectedScore,
   incidentQuestionKey,
   round6,
+  preflightQuestions,
   tierQuestions,
   traceQuestions,
 } from "./questions.js";
@@ -186,6 +187,41 @@ export class JevDecisionEngine {
   }
 
   /**
+   * Pre-launch static assessment over measured asset weight.
+   *
+   * @param {import("../../types/atlas.js").PreflightState} state
+   * @param {DecisionContext} ctx
+   * @returns {Promise<import("../../types/atlas.js").PreflightAssessment>}
+   */
+  async preflightAssess(state, ctx) {
+    const questions = preflightQuestions(ctx.manifest.budgets);
+    // The state sent off-box is sizes and counts only — URLs are scrubbed to
+    // origin+path at collection, so no address, query, or fragment can leak.
+    const res = await this.#call({ state: preflightStateForJev(state, ctx), questions });
+
+    const tierDist = normalizeDistribution(readDistribution(res.answers.tier), TIER_OPTIONS);
+    const tier = /** @type {ServeTier} */ (
+      readChoiceValue(res.answers.tier, TIER_OPTIONS) ?? argmaxKey(tierDist)
+    );
+    const blowDist = normalizeDistribution(readScoreDistribution(res.answers.blowBudget, RISK_LEVELS), RISK_LEVELS);
+    const pFits = readProbability(res.answers.transferFits);
+
+    return {
+      tier,
+      tierAnswer: { value: tier, distribution: tierDist },
+      blowBudget: {
+        score: readScore(res.answers.blowBudget) ?? expectedScore(blowDist, RISK_LEVELS),
+        levels: [...RISK_LEVELS],
+        distribution: blowDist,
+      },
+      transferFits: { pTrue: round6(pFits) },
+      confidence: confidenceOfChoice(tierDist),
+      engine: this.name,
+      rationale: [], // Jev emits typed answers only; see the header comment.
+    };
+  }
+
+  /**
    * @param {{ state: unknown; questions: Record<string, import("./questions.js").Question> }} req
    */
   async #call(req) {
@@ -237,6 +273,40 @@ export function tierStateForJev(state, ctx) {
         particleCount: t.params.particleCount,
         textureSize: t.params.textureSize,
         targetFps: t.params.targetFps,
+        totalAssetBytes: t.assets.reduce((s, a) => s + a.approxBytes, 0),
+      })),
+    },
+    origin: ctx.origin,
+  };
+}
+
+/**
+ * The preflight state: measured asset weight plus the budget it is judged
+ * against and the tier payloads it is compared to.
+ *
+ * Exported for the same reason as `tierStateForJev`: the fixture builder must
+ * reproduce this object exactly, and two implementations differing by one
+ * field would produce fixtures that never match at runtime.
+ *
+ * @param {import("../../types/atlas.js").PreflightState} state
+ * @param {DecisionContext} ctx
+ */
+export function preflightStateForJev(state, ctx) {
+  return {
+    page: {
+      url: state.url,
+      assetCount: state.assetCount,
+      totalBytes: state.totalBytes,
+      unknownBytes: state.unknownBytes,
+      byType: state.byType,
+      largest: state.largest,
+    },
+    experience: {
+      id: ctx.manifest.id,
+      version: ctx.manifest.version,
+      budgets: ctx.manifest.budgets,
+      tiers: ctx.manifest.tiers.map((t) => ({
+        id: t.id,
         totalAssetBytes: t.assets.reduce((s, a) => s + a.approxBytes, 0),
       })),
     },
