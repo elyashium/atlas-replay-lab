@@ -12,13 +12,34 @@
  * framing would agree with any bug it contains.
  */
 
-import test from "node:test";
+import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 
 import { MiniWebSocket, encodeFrame } from "../src/runner/ws.js";
+
+/**
+ * Every server started below is tracked and closed after each test, pass or
+ * fail. Without this, a single failing assertion before `await server.close()`
+ * leaves a listening socket behind and node --test (no default timeout) hangs
+ * forever on the open handle — turning one red test into a wedged suite.
+ * Open connections are destroyed first: `server.close()` alone waits for them.
+ * @type {Set<{ close: () => Promise<unknown> }>}
+ */
+const liveServers = new Set();
+/** @type {Set<import("node:net").Socket>} */
+const liveSockets = new Set();
+afterEach(async () => {
+  for (const s of liveSockets) {
+    liveSockets.delete(s);
+    try { s.destroy(); } catch { /* already gone */ }
+  }
+  const pending = [...liveServers].map((s) => s.close().catch(() => {}));
+  liveServers.clear();
+  await Promise.all(pending);
+});
 
 const GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -83,6 +104,8 @@ async function startServer(onOpen, opts = {}) {
   /** @type {any[]} */
   const received = [];
   const server = net.createServer((socket) => {
+    liveSockets.add(socket);
+    socket.on("close", () => liveSockets.delete(socket));
     let buf = Buffer.alloc(0);
     let upgraded = false;
     socket.on("data", (chunk) => {
@@ -120,12 +143,14 @@ async function startServer(onOpen, opts = {}) {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = /** @type {any} */ (server.address()).port;
-  return {
+  const api = {
     port,
     url: `ws://127.0.0.1:${port}/devtools/test`,
     received,
     close: () => new Promise((r) => server.close(() => r(undefined))),
   };
+  liveServers.add(api);
+  return api;
 }
 
 /* ── frame encoding ───────────────────────────────────────────────────────── */
@@ -294,7 +319,10 @@ test("a ping is answered with a pong carrying the same payload", async () => {
 });
 
 test("a close frame surfaces its code and reason", async () => {
-  const payload = Buffer.alloc(2 + 7);
+  // Sized exactly: the client surfaces the reason bytes verbatim, so padding
+  // here would assert against bytes the test never meant (use the no-payload
+  // test below for the degenerate shape, not trailing NULs).
+  const payload = Buffer.alloc(2 + 5);
   payload.writeUInt16BE(1001, 0);
   payload.write("going", 2);
   const server = await startServer(({ send }) => send(serverFrame(0x8, payload)));
@@ -341,8 +369,13 @@ test("a socket that dies mid-session reports a close, not a hang", async () => {
 test("the handshake times out instead of waiting forever", async () => {
   // A server that accepts the TCP connection and then says nothing is exactly
   // what a half-started Chrome looks like.
-  const server = net.createServer(() => {});
+  const server = net.createServer((socket) => {
+    liveSockets.add(socket);
+    socket.on("close", () => liveSockets.delete(socket));
+    socket.on("error", () => {});
+  });
   server.listen(0, "127.0.0.1");
+  liveServers.add({ close: () => new Promise((r) => server.close(() => r(undefined))) });
   await once(server, "listening");
   const port = /** @type {any} */ (server.address()).port;
 
