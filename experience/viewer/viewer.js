@@ -12,7 +12,7 @@
  * every run paints the same pixels.
  */
 
-import { viewerTierSettings } from "./ladder.js";
+import { viewerTierSettings, frameDistance, lookAt, perspective, multiply } from "./ladder.js";
 
 const params = new URLSearchParams(location.search);
 const modelHash = params.get("model") ?? "";
@@ -35,11 +35,9 @@ async function main() {
   if (!/^[0-9a-f]{16,64}$/.test(modelHash)) {
     throw new Error("missing ?model=<content hash> — this page is served by `atlas matrix --glb`, not opened directly");
   }
-  // Sidecar and tier decision race in parallel, but first paint waits only for
-  // the sidecar: it renders provisionally at the cheapest rung and upgrades
-  // when the decision lands. Gating first paint on a control-plane round trip
-  // would push it past the probe's first-frame sampling on fast profiles —
-  // a blank first frame caused by our own waterfall, not by the model.
+  // Sidecar and tier decision fetch in parallel so neither waterfall lengthens
+  // time-to-first-paint: on fast profiles the probe samples early, and a paint
+  // delayed by our own request chain would read as a blank first frame.
   const sidecarPromise = fetch(`/uploads/${modelHash}.atlas.json`, { cache: "no-store" }).then(async (res) => {
     if (!res.ok) throw new Error(`sidecar fetch failed: HTTP ${res.status}`);
     const sidecar = await res.json();
@@ -203,11 +201,13 @@ function createRenderer(canvas, sidecar, settings) {
   }
   if (!drawList.length) return null;
 
-  // Auto-frame from bounds: fit the longest axis with margin, fixed angles.
+  // Auto-frame from bounds (see ladder.js frameDistance): bounding sphere
+  // against the tighter frustum, fixed angles, so the framing is
+  // deterministic and rotation-proof.
   const { min, max } = sidecar.bounds;
   const center = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
-  const radius = Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2], 1e-6) / 2;
-  const dist = (radius / Math.tan((35 * Math.PI) / 360)) * 1.35;
+  const aspect = canvas.width / Math.max(1, canvas.height);
+  const dist = frameDistance(sidecar.bounds, aspect);
 
   function frame() {
     resize();
@@ -296,48 +296,4 @@ function link(gl, vs, fs) {
   gl.linkProgram(prog);
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
   return prog;
-}
-
-/* ── minimal mat4 ────────────────────────────────────────────────────────── */
-
-function lookAt(eye, center) {
-  const z = norm3([eye[0] - center[0], eye[1] - center[1], eye[2] - center[2]]);
-  const x = norm3(cross([0, 1, 0], z));
-  const y = cross(z, x);
-  return [
-    x[0], y[0], z[0], 0,
-    x[1], y[1], z[1], 0,
-    x[2], y[2], z[2], 0,
-    -dot(x, eye), -dot(y, eye), -dot(z, eye), 1,
-  ];
-}
-
-function perspective(fovDeg, aspect, near, far) {
-  const f = 1 / Math.tan((fovDeg * Math.PI) / 360);
-  const nf = 1 / (near - far);
-  return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0];
-}
-
-/** Column-major C = A × B, matching uniformMatrix4fv with transpose=false. */
-function multiply(a, b) {
-  const c = new Array(16).fill(0);
-  for (let col = 0; col < 4; col++) {
-    for (let row = 0; row < 4; row++) {
-      c[col * 4 + row] = a[row] * b[col * 4] + a[4 + row] * b[col * 4 + 1] + a[8 + row] * b[col * 4 + 2] + a[12 + row] * b[col * 4 + 3];
-    }
-  }
-  return c;
-}
-
-function cross(a, b) {
-  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-}
-
-function dot(a, b) {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-function norm3(v) {
-  const l = Math.hypot(v[0], v[1], v[2]) || 1;
-  return [v[0] / l, v[1] / l, v[2] / l];
 }

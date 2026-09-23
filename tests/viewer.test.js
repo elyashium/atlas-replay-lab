@@ -7,7 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { moderateGlb } from "../src/viewer/parse-glb.js";
-import { viewerTierSettings, viewerTiers } from "../experience/viewer/ladder.js";
+import { viewerTierSettings, viewerTiers, frameDistance, lookAt, perspective, multiply } from "../experience/viewer/ladder.js";
 
 /** Minimal single-triangle document: POSITION + NORMAL + USHORT indices. */
 function triangleDoc() {
@@ -159,8 +159,45 @@ test("the render ladder descends in cost and never guesses", () => {
   assert.ok(high.triCap >= mid.triCap && mid.triCap >= low.triCap, "triangle budget descends");
   assert.equal(poster.animate, false, "the poster rung runs no WebGL loop");
   assert.equal(high.animate, true);
+  // Every animating rung is lit: the probe's blank detector reads luma
+  // variance, and flat shading scores a uniformly-filled frame as blank.
+  for (const id of ["high", "mid", "low"]) {
+    assert.equal(viewerTierSettings(id).shading, "lit", `${id} must stay detectable`);
+  }
   // Unknown tiers fall through to the poster, never to an invented setting.
   assert.deepEqual(viewerTierSettings("ultra"), poster);
+});
+
+test("auto-framing keeps every corner inside NDC on any aspect", () => {
+  // Regression test for two real failures: fitting vertical FOV alone
+  // overflowed portrait viewports, and fitting the longest axis (not the
+  // bounding sphere) clipped rotated corners at ndc.x ±1.15.
+  const bounds = { min: [-1, 0, -1], max: [1, 1.5, 1] };
+  const center = [0, 0.75, 0];
+  const corners = [];
+  for (const x of [bounds.min[0], bounds.max[0]]) {
+    for (const y of [bounds.min[1], bounds.max[1]]) {
+      for (const z of [bounds.min[2], bounds.max[2]]) corners.push([x, y, z]);
+    }
+  }
+  for (const [w, h] of [[390, 844], [844, 390], [1280, 800], [800, 800]]) {
+    const aspect = w / h;
+    const dist = frameDistance(bounds, aspect);
+    for (const [yaw, pitch] of [[0.6, 0.35], [0, 0], [2.4, -0.8], [4.0, 1.0]]) {
+      const eye = [
+        center[0] + dist * Math.cos(pitch) * Math.sin(yaw),
+        center[1] + dist * Math.sin(pitch),
+        center[2] + dist * Math.cos(pitch) * Math.cos(yaw),
+      ];
+      const mvp = multiply(perspective(35, aspect, dist / 100, dist * 10), lookAt(eye, center));
+      for (const v of corners) {
+        const c = [0, 1, 2, 3].map((row) => mvp[row] * v[0] + mvp[4 + row] * v[1] + mvp[8 + row] * v[2] + mvp[12 + row]);
+        const nx = Math.abs(c[0] / c[3]);
+        const ny = Math.abs(c[1] / c[3]);
+        assert.ok(nx <= 1 && ny <= 1, `${w}x${h} yaw=${yaw}: corner ${v} at ndc ${nx.toFixed(3)},${ny.toFixed(3)}`);
+      }
+    }
+  }
 });
 
 test("stageUpload moderates, hashes, and stages deterministically", async () => {
