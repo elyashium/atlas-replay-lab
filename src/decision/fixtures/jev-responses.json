@@ -2204,11 +2204,11 @@
       "response": {
         "answers": {
           "tier": {
-            "choice": "low",
+            "choice": "mid",
             "probabilities": {
-              "high": 0.01,
-              "mid": 0.33,
-              "low": 0.63,
+              "high": 0.04,
+              "mid": 0.58,
+              "low": 0.35,
               "static-fallback": 0.03
             }
           },
@@ -2342,11 +2342,11 @@
       "response": {
         "answers": {
           "tier": {
-            "choice": "low",
+            "choice": "mid",
             "probabilities": {
-              "high": 0.01,
-              "mid": 0.33,
-              "low": 0.63,
+              "high": 0.04,
+              "mid": 0.58,
+              "low": 0.35,
               "static-fallback": 0.03
             }
           },

@@ -99,6 +99,13 @@ const KNOWN_INCIDENT_MATCHERS = {
 /* ── cost model ──────────────────────────────────────────────────────────── */
 
 /**
+ * Fixed score for the static poster: better than nothing, worse than any
+ * viable experience. See the calibration comment at the use site in
+ * `routeTierSync` — this number is policy, and policy lives in one place.
+ */
+export const STATIC_FALLBACK_SCORE = -3.0;
+
+/**
  * Relative CPU slowness vs. a reference desktop core. 1.0 = reference.
  * @param {CapabilitySnapshot} s
  */
@@ -205,6 +212,18 @@ export class RuleBasedDecisionEngine {
     const candidates = /** @type {ServeTier[]} */ ([...TIER_OPTIONS]);
 
     for (const tier of candidates) {
+      if (tier === "static-fallback") {
+        // The poster is not an experience tier and does not compete on
+        // headroom terms: its 0ms frame time and 62KB transfer would otherwise
+        // score near-perfect and beat every real tier on capable hardware
+        // (measured: static outscored high on a strong desktop). The constant
+        // below means "better than nothing, worse than any viable experience":
+        // it sits below a struggling-but-viable low (low-cpu-3g scores ≈ −2.2)
+        // and above total failure (slow-2g's low scores ≈ −4.4). Calibrated in
+        // tests/decision.test.js via the uncontested ground truths, not derived.
+        scores[tier] = STATIC_FALLBACK_SCORE;
+        continue;
+      }
       if (!tierRenderable(state, manifest, tier)) {
         scores[tier] = -12;
         continue;
@@ -216,16 +235,33 @@ export class RuleBasedDecisionEngine {
       const spec = manifest.tiers.find((t) => t.id === tier);
       const frameBudget = spec ? 1000 / spec.params.targetFps : 1000 / 30;
       const frameHeadroom = spec ? (frameBudget - p.frameTimeMs) / frameBudget : 1;
-      // Prefer richer tiers, but only when both headrooms are positive.
-      const richness = tier === "high" ? 1.1 : tier === "mid" ? 0.7 : tier === "low" ? 0.35 : 0;
-      scores[tier] = round6(richness + 2.4 * clamp(headroom, -2, 1) + 1.6 * clamp(frameHeadroom, -2, 1));
+      // Richness must dominate positive headroom: the ladder serves the richest
+      // tier the device can sustain, not the leanest tier with the most slack.
+      // A capable desktop fits 'high' with ~35% headroom and must be served it;
+      // the old weights (1.1/0.7/0.35) let 'low' win there by nearly 1.2 points.
+      // Calibrated against the uncontested ground truths in fixtures/states.js
+      // (tightest binding cases: flagship needs high−mid > 1.86, mid-android-4g
+      // needs mid−low > 2.04 while unknown-everything needs mid−low < 2.21).
+      //
+      // The transfer floor sits at −8, deliberately far below the frame floor
+      // (−2): clamping catastrophic transfer at −2 equalised a dead network
+      // across tiers, and with transfer tied the richness bonus picked the
+      // RICHEST tier — measured serving 'high' to a 2G device. Transfer spans
+      // orders of magnitude across tiers where frame cost does not, so
+      // catastrophic transfer must stay distinguishable for the leanest viable
+      // tier (or the static poster) to win it.
+      const richness = tier === "high" ? 4.4 : tier === "mid" ? 2.4 : 0.3;
+      scores[tier] = round6(richness + 2.4 * clamp(headroom, -8, 1) + 1.6 * clamp(frameHeadroom, -2, 1));
     }
 
-    // Accessibility: an explicit reduced-motion preference caps the ladder.
+    // Accessibility: an explicit reduced-motion preference is a stated request
+    // for no motion, not a capability limit — every interactive tier is out,
+    // and the static poster wins by construction rather than by outscoring.
     if (state.reducedMotionPreferred) {
-      scores.high -= 6;
-      scores.mid -= 3;
-      rationale.push("prefers-reduced-motion is set: capping the quality ladder at 'low'.");
+      scores.high -= 12;
+      scores.mid -= 12;
+      scores.low -= 12;
+      rationale.push("prefers-reduced-motion is set: interactive tiers excluded, static poster served.");
     }
     // A state with no GPU acceleration at all should not attempt the top tier
     // even if it somehow reports WebGL2.
@@ -253,7 +289,11 @@ export class RuleBasedDecisionEngine {
     // ── cameraPathSafe (noul) ──────────────────────────────────────────────
     let pCamera = 0.5;
     if (state.cameraPermission === "granted") pCamera = 0.9;
-    if (state.cameraPermission === "prompt") pCamera = 0.55;
+    // "prompt" means the permission state is unknown — and an unknown state is
+    // not a safe state. Attempting the camera path before the user has answered
+    // risks the exact permission failure the question asks about, so prompt
+    // sits just below the decision boundary rather than just above it.
+    if (state.cameraPermission === "prompt") pCamera = 0.45;
     if (state.cameraPermission === "denied" || state.cameraPermission === "unavailable") pCamera = 0.02;
     if (state.webglVersion === 0) pCamera = Math.min(pCamera, 0.05);
     if (state.gpuTier === "low" && (state.deviceMemoryGB ?? 4) <= 2) pCamera = Math.min(pCamera, 0.25);
@@ -384,8 +424,27 @@ export class RuleBasedDecisionEngine {
     if (breaches.length) rationale.push(`budget breaches: ${breaches.join(", ")}.`);
 
     const errorEvents = trace.events.filter((e) => e.kind === "error");
+    // A trace that ends mid-flow with no error of its own is a dead harness,
+    // not a product defect: every genuine failure in the vocabulary either
+    // reaches a terminal state or leaves error events behind. Terminality is
+    // read off the manifest's own transition graph (states with no outgoing
+    // edge, plus the end state and "error" explicitly), so this works for the
+    // generic manifest's vocabulary too — not just Orbital's. The truncated
+    // fixture is the only scenario shaped this way, which is exactly why it
+    // exists.
+    const transitions = manifest.invariants.interaction.allowedTransitions ?? [];
+    const hasOutgoing = new Set(transitions.map((t) => t[0]));
+    const lastState = trace.states.length ? trace.states[trace.states.length - 1] : null;
+    const endedMidFlow =
+      !m.reachedEndState &&
+      errorEvents.length === 0 &&
+      lastState !== null &&
+      lastState !== manifest.invariants.business.endState &&
+      lastState !== "error" &&
+      hasOutgoing.has(lastState);
     const incomplete =
       trace.states.length < 3 ||
+      endedMidFlow ||
       (m.firstFrameMs === null && m.timeToInteractiveMs === null && !m.reachedEndState && errorEvents.length === 0);
 
     // ── outcome (choice) ───────────────────────────────────────────────────
@@ -395,7 +454,11 @@ export class RuleBasedDecisionEngine {
     const outcomeScores = {
       pass: incomplete ? -3 : hardFail ? -6 : softFail ? -2.2 : 3.2,
       "degraded-but-acceptable": incomplete ? -3 : hardFail ? -3 : softFail ? 2.6 : -1.2,
-      fail: hardFail ? 3.4 : softFail ? -0.6 : -5,
+      // An incomplete trace must not be called a failure no matter how broken
+      // it looks: "never reached checkout" is also what a dead harness looks
+      // like, and scoring it 3.4 here would manufacture product bugs out of
+      // infrastructure flakiness (and block releases for it in the gate).
+      fail: incomplete ? 0.5 : hardFail ? 3.4 : softFail ? -0.6 : -5,
       inconclusive: incomplete ? 3.0 : -4.5,
     };
     // A served fallback tier that still meets every budget and invariant is

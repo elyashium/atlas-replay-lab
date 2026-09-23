@@ -20,8 +20,9 @@
  *
  *  - `mid-android-3g` — model says "mid", rules say "low". The contested
  *    network-versus-device call from states.js.
- *  - `packet-loss-4g` — model reads the RTT and goes lower than the headline
- *    downlink would suggest.
+ *  - `packet-loss-4g` — the mirror image: the model reads the healthy headline
+ *    downlink and says "mid" while the deterministic engine penalises the
+ *    600ms RTT and says "low".
  *  - `stalling-midsession` — model is genuinely split, confidence lands under
  *    the guard's floor, and the guard overrides it. This is the fixture that
  *    proves the guard is load-bearing rather than decorative.
@@ -92,9 +93,14 @@ export const TIER_ANSWERS = {
     },
   },
 
-  // Deliberate divergence: reads RTT rather than the headline downlink.
+  // Deliberate divergence, mirror image of mid-android-3g: here the model is
+  // the naive one. It reads the healthy 6Mbps headline downlink and says
+  // "mid"; the deterministic engine penalises the 600ms RTT and says "low".
+  // Either reading is defensible on its own evidence — that is what makes the
+  // case contested — but the fixture exists to disagree with the rules, and it
+  // must actually do so.
   "packet-loss-4g": {
-    tier: { choice: "low", probabilities: { high: 0.01, mid: 0.33, low: 0.63, "static-fallback": 0.03 } },
+    tier: { choice: "mid", probabilities: { high: 0.04, mid: 0.58, low: 0.35, "static-fallback": 0.03 } },
     cameraPathSafe: { noul: 0.58 },
     firstFrameRisk: {
       score: 2.66,

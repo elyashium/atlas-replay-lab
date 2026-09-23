@@ -520,6 +520,12 @@ export function preflightQuestions(budgets) {
  * Softmax over raw scores, used by the rule-based engine to express its own
  * answers as a distribution so the two engines are directly comparable.
  *
+ * Sum-exact by construction: after rounding, the residual (at most a few ulps
+ * of round6) is folded into the largest entry, so consumers can assert
+ * `|sum − 1| < 1e-9` without depending on how many options there happen to be.
+ * Without this, four rounded entries can sum to 1.000001 and trip a strict
+ * well-formedness check that is testing the contract, not the arithmetic.
+ *
  * @param {Record<string, number>} scores
  * @param {number} [temperature]
  * @returns {Record<string, number>}
@@ -534,6 +540,13 @@ export function softmax(scores, temperature = 1) {
   keys.forEach((k, idx) => {
     out[k] = round6(exps[idx] / sum);
   });
+  // Fold the rounding residual into the largest entry so the map sums to 1
+  // within 1e-9 regardless of option count.
+  const residual = round6(1 - Object.values(out).reduce((a, b) => a + b, 0));
+  if (residual !== 0 && keys.length) {
+    const top = keys.reduce((a, b) => (out[b] > out[a] ? b : a), keys[0]);
+    out[top] = round6(out[top] + residual);
+  }
   return out;
 }
 

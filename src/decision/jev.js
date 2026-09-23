@@ -609,6 +609,14 @@ export function readChoiceValue(answer, allowed) {
 }
 
 /**
+ * Reads a noul answer as P(true).
+ *
+ * An answer with no probability at all reads as 0.5 — maximal uncertainty,
+ * not an error (see ADR-0006: the model cannot emit text, so a missing number
+ * is absence of evidence, and absence of evidence must never become a
+ * confident decision downstream). The guard's confidence floor is what turns
+ * that 0.5 into an override.
+ *
  * @param {unknown} answer
  * @returns {number}
  */
@@ -621,7 +629,7 @@ export function readProbability(answer) {
     if (typeof v === "number" && Number.isFinite(v)) return clamp01(v);
   }
   if (typeof answer === "number") return clamp01(answer);
-  throw new Error("Jev noul answer did not contain a probability");
+  return 0.5;
 }
 
 /**
@@ -637,6 +645,9 @@ export function readScore(answer) {
 /**
  * Fills in any missing options with zero and renormalises to sum to 1, so a
  * downstream consumer can always treat the map as a proper distribution.
+ *
+ * Sum-exact like `softmax` (see questions.js): the rounding residual is folded
+ * into the largest entry.
  *
  * @param {Record<string, number>} dist
  * @param {readonly string[]} options
@@ -656,9 +667,16 @@ export function normalizeDistribution(dist, options) {
     // certainty. The guard will see the low confidence and take over.
     const p = round6(1 / options.length);
     for (const o of options) out[o] = p;
+    const residual = round6(1 - Object.values(out).reduce((a, b) => a + b, 0));
+    if (residual !== 0 && options.length) out[options[0]] = round6(out[options[0]] + residual);
     return out;
   }
   for (const o of options) out[o] = round6(out[o] / sum);
+  const residual = round6(1 - Object.values(out).reduce((a, b) => a + b, 0));
+  if (residual !== 0 && options.length) {
+    const top = options.reduce((a, b) => (out[b] > out[a] ? b : a), options[0]);
+    out[top] = round6(out[top] + residual);
+  }
   return out;
 }
 

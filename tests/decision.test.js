@@ -68,35 +68,42 @@ test("both question sets are structurally valid", () => {
 });
 
 test("the tier question offers exactly the tiers the manifest can serve", () => {
-  const q = tierQuestions(manifest.budgets).find((x) => x.id === "tier");
-  assert.ok(q, "there must be a 'tier' question");
-  assert.deepEqual([.../** @type {any} */ (q).options].sort(), [...TIER_OPTIONS].sort());
+  const q = tierQuestions(manifest.budgets).tier;
+  assert.equal(q.type, "choice");
+  assert.deepEqual([...Object.keys(q.criteria)].sort(), [...TIER_OPTIONS].sort());
   // Every option needs its own criterion. An option with no criterion is an
   // option the model has to guess the meaning of.
   for (const option of TIER_OPTIONS) {
     assert.ok(
-      /** @type {any} */ (q).criteria?.[option],
+      /** @type {Record<string, string>} */ (q.criteria)[option],
       `option "${option}" has no criterion — the model would be guessing`,
     );
   }
 });
 
 test("criteria mention the budget numbers rather than saying 'fast enough'", () => {
-  const q = tierQuestions(manifest.budgets).find((x) => x.id === "firstFrameRisk");
-  const text = JSON.stringify(/** @type {any} */ (q).criteria);
+  // Instructions and criteria travel together on the wire, so the budget must
+  // appear in the question as posed — not necessarily in one half of it.
+  const q = tierQuestions(manifest.budgets).firstFrameRisk;
+  const text = JSON.stringify(q);
   assert.ok(
     text.includes(String(manifest.budgets.firstFrameMs)),
     "a risk question that does not name the budget is asking about a vibe",
   );
 });
 
-test("a question with duplicate options is rejected", () => {
-  const broken = [{ id: "x", kind: "choice", question: "?", options: ["a", "a"], criteria: { a: "..." } }];
-  assert.ok(validateQuestions(/** @type {any} */ (broken)).length > 0);
+test("a question with duplicate options is unrepresentable, not just rejected", () => {
+  // Choice options ARE the criteria keys, so `{"a": ..., "a": ...}` collapses
+  // to one option before validation ever runs. The schema makes this error
+  // class impossible rather than detecting it — assert the property, not a
+  // rejection.
+  const q = { type: "choice", instructions: "?", criteria: { a: "first", b: "second" } };
+  assert.deepEqual(Object.keys(q.criteria), ["a", "b"]);
+  assert.deepEqual(validateQuestions({ x: /** @type {any} */ (q) }), []);
 });
 
 test("a choice question missing a criterion is rejected", () => {
-  const broken = [{ id: "x", kind: "choice", question: "?", options: ["a", "b"], criteria: { a: "..." } }];
+  const broken = { x: { type: "choice", instructions: "?", criteria: { a: "...", b: "  " } } };
   assert.ok(validateQuestions(/** @type {any} */ (broken)).some((p) => p.includes("b")));
 });
 
@@ -414,7 +421,7 @@ test("the fixture key changes when the question wording changes", () => {
   const state = { a: 1 };
   const before = fixtureKey({ state, questions, model: "jev-1" });
   const reworded = structuredClone(questions);
-  /** @type {any} */ (reworded)[0].question += " (really)";
+  reworded.tier.instructions += " (really)";
   assert.notEqual(before, fixtureKey({ state, questions: reworded, model: "jev-1" }));
 });
 
