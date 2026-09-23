@@ -177,7 +177,11 @@ export function percentile(sorted, q) {
 
 /** @param {number} n */
 export function round4(n) {
-  return Math.round(n * 1e4) / 1e4;
+  const r = Math.round(n * 1e4) / 1e4;
+  // Math.round can produce -0 (e.g. round4(-0.00001)), which serialises as 0
+  // but compares oddly (Object.is(-0, 0) === false) and hashes distinctly —
+  // a signed zero in a trace is a second representation of nothing.
+  return r === 0 ? 0 : r;
 }
 
 /**

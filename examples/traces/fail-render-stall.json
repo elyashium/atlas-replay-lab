@@ -69,7 +69,7 @@
       }
     },
     {
-      "tOffsetMs": 12,
+      "tOffsetMs": 16,
       "name": "probe-complete",
       "kind": "lifecycle",
       "attributes": {
@@ -79,7 +79,7 @@
       }
     },
     {
-      "tOffsetMs": 18,
+      "tOffsetMs": 16,
       "name": "tier-selected",
       "kind": "decision",
       "attributes": {
@@ -89,7 +89,7 @@
       }
     },
     {
-      "tOffsetMs": 141,
+      "tOffsetMs": 144,
       "name": "asset:geo-hi",
       "kind": "asset",
       "attributes": {
@@ -101,7 +101,7 @@
       }
     },
     {
-      "tOffsetMs": 268,
+      "tOffsetMs": 272,
       "name": "asset:tex-hi",
       "kind": "asset",
       "attributes": {
@@ -133,7 +133,7 @@
       }
     },
     {
-      "tOffsetMs": 1020,
+      "tOffsetMs": 1024,
       "name": "state:interactive",
       "kind": "state",
       "attributes": {
@@ -143,7 +143,7 @@
       }
     },
     {
-      "tOffsetMs": 1020,
+      "tOffsetMs": 1024,
       "name": "interactive",
       "kind": "lifecycle",
       "attributes": {
@@ -151,7 +151,7 @@
       }
     },
     {
-      "tOffsetMs": 1441,
+      "tOffsetMs": 1440,
       "name": "state:probing",
       "kind": "state",
       "attributes": {
@@ -161,7 +161,7 @@
       }
     },
     {
-      "tOffsetMs": 2882,
+      "tOffsetMs": 2880,
       "name": "state:routing",
       "kind": "state",
       "attributes": {
@@ -190,7 +190,7 @@
       }
     },
     {
-      "tOffsetMs": 4323,
+      "tOffsetMs": 4320,
       "name": "state:loading",
       "kind": "state",
       "attributes": {
@@ -210,7 +210,7 @@
       }
     },
     {
-      "tOffsetMs": 8100,
+      "tOffsetMs": 8104,
       "name": "interaction:tap:add-to-cart",
       "kind": "interaction",
       "attributes": {
@@ -219,7 +219,7 @@
       }
     },
     {
-      "tOffsetMs": 8646,
+      "tOffsetMs": 8648,
       "name": "state:degraded",
       "kind": "state",
       "attributes": {
@@ -267,7 +267,7 @@
     {
       "id": "cp-interactive",
       "state": "interactive",
-      "tOffsetMs": 1020,
+      "tOffsetMs": 1024,
       "screenshotPath": null,
       "focalCoverage": 0.177,
       "alphaEdgeDrift": 0.044
@@ -275,7 +275,7 @@
   ],
   "metrics": {
     "firstFrameMs": 680,
-    "timeToInteractiveMs": 1020,
+    "timeToInteractiveMs": 1024,
     "p50InteractionMs": 1525,
     "p95InteractionMs": 1781.5,
     "interactionCount": 2,

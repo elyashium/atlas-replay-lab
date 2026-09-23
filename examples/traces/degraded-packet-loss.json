@@ -71,7 +71,7 @@
       }
     },
     {
-      "tOffsetMs": 12,
+      "tOffsetMs": 16,
       "name": "probe-complete",
       "kind": "lifecycle",
       "attributes": {
@@ -81,7 +81,7 @@
       }
     },
     {
-      "tOffsetMs": 18,
+      "tOffsetMs": 16,
       "name": "tier-selected",
       "kind": "decision",
       "attributes": {
@@ -91,7 +91,7 @@
       }
     },
     {
-      "tOffsetMs": 980,
+      "tOffsetMs": 984,
       "name": "asset:geo-mid",
       "kind": "asset",
       "attributes": {
@@ -103,7 +103,7 @@
       }
     },
     {
-      "tOffsetMs": 1027,
+      "tOffsetMs": 1024,
       "name": "state:probing",
       "kind": "state",
       "attributes": {
@@ -113,7 +113,7 @@
       }
     },
     {
-      "tOffsetMs": 1210,
+      "tOffsetMs": 1208,
       "name": "asset:tex-mid",
       "kind": "asset",
       "attributes": {
@@ -125,7 +125,7 @@
       }
     },
     {
-      "tOffsetMs": 1580,
+      "tOffsetMs": 1584,
       "name": "state:first-frame",
       "kind": "state",
       "attributes": {
@@ -135,7 +135,7 @@
       }
     },
     {
-      "tOffsetMs": 1580,
+      "tOffsetMs": 1584,
       "name": "first-frame",
       "kind": "lifecycle",
       "attributes": {
@@ -145,7 +145,7 @@
       }
     },
     {
-      "tOffsetMs": 2054,
+      "tOffsetMs": 2056,
       "name": "state:routing",
       "kind": "state",
       "attributes": {
@@ -183,7 +183,7 @@
       }
     },
     {
-      "tOffsetMs": 3081,
+      "tOffsetMs": 3080,
       "name": "state:loading",
       "kind": "state",
       "attributes": {
@@ -212,7 +212,7 @@
       }
     },
     {
-      "tOffsetMs": 6100,
+      "tOffsetMs": 6104,
       "name": "interaction:tap:add-to-cart",
       "kind": "interaction",
       "attributes": {
@@ -221,7 +221,7 @@
       }
     },
     {
-      "tOffsetMs": 6162,
+      "tOffsetMs": 6160,
       "name": "state:product-detail",
       "kind": "state",
       "attributes": {
@@ -231,7 +231,7 @@
       }
     },
     {
-      "tOffsetMs": 7189,
+      "tOffsetMs": 7192,
       "name": "state:cart",
       "kind": "state",
       "attributes": {
@@ -282,7 +282,7 @@
     {
       "id": "cp-first-frame",
       "state": "first-frame",
-      "tOffsetMs": 1580,
+      "tOffsetMs": 1584,
       "screenshotPath": null,
       "focalCoverage": 0.147,
       "alphaEdgeDrift": null
@@ -313,7 +313,7 @@
     }
   ],
   "metrics": {
-    "firstFrameMs": 1580,
+    "firstFrameMs": 1584,
     "timeToInteractiveMs": 2760,
     "p50InteractionMs": 188,
     "p95InteractionMs": 211.4,

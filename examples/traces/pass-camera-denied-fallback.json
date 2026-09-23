@@ -71,7 +71,7 @@
       }
     },
     {
-      "tOffsetMs": 12,
+      "tOffsetMs": 16,
       "name": "probe-complete",
       "kind": "lifecycle",
       "attributes": {
@@ -81,7 +81,7 @@
       }
     },
     {
-      "tOffsetMs": 18,
+      "tOffsetMs": 16,
       "name": "tier-selected",
       "kind": "decision",
       "attributes": {
@@ -91,7 +91,7 @@
       }
     },
     {
-      "tOffsetMs": 214,
+      "tOffsetMs": 216,
       "name": "asset:geo-hi",
       "kind": "asset",
       "attributes": {
@@ -111,7 +111,7 @@
       }
     },
     {
-      "tOffsetMs": 402,
+      "tOffsetMs": 400,
       "name": "asset:tex-hi",
       "kind": "asset",
       "attributes": {
@@ -133,7 +133,7 @@
       }
     },
     {
-      "tOffsetMs": 710,
+      "tOffsetMs": 712,
       "name": "state:first-frame",
       "kind": "state",
       "attributes": {
@@ -143,7 +143,7 @@
       }
     },
     {
-      "tOffsetMs": 710,
+      "tOffsetMs": 712,
       "name": "first-frame",
       "kind": "lifecycle",
       "attributes": {
@@ -153,7 +153,7 @@
       }
     },
     {
-      "tOffsetMs": 1090,
+      "tOffsetMs": 1088,
       "name": "state:interactive",
       "kind": "state",
       "attributes": {
@@ -163,7 +163,7 @@
       }
     },
     {
-      "tOffsetMs": 1090,
+      "tOffsetMs": 1088,
       "name": "interactive",
       "kind": "lifecycle",
       "attributes": {
@@ -181,7 +181,7 @@
       }
     },
     {
-      "tOffsetMs": 1500,
+      "tOffsetMs": 1504,
       "name": "frame-sample",
       "kind": "frame",
       "attributes": {
@@ -219,7 +219,7 @@
       }
     },
     {
-      "tOffsetMs": 3500,
+      "tOffsetMs": 3504,
       "name": "frame-sample",
       "kind": "frame",
       "attributes": {
@@ -259,7 +259,7 @@
       }
     },
     {
-      "tOffsetMs": 5500,
+      "tOffsetMs": 5504,
       "name": "frame-sample",
       "kind": "frame",
       "attributes": {
@@ -278,7 +278,7 @@
       }
     },
     {
-      "tOffsetMs": 7100,
+      "tOffsetMs": 7104,
       "name": "session-end",
       "kind": "lifecycle",
       "attributes": {
@@ -290,7 +290,7 @@
     {
       "id": "cp-first-frame",
       "state": "first-frame",
-      "tOffsetMs": 710,
+      "tOffsetMs": 712,
       "screenshotPath": null,
       "focalCoverage": 0.178,
       "alphaEdgeDrift": null
@@ -298,7 +298,7 @@
     {
       "id": "cp-interactive",
       "state": "interactive",
-      "tOffsetMs": 1090,
+      "tOffsetMs": 1088,
       "screenshotPath": null,
       "focalCoverage": 0.176,
       "alphaEdgeDrift": 0.038
@@ -314,15 +314,15 @@
     {
       "id": "cp-checkout",
       "state": "checkout-complete",
-      "tOffsetMs": 5670,
+      "tOffsetMs": 5672,
       "screenshotPath": null,
       "focalCoverage": 0.139,
       "alphaEdgeDrift": 0.168
     }
   ],
   "metrics": {
-    "firstFrameMs": 710,
-    "timeToInteractiveMs": 1090,
+    "firstFrameMs": 712,
+    "timeToInteractiveMs": 1088,
     "p50InteractionMs": 40,
     "p95InteractionMs": 43.6,
     "interactionCount": 3,

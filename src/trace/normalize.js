@@ -170,8 +170,18 @@ export function firstDivergence(a, b) {
   return null;
 }
 
-/** @param {number} ms */
-function quantise(ms) {
+/**
+ * Buckets an offset to the determinism quantum.
+ *
+ * Exported (rather than used only inside the hash) because construction sites
+ * quantise on write: a stored trace whose offsets already sit on bucket
+ * centres is stable under sub-quantum jitter by construction, while
+ * hash-time-only quantising still flips near bucket edges. The hash keeps its
+ * own call so hand-fed traces are treated identically.
+ *
+ * @param {number} ms
+ */
+export function quantise(ms) {
   return Math.round(ms / TIME_QUANTUM_MS) * TIME_QUANTUM_MS;
 }
 

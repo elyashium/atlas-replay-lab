@@ -33,6 +33,7 @@
 
 import { newTrace } from "../../trace/schema.js";
 import { finalizeTrace } from "../../trace/assemble.js";
+import { quantise } from "../../trace/normalize.js";
 import { normalizeSnapshot, bucketOf } from "../../capability/buckets.js";
 import { stateById } from "./states.js";
 
@@ -556,9 +557,14 @@ export function buildScenarioTrace(scenario, manifest) {
 
   /** @type {TraceEvent[]} */
   const events = [];
+  // Offsets are quantised on write (see normalize.js `quantise`): the stored
+  // trace sits on bucket centres, so the sub-quantum jitter between two
+  // captures of the same session cannot flip the determinism hash at an edge.
+  // Hand-authored `at` values stay raw and readable; this is where they become
+  // canonical.
   /** @param {number} at @param {string} name @param {TraceEvent["kind"]} kind @param {Record<string, any>} [attributes] */
   const push = (at, name, kind, attributes = {}) =>
-    events.push({ tOffsetMs: at, name, kind, attributes });
+    events.push({ tOffsetMs: quantise(at), name, kind, attributes });
 
   push(0, "boot", "lifecycle", { schemaVersion: trace.schemaVersion });
   push(12, "probe-complete", "lifecycle", {
@@ -642,7 +648,7 @@ export function buildScenarioTrace(scenario, manifest) {
   trace.checkpoints = scenario.checkpoints.map((c) => ({
     id: c.id,
     state: c.state,
-    tOffsetMs: c.at,
+    tOffsetMs: quantise(c.at),
     screenshotPath: null,
     focalCoverage: c.focalCoverage,
     alphaEdgeDrift: c.alphaEdgeDrift,

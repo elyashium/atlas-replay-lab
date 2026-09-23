@@ -71,7 +71,7 @@
       }
     },
     {
-      "tOffsetMs": 12,
+      "tOffsetMs": 16,
       "name": "probe-complete",
       "kind": "lifecycle",
       "attributes": {
@@ -81,7 +81,7 @@
       }
     },
     {
-      "tOffsetMs": 18,
+      "tOffsetMs": 16,
       "name": "tier-selected",
       "kind": "decision",
       "attributes": {
@@ -91,7 +91,7 @@
       }
     },
     {
-      "tOffsetMs": 180,
+      "tOffsetMs": 184,
       "name": "asset:geo-hi",
       "kind": "asset",
       "attributes": {
@@ -103,7 +103,7 @@
       }
     },
     {
-      "tOffsetMs": 340,
+      "tOffsetMs": 344,
       "name": "asset:tex-hi",
       "kind": "asset",
       "attributes": {
@@ -125,7 +125,7 @@
       }
     },
     {
-      "tOffsetMs": 612,
+      "tOffsetMs": 616,
       "name": "state:first-frame",
       "kind": "state",
       "attributes": {
@@ -135,7 +135,7 @@
       }
     },
     {
-      "tOffsetMs": 612,
+      "tOffsetMs": 616,
       "name": "first-frame",
       "kind": "lifecycle",
       "attributes": {
@@ -145,7 +145,7 @@
       }
     },
     {
-      "tOffsetMs": 940,
+      "tOffsetMs": 944,
       "name": "state:interactive",
       "kind": "state",
       "attributes": {
@@ -155,7 +155,7 @@
       }
     },
     {
-      "tOffsetMs": 940,
+      "tOffsetMs": 944,
       "name": "interactive",
       "kind": "lifecycle",
       "attributes": {
@@ -192,7 +192,7 @@
       }
     },
     {
-      "tOffsetMs": 1753,
+      "tOffsetMs": 1752,
       "name": "state:loading",
       "kind": "state",
       "attributes": {
@@ -221,7 +221,7 @@
       }
     },
     {
-      "tOffsetMs": 3505,
+      "tOffsetMs": 3504,
       "name": "state:product-detail",
       "kind": "state",
       "attributes": {
@@ -231,7 +231,7 @@
       }
     },
     {
-      "tOffsetMs": 4089,
+      "tOffsetMs": 4088,
       "name": "state:cart",
       "kind": "state",
       "attributes": {
@@ -241,7 +241,7 @@
       }
     },
     {
-      "tOffsetMs": 4674,
+      "tOffsetMs": 4672,
       "name": "state:checkout-complete",
       "kind": "state",
       "attributes": {
@@ -251,7 +251,7 @@
       }
     },
     {
-      "tOffsetMs": 5010,
+      "tOffsetMs": 5008,
       "name": "interaction:tap:checkout",
       "kind": "interaction",
       "attributes": {
@@ -282,7 +282,7 @@
     {
       "id": "cp-first-frame",
       "state": "first-frame",
-      "tOffsetMs": 612,
+      "tOffsetMs": 616,
       "screenshotPath": null,
       "focalCoverage": 0.184,
       "alphaEdgeDrift": null
@@ -290,7 +290,7 @@
     {
       "id": "cp-interactive",
       "state": "interactive",
-      "tOffsetMs": 940,
+      "tOffsetMs": 944,
       "screenshotPath": null,
       "focalCoverage": 0.181,
       "alphaEdgeDrift": 0.041
@@ -306,15 +306,15 @@
     {
       "id": "cp-checkout",
       "state": "checkout-complete",
-      "tOffsetMs": 5060,
+      "tOffsetMs": 5064,
       "screenshotPath": null,
       "focalCoverage": 0.142,
       "alphaEdgeDrift": 0.174
     }
   ],
   "metrics": {
-    "firstFrameMs": 612,
-    "timeToInteractiveMs": 940,
+    "firstFrameMs": 616,
+    "timeToInteractiveMs": 944,
     "p50InteractionMs": 38,
     "p95InteractionMs": 40.7,
     "interactionCount": 3,

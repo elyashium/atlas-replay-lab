@@ -71,7 +71,7 @@
       }
     },
     {
-      "tOffsetMs": 12,
+      "tOffsetMs": 16,
       "name": "probe-complete",
       "kind": "lifecycle",
       "attributes": {
@@ -81,7 +81,7 @@
       }
     },
     {
-      "tOffsetMs": 18,
+      "tOffsetMs": 16,
       "name": "tier-selected",
       "kind": "decision",
       "attributes": {
@@ -91,7 +91,7 @@
       }
     },
     {
-      "tOffsetMs": 739,
+      "tOffsetMs": 736,
       "name": "state:probing",
       "kind": "state",
       "attributes": {
@@ -101,7 +101,7 @@
       }
     },
     {
-      "tOffsetMs": 742,
+      "tOffsetMs": 744,
       "name": "asset:tex-low",
       "kind": "asset",
       "attributes": {
@@ -113,7 +113,7 @@
       }
     },
     {
-      "tOffsetMs": 1042,
+      "tOffsetMs": 1040,
       "name": "state:first-frame",
       "kind": "state",
       "attributes": {
@@ -123,7 +123,7 @@
       }
     },
     {
-      "tOffsetMs": 1042,
+      "tOffsetMs": 1040,
       "name": "first-frame",
       "kind": "lifecycle",
       "attributes": {
@@ -133,7 +133,7 @@
       }
     },
     {
-      "tOffsetMs": 1380,
+      "tOffsetMs": 1384,
       "name": "state:interactive",
       "kind": "state",
       "attributes": {
@@ -143,7 +143,7 @@
       }
     },
     {
-      "tOffsetMs": 1380,
+      "tOffsetMs": 1384,
       "name": "interactive",
       "kind": "lifecycle",
       "attributes": {
@@ -151,7 +151,7 @@
       }
     },
     {
-      "tOffsetMs": 1478,
+      "tOffsetMs": 1480,
       "name": "state:routing",
       "kind": "state",
       "attributes": {
@@ -171,7 +171,7 @@
       }
     },
     {
-      "tOffsetMs": 2100,
+      "tOffsetMs": 2104,
       "name": "interaction:tap:product",
       "kind": "interaction",
       "attributes": {
@@ -180,7 +180,7 @@
       }
     },
     {
-      "tOffsetMs": 2217,
+      "tOffsetMs": 2216,
       "name": "state:loading",
       "kind": "state",
       "attributes": {
@@ -200,7 +200,7 @@
       }
     },
     {
-      "tOffsetMs": 4300,
+      "tOffsetMs": 4304,
       "name": "interaction:tap:add-to-cart",
       "kind": "interaction",
       "attributes": {
@@ -209,7 +209,7 @@
       }
     },
     {
-      "tOffsetMs": 4434,
+      "tOffsetMs": 4432,
       "name": "state:product-detail",
       "kind": "state",
       "attributes": {
@@ -219,7 +219,7 @@
       }
     },
     {
-      "tOffsetMs": 5173,
+      "tOffsetMs": 5176,
       "name": "state:cart",
       "kind": "state",
       "attributes": {
@@ -270,7 +270,7 @@
     {
       "id": "cp-first-frame",
       "state": "first-frame",
-      "tOffsetMs": 1042,
+      "tOffsetMs": 1040,
       "screenshotPath": null,
       "focalCoverage": 0.121,
       "alphaEdgeDrift": null
@@ -278,7 +278,7 @@
     {
       "id": "cp-interactive",
       "state": "interactive",
-      "tOffsetMs": 1380,
+      "tOffsetMs": 1384,
       "screenshotPath": null,
       "focalCoverage": 0.119,
       "alphaEdgeDrift": 0.052
@@ -286,7 +286,7 @@
     {
       "id": "cp-product-detail",
       "state": "product-detail",
-      "tOffsetMs": 2180,
+      "tOffsetMs": 2184,
       "screenshotPath": null,
       "focalCoverage": 0.108,
       "alphaEdgeDrift": 0.141
@@ -301,8 +301,8 @@
     }
   ],
   "metrics": {
-    "firstFrameMs": 1042,
-    "timeToInteractiveMs": 1380,
+    "firstFrameMs": 1040,
+    "timeToInteractiveMs": 1384,
     "p50InteractionMs": 148,
     "p95InteractionMs": 159.7,
     "interactionCount": 3,

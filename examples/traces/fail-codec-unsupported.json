@@ -67,7 +67,7 @@
       }
     },
     {
-      "tOffsetMs": 12,
+      "tOffsetMs": 16,
       "name": "probe-complete",
       "kind": "lifecycle",
       "attributes": {
@@ -77,7 +77,7 @@
       }
     },
     {
-      "tOffsetMs": 18,
+      "tOffsetMs": 16,
       "name": "tier-selected",
       "kind": "decision",
       "attributes": {
@@ -87,7 +87,7 @@
       }
     },
     {
-      "tOffsetMs": 210,
+      "tOffsetMs": 208,
       "name": "asset:tex-low",
       "kind": "asset",
       "attributes": {
@@ -100,7 +100,7 @@
       }
     },
     {
-      "tOffsetMs": 210,
+      "tOffsetMs": 208,
       "name": "decode-failed",
       "kind": "error",
       "attributes": {
@@ -117,7 +117,7 @@
       }
     },
     {
-      "tOffsetMs": 523,
+      "tOffsetMs": 520,
       "name": "state:probing",
       "kind": "state",
       "attributes": {
@@ -127,7 +127,7 @@
       }
     },
     {
-      "tOffsetMs": 1046,
+      "tOffsetMs": 1048,
       "name": "state:routing",
       "kind": "state",
       "attributes": {
@@ -137,7 +137,7 @@
       }
     },
     {
-      "tOffsetMs": 1569,
+      "tOffsetMs": 1568,
       "name": "state:loading",
       "kind": "state",
       "attributes": {
@@ -147,7 +147,7 @@
       }
     },
     {
-      "tOffsetMs": 2092,
+      "tOffsetMs": 2096,
       "name": "state:error",
       "kind": "state",
       "attributes": {
@@ -157,7 +157,7 @@
       }
     },
     {
-      "tOffsetMs": 2900,
+      "tOffsetMs": 2904,
       "name": "session-end",
       "kind": "lifecycle",
       "attributes": {

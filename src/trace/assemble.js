@@ -20,8 +20,8 @@
  * @typedef {import("../../types/atlas.js").ExperienceState} ExperienceState
  */
 
-import { newTrace, deriveMetrics } from "./schema.js";
-import { determinismHash } from "./normalize.js";
+import { newTrace, deriveMetrics, round4 } from "./schema.js";
+import { determinismHash, quantise } from "./normalize.js";
 import { normalizeSnapshot, bucketOf } from "../capability/buckets.js";
 
 /** Hard ceilings, so a runaway page cannot post an unbounded trace. */
@@ -163,7 +163,10 @@ function event(raw) {
   const name = str(e.name);
   if (!kind || !name) return null;
   return {
-    tOffsetMs: num(e.tOffsetMs) ?? 0,
+    // Quantised on write (see normalize.js `quantise`): stored offsets sit on
+    // bucket centres, so sub-quantum jitter between two captures of the same
+    // session cannot flip the determinism hash at a bucket edge.
+    tOffsetMs: quantise(num(e.tOffsetMs) ?? 0),
     name,
     kind,
     attributes: attributes(e.attributes),
@@ -207,7 +210,7 @@ function checkpoint(raw) {
   return {
     id: str(c.id),
     state: /** @type {ExperienceState} */ (str(c.state)),
-    tOffsetMs: num(c.tOffsetMs) ?? 0,
+    tOffsetMs: quantise(num(c.tOffsetMs) ?? 0),
     screenshotPath: str(c.screenshotPath) || null,
     focalCoverage: num(c.focalCoverage),
     alphaEdgeDrift: num(c.alphaEdgeDrift),
@@ -268,7 +271,7 @@ function xrSessionEvent(raw) {
   // over a closed set.
   if (!XR_PHASES.includes(e.phase)) return null;
   return {
-    tOffsetMs: num(e.tOffsetMs) ?? 0,
+    tOffsetMs: quantise(num(e.tOffsetMs) ?? 0),
     phase: e.phase,
     mode: str(e.mode) || "unknown",
     error: str(e.error) || null,
@@ -282,7 +285,7 @@ function xrSessionEvent(raw) {
 function consoleError(raw) {
   const e = /** @type {Record<string, any>} */ (raw && typeof raw === "object" ? raw : {});
   return {
-    tOffsetMs: num(e.tOffsetMs) ?? 0,
+    tOffsetMs: quantise(num(e.tOffsetMs) ?? 0),
     code: str(e.code) || "unknown",
     // Already scrubbed and clipped page-side (`scrubText` in probe-generic.js).
     // Re-clipped here because this function is the trust boundary and the probe
@@ -386,9 +389,4 @@ function arr(v, max) {
 /** @param {number} n */
 function clamp01(n) {
   return n < 0 ? 0 : n > 1 ? 1 : n;
-}
-
-/** @param {number} n */
-function round4(n) {
-  return Math.round(n * 1e4) / 1e4;
 }

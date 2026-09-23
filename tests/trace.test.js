@@ -136,14 +136,16 @@ test("assembleTrace never trusts the page's own numbers", () => {
       seed: 42,
       capability: { webglVersion: 2, cameraPermission: "granted", userAgent: "should be dropped" },
       states: ["boot", "probing"],
-      events: [ev("lifecycle", "first-frame", 900, { nonBlank: true })],
+      // Posted on a quantum boundary (896 = 112×8) so the assertion below reads
+      // derivation, not quantisation: offsets are quantised on write.
+      events: [ev("lifecycle", "first-frame", 896, { nonBlank: true })],
       // A page claiming its own metrics must have no effect at all.
       metrics: { firstFrameMs: 1, reachedEndState: true },
       determinismHash: "attacker-supplied",
     },
     { manifest },
   );
-  assert.equal(trace.metrics.firstFrameMs, 900, "metrics are derived, not accepted");
+  assert.equal(trace.metrics.firstFrameMs, 896, "metrics are derived, not accepted");
   assert.equal(trace.metrics.reachedEndState, false);
   assert.notEqual(trace.determinismHash, "attacker-supplied");
   assert.equal(/** @type {any} */ (trace.capability).userAgent, undefined);

@@ -67,7 +67,7 @@
       }
     },
     {
-      "tOffsetMs": 12,
+      "tOffsetMs": 16,
       "name": "probe-complete",
       "kind": "lifecycle",
       "attributes": {
@@ -77,7 +77,7 @@
       }
     },
     {
-      "tOffsetMs": 18,
+      "tOffsetMs": 16,
       "name": "tier-selected",
       "kind": "decision",
       "attributes": {
@@ -87,7 +87,7 @@
       }
     },
     {
-      "tOffsetMs": 42,
+      "tOffsetMs": 40,
       "name": "asset:geo-mid",
       "kind": "asset",
       "attributes": {
@@ -100,7 +100,7 @@
       }
     },
     {
-      "tOffsetMs": 190,
+      "tOffsetMs": 192,
       "name": "asset:tex-mid",
       "kind": "asset",
       "attributes": {
@@ -112,7 +112,7 @@
       }
     },
     {
-      "tOffsetMs": 260,
+      "tOffsetMs": 264,
       "name": "asset-failed",
       "kind": "error",
       "attributes": {
@@ -121,7 +121,7 @@
       }
     },
     {
-      "tOffsetMs": 300,
+      "tOffsetMs": 304,
       "name": "fatal",
       "kind": "error",
       "attributes": {
@@ -129,7 +129,7 @@
       }
     },
     {
-      "tOffsetMs": 613,
+      "tOffsetMs": 616,
       "name": "state:probing",
       "kind": "state",
       "attributes": {
@@ -139,7 +139,7 @@
       }
     },
     {
-      "tOffsetMs": 1226,
+      "tOffsetMs": 1224,
       "name": "state:routing",
       "kind": "state",
       "attributes": {
@@ -149,7 +149,7 @@
       }
     },
     {
-      "tOffsetMs": 1839,
+      "tOffsetMs": 1840,
       "name": "state:loading",
       "kind": "state",
       "attributes": {
@@ -159,7 +159,7 @@
       }
     },
     {
-      "tOffsetMs": 2452,
+      "tOffsetMs": 2456,
       "name": "state:error",
       "kind": "state",
       "attributes": {

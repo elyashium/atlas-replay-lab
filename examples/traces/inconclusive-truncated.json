@@ -66,7 +66,7 @@
       }
     },
     {
-      "tOffsetMs": 12,
+      "tOffsetMs": 16,
       "name": "probe-complete",
       "kind": "lifecycle",
       "attributes": {
@@ -76,7 +76,7 @@
       }
     },
     {
-      "tOffsetMs": 18,
+      "tOffsetMs": 16,
       "name": "tier-selected",
       "kind": "decision",
       "attributes": {
@@ -86,7 +86,7 @@
       }
     },
     {
-      "tOffsetMs": 433,
+      "tOffsetMs": 432,
       "name": "state:probing",
       "kind": "state",
       "attributes": {
@@ -96,7 +96,7 @@
       }
     },
     {
-      "tOffsetMs": 866,
+      "tOffsetMs": 864,
       "name": "state:routing",
       "kind": "state",
       "attributes": {
@@ -106,7 +106,7 @@
       }
     },
     {
-      "tOffsetMs": 1299,
+      "tOffsetMs": 1296,
       "name": "state:loading",
       "kind": "state",
       "attributes": {
@@ -116,7 +116,7 @@
       }
     },
     {
-      "tOffsetMs": 1420,
+      "tOffsetMs": 1424,
       "name": "asset:tex-mid",
       "kind": "asset",
       "attributes": {

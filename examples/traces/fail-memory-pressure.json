@@ -70,7 +70,7 @@
       }
     },
     {
-      "tOffsetMs": 12,
+      "tOffsetMs": 16,
       "name": "probe-complete",
       "kind": "lifecycle",
       "attributes": {
@@ -80,7 +80,7 @@
       }
     },
     {
-      "tOffsetMs": 18,
+      "tOffsetMs": 16,
       "name": "tier-selected",
       "kind": "decision",
       "attributes": {
@@ -90,7 +90,7 @@
       }
     },
     {
-      "tOffsetMs": 340,
+      "tOffsetMs": 344,
       "name": "asset:geo-hi",
       "kind": "asset",
       "attributes": {
@@ -114,7 +114,7 @@
       }
     },
     {
-      "tOffsetMs": 1050,
+      "tOffsetMs": 1048,
       "name": "state:probing",
       "kind": "state",
       "attributes": {
@@ -124,7 +124,7 @@
       }
     },
     {
-      "tOffsetMs": 1140,
+      "tOffsetMs": 1144,
       "name": "state:first-frame",
       "kind": "state",
       "attributes": {
@@ -134,7 +134,7 @@
       }
     },
     {
-      "tOffsetMs": 1140,
+      "tOffsetMs": 1144,
       "name": "first-frame",
       "kind": "lifecycle",
       "attributes": {
@@ -162,7 +162,7 @@
       }
     },
     {
-      "tOffsetMs": 2100,
+      "tOffsetMs": 2104,
       "name": "state:routing",
       "kind": "state",
       "attributes": {
@@ -182,7 +182,7 @@
       }
     },
     {
-      "tOffsetMs": 3150,
+      "tOffsetMs": 3152,
       "name": "state:loading",
       "kind": "state",
       "attributes": {
@@ -211,7 +211,7 @@
       }
     },
     {
-      "tOffsetMs": 6301,
+      "tOffsetMs": 6304,
       "name": "state:degraded",
       "kind": "state",
       "attributes": {
@@ -221,7 +221,7 @@
       }
     },
     {
-      "tOffsetMs": 7351,
+      "tOffsetMs": 7352,
       "name": "state:error",
       "kind": "state",
       "attributes": {
@@ -262,7 +262,7 @@
     {
       "id": "cp-first-frame",
       "state": "first-frame",
-      "tOffsetMs": 1140,
+      "tOffsetMs": 1144,
       "screenshotPath": null,
       "focalCoverage": 0.169,
       "alphaEdgeDrift": null
@@ -277,7 +277,7 @@
     }
   ],
   "metrics": {
-    "firstFrameMs": 1140,
+    "firstFrameMs": 1144,
     "timeToInteractiveMs": 1720,
     "p50InteractionMs": 420,
     "p95InteractionMs": 420,
