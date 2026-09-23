@@ -35,12 +35,21 @@ async function main() {
   if (!/^[0-9a-f]{16,64}$/.test(modelHash)) {
     throw new Error("missing ?model=<content hash> — this page is served by `atlas matrix --glb`, not opened directly");
   }
-  const res = await fetch(`/uploads/${modelHash}.atlas.json`, { cache: "no-store" });
-  if (!res.ok) throw new Error(`sidecar fetch failed: HTTP ${res.status}`);
-  const sidecar = await res.json();
-  if (!sidecar?.meshes?.length) throw new Error("sidecar has no meshes");
+  // Sidecar and tier decision race in parallel, but first paint waits only for
+  // the sidecar: it renders provisionally at the cheapest rung and upgrades
+  // when the decision lands. Gating first paint on a control-plane round trip
+  // would push it past the probe's first-frame sampling on fast profiles —
+  // a blank first frame caused by our own waterfall, not by the model.
+  const sidecarPromise = fetch(`/uploads/${modelHash}.atlas.json`, { cache: "no-store" }).then(async (res) => {
+    if (!res.ok) throw new Error(`sidecar fetch failed: HTTP ${res.status}`);
+    const sidecar = await res.json();
+    if (!sidecar?.meshes?.length) throw new Error("sidecar has no meshes");
+    return sidecar;
+  });
+  const tierPromise = decideTier();
+  const sidecar = await sidecarPromise;
 
-  const tier = await decideTier();
+  const tier = await tierPromise;
   hudTier.textContent = `tier ${tier}`;
   const settings = viewerTierSettings(tier);
 
@@ -185,8 +194,11 @@ function createRenderer(canvas, sidecar, settings) {
     }
     const idxBuf = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(use), gl.STATIC_DRAW);
     const needUint = mesh.positions.length / 3 > 65535;
+    // The typed array must match the draw type: reading a Uint32 buffer as
+    // UNSIGNED_SHORT reinterprets every 4-byte index as two 2-byte ones and
+    // draws garbage (usually degenerate, so the failure reads as "blank").
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, needUint ? new Uint32Array(use) : new Uint16Array(use), gl.STATIC_DRAW);
     drawList.push({ posBuf, norBuf, idxBuf, count: use.length, color: mesh.color, uint: needUint });
   }
   if (!drawList.length) return null;
