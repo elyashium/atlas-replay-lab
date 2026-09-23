@@ -8,6 +8,34 @@
  * replay produced the same trace" a meaningful claim rather than a comparison
  * between two different pipelines.
  *
+ * ## The `--url` additions, and why they are three options rather than a fork
+ *
+ * A generic run against a stranger's URL needs exactly three things this
+ * function did not previously do, and each is an option rather than a second
+ * copy of the function for the same reason the matrix and replay share it: the
+ * moment there are two capture paths, "the same pipeline produced both traces"
+ * stops being true.
+ *
+ *  - `target` — navigate somewhere other than the bundled experience. It also
+ *    re-points the camera-permission grant, which is a per-origin browser
+ *    setting: granting `videoCapture` to `http://127.0.0.1:41234` while the
+ *    page under test is served from `https://someone.example` grants nothing,
+ *    and the `camera-denied` profile would silently stop being a denial.
+ *
+ *  - `extraScripts` — the XR stub and the generic probe, registered after the
+ *    bootstrap in a load-bearing order (see `applyProfile`).
+ *
+ *  - `harvest` — pull the payload out of the page over CDP instead of waiting
+ *    for it to arrive by HTTP. Orbital posts its own trace to the control
+ *    plane because Orbital is served by the control plane. A third-party HTTPS
+ *    page cannot: `fetch` to `http://127.0.0.1:PORT` is blocked twice over, by
+ *    CORS and by mixed content. Reading the payload back through
+ *    `Runtime.evaluate` is not a workaround for a security control, it is the
+ *    only channel that exists — and it goes through the same `assembleTrace`,
+ *    so the coercion, the allow-lists and the bounds all still apply to it.
+ *
+ * With none of the three supplied this function behaves exactly as it did.
+ *
  * @typedef {import("./cdp.js").CdpConnection} CdpConnection
  * @typedef {import("./cdp.js").CdpSession} CdpSession
  * @typedef {import("../../types/atlas.js").Profile} Profile
@@ -23,7 +51,7 @@ import { waitForDone, sleep } from "./drive.js";
 import { writeFileEnsured, ensureDir } from "../util/fsx.js";
 import { decodePng } from "../image/png.js";
 import { nonBlankness, focalCoverage, edgeEnergy, edgeDrift } from "../image/diff.js";
-import { applyFirstFrameVisual, finalizeTrace } from "../trace/assemble.js";
+import { assembleTrace, applyFirstFrameVisual, finalizeTrace } from "../trace/assemble.js";
 import { logger } from "../util/log.js";
 
 const log = logger("session");
@@ -54,6 +82,10 @@ const BINDING = "__atlasBinding";
  *   screenshotDir: string;
  *   drive: (session: CdpSession) => Promise<unknown>;
  *   doneTimeoutMs?: number;
+ *   target?: string;
+ *   extraScripts?: string[];
+ *   harvest?: (session: CdpSession) => Promise<unknown>;
+ *   doneOptional?: boolean;
  * }} opts
  * @returns {Promise<SessionResult>}
  */
@@ -65,6 +97,10 @@ export async function runSession(opts) {
   const pageErrors = [];
   /** @type {string | null} */
   let harnessError = null;
+  /** @type {string[]} */
+  const harnessNotes = [];
+
+  const target = opts.target ?? `${opts.server.origin}/index.html`;
 
   const session = await opts.connection.newPage();
   await ensureDir(opts.screenshotDir);
@@ -124,27 +160,54 @@ export async function runSession(opts) {
       disableWebgl: opts.profile.disableWebgl,
     });
 
-    await applyProfile(session, opts.profile, { origin: opts.server.origin, injectedScript });
+    // Permissions are granted per *origin*, and the origin that matters is the
+    // one the page will be served from — not the control plane's. Derived from
+    // the navigation target so the `camera-denied` profile stays a denial on a
+    // `--url` run instead of quietly denying an origin nobody visits.
+    await applyProfile(session, opts.profile, {
+      origin: originOf(target, opts.server.origin),
+      injectedScript,
+      extraScripts: opts.extraScripts,
+    });
 
-    await session.send("Page.navigate", { url: `${opts.server.origin}/index.html` });
+    await session.send("Page.navigate", { url: target });
 
     // Drive first: the page will not reach `checkout-complete` — and therefore
     // will not post its trace — until something taps through the flow.
     await opts.drive(session);
-    await waitForDone(session, opts.doneTimeoutMs ?? 180_000);
+
+    try {
+      await waitForDone(session, opts.doneTimeoutMs ?? 180_000);
+    } catch (err) {
+      // On the harvest path a drive that gave up early leaves `__atlasDone`
+      // false for the rest of the session, and there is no point spending the
+      // full timeout discovering that. What the probe recorded up to the
+      // failure is still the most informative thing we have, so the timeout
+      // becomes a note and the harvest proceeds.
+      if (!opts.doneOptional) throw err;
+      harnessNotes.push(
+        `the page never marked itself complete (${message(err)}); ` +
+          "the trace below is what the recorder had captured by that point",
+      );
+      log.warn(`${opts.profile.id}: completion never signalled; harvesting anyway`);
+    }
 
     // Let any in-flight checkpoint capture finish before the target closes.
     await captureChain;
 
     const heapMB = await readHeapMB(session);
 
-    // The trace arrives over HTTP, so it may land a beat after __atlasDone.
-    const trace = await awaitTrace(opts.server.traces, opts.traceId, 10_000);
+    // Either the page posted it over HTTP (Orbital) or we read it back over CDP
+    // (`--url`). Both land in `assembleTrace`.
+    const trace = await obtainTrace(session, opts, 10_000);
     if (!trace) {
-      harnessError = "the page reported completion but no trace reached the control plane";
+      harnessError = opts.harvest
+        ? "the page's recorder produced no payload"
+        : "the page reported completion but no trace reached the control plane";
     } else {
       await attachCheckpointMeasurements(trace, screenshots);
       attachHeapSample(trace, heapMB);
+      for (const note of harnessNotes) trace.notes.push(note);
       for (const err of pageErrors.slice(0, 20)) trace.notes.push(err);
 
       const cpFirstFrame = screenshots["cp-first-frame"];
@@ -168,12 +231,13 @@ export async function runSession(opts) {
     harnessError = err instanceof Error ? err.message : String(err);
     log.warn(`${opts.profile.id}: ${harnessError}`);
 
-    // A harness failure still produces whatever the page managed to post.
-    const trace = await awaitTrace(opts.server.traces, opts.traceId, 2_000);
+    // A harness failure still produces whatever the page managed to record.
+    const trace = await obtainTrace(session, opts, 2_000);
     if (trace) {
       await attachCheckpointMeasurements(trace, screenshots);
       attachHeapSample(trace, null);
       trace.notes.push(`harness error: ${harnessError}`);
+      for (const note of harnessNotes) trace.notes.push(note);
       for (const e of pageErrors.slice(0, 20)) trace.notes.push(e);
       finalizeTrace(trace, opts.manifest);
     }
@@ -244,6 +308,70 @@ async function measureFirstFrame(trace, manifest, screenshotPath) {
 }
 
 /* ── trace plumbing ──────────────────────────────────────────────────── */
+
+/**
+ * Gets this run's trace, by whichever channel the run has.
+ *
+ * The two channels differ only in transport. `assembleTrace` — the same
+ * function the control plane calls on `POST /api/trace` — does the coercion,
+ * the allow-listing and the bounding either way, which is what lets a harvested
+ * payload from a page nobody wrote for us be compared against an Orbital trace
+ * at all. A payload read over CDP is no more trusted than one that arrived over
+ * HTTP; both come from a browser, and neither is believed.
+ *
+ * `profileId` is passed as a *fallback* only. `assembleTrace` prefers the
+ * payload's own value, which the bootstrap put there — so a page that somehow
+ * reported a different profile than the one we applied produces a visible
+ * mismatch rather than being silently relabelled with the right answer.
+ *
+ * @param {CdpSession} session
+ * @param {{
+ *   server: { traces: Trace[] };
+ *   manifest: ExperienceManifest;
+ *   profile: Profile;
+ *   traceId: string;
+ *   harvest?: (session: CdpSession) => Promise<unknown>;
+ * }} opts
+ * @param {number} timeoutMs
+ * @returns {Promise<Trace | null>}
+ */
+async function obtainTrace(session, opts, timeoutMs) {
+  if (!opts.harvest) {
+    // Posted over HTTP, so it may land a beat after __atlasDone.
+    return awaitTrace(opts.server.traces, opts.traceId, timeoutMs);
+  }
+  try {
+    const payload = await opts.harvest(session);
+    if (!payload || typeof payload !== "object") return null;
+    return assembleTrace(payload, {
+      manifest: opts.manifest,
+      emulated: true,
+      profileId: opts.profile.id,
+    });
+  } catch (err) {
+    log.warn(`trace harvest failed: ${message(err)}`);
+    return null;
+  }
+}
+
+/**
+ * The origin a permission grant should be scoped to.
+ *
+ * Falls back to the control plane's own origin when the target is not a URL
+ * this can parse — a `Browser.setPermission` against a malformed origin throws,
+ * and losing the whole profile because of a typo in a flag would turn a bad
+ * argument into a missing result.
+ *
+ * @param {string} target
+ * @param {string} fallback
+ */
+function originOf(target, fallback) {
+  try {
+    return new URL(target).origin;
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * @param {Trace[]} traces
@@ -382,4 +510,9 @@ function attachHeapSample(trace, heapMB) {
 /** @param {bigint} startedAt */
 function elapsed(startedAt) {
   return Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6);
+}
+
+/** @param {unknown} err */
+function message(err) {
+  return err instanceof Error ? err.message : String(err);
 }

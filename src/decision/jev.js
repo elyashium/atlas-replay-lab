@@ -48,6 +48,7 @@ import {
   traceQuestions,
 } from "./questions.js";
 import { DEFAULT_MODEL } from "./jev-transport.js";
+import { percentile, round4 } from "../trace/schema.js";
 
 /** @implements {DecisionEngine} */
 export class JevDecisionEngine {
@@ -215,6 +216,26 @@ export function tierStateForJev(state, ctx) {
  * session; and the less that leaves the box, the smaller the privacy surface.
  * Frame-level events are summarised into counts rather than shipped.
  *
+ * ## The frame series is compressed, never shipped
+ *
+ * A `--url` capture carries up to 3600 raw frame durations. Sending them would
+ * be wrong three times over. It would eat the token budget for the thing that
+ * matters least — Jev cannot do arithmetic on a series, so 3600 numbers buy no
+ * judgment (`docs/showcase-roadmap.md`: "no counting, no arithmetic on money/
+ * quantities/dates in questions"). It would be non-deterministic input to a
+ * question whose answer must be stable. And a per-frame timeline of a session
+ * is closer to a behavioural recording than the privacy model allows off-box.
+ *
+ * So the series is reduced here to refresh-rate-aligned buckets plus three
+ * percentiles computed in code. The buckets carry the *shape* — "a fifth of
+ * frames took longer than 33ms" is a semantic fact a model can reason about —
+ * while the arithmetic stays where arithmetic belongs.
+ *
+ * Errors ship as codes with counts. The scrubbed `message` text stays on this
+ * side of the boundary: it is developer-authored diagnostic text from a page we
+ * do not control, so it is exactly the kind of free text that must not be
+ * forwarded to a third party, and `code` is what the questions read anyway.
+ *
  * @param {Trace} trace
  * @param {DecisionContext} ctx
  */
@@ -263,6 +284,99 @@ export function summariseTraceForJev(trace, ctx) {
     events,
     inputClasses: trace.inputClasses,
     durationMs: trace.durationMs,
+    // Generic ingestion. `null` rather than an absent key when a capture has
+    // none, so the object's shape — and therefore its `fixtureKey` — does not
+    // depend on which kind of run produced the trace.
+    frameProfile: frameProfileForJev(trace.frameTimes ?? []),
+    xr: xrSummaryForJev(trace.xrSessionEvents ?? []),
+    errorCodes: errorCodesForJev(trace.consoleErrors ?? []),
+  };
+}
+
+/**
+ * Bucket edges in ms, at the frame budgets that mean something to a human eye:
+ * 120Hz, 60Hz, 40fps, 30Hz, 20fps, 10fps. A frame over 100ms is not a slow
+ * frame, it is a visible stall, which is why the top bucket is open-ended.
+ */
+const FRAME_BUCKET_EDGES = [8.34, 16.7, 25, 33.4, 50, 100];
+const FRAME_BUCKET_LABELS = [
+  "<=8.3ms (120fps)",
+  "8.3-16.7ms (60fps)",
+  "16.7-25ms (40fps)",
+  "25-33.4ms (30fps)",
+  "33.4-50ms (20fps)",
+  "50-100ms (10fps)",
+  ">100ms (visible stall)",
+];
+
+/**
+ * @param {number[]} frameTimes
+ */
+function frameProfileForJev(frameTimes) {
+  if (!frameTimes.length) return null;
+  const sorted = [...frameTimes].sort((a, b) => a - b);
+  /** @type {Record<string, number>} */
+  const buckets = {};
+  for (const label of FRAME_BUCKET_LABELS) buckets[label] = 0;
+  for (const t of frameTimes) {
+    let idx = FRAME_BUCKET_EDGES.findIndex((edge) => t <= edge);
+    if (idx === -1) idx = FRAME_BUCKET_LABELS.length - 1;
+    buckets[FRAME_BUCKET_LABELS[idx]]++;
+  }
+  /** @type {Record<string, number>} */
+  const shares = {};
+  for (const [label, count] of Object.entries(buckets)) {
+    shares[label] = round4(count / frameTimes.length);
+  }
+  return {
+    sampleCount: frameTimes.length,
+    seriesShipped: false,
+    p50Ms: percentile(sorted, 0.5),
+    p95Ms: percentile(sorted, 0.95),
+    p99Ms: percentile(sorted, 0.99),
+    longestMs: round4(sorted[sorted.length - 1]),
+    buckets,
+    bucketShares: shares,
+  };
+}
+
+/**
+ * Phases and modes only — both fixed vocabularies, both already allow-listed by
+ * `assembleTrace`. `error` is a DOMException `name` (`NotAllowedError`,
+ * `NotSupportedError`, …), which is a browser-defined token rather than page
+ * text, and it is the difference between "the user said no" and "this build
+ * cannot do AR at all". That distinction is worth the question.
+ *
+ * @param {NonNullable<Trace["xrSessionEvents"]>} xrSessionEvents
+ */
+function xrSummaryForJev(xrSessionEvents) {
+  if (!xrSessionEvents.length) return null;
+  return {
+    attempted: xrSessionEvents.some((e) => e.phase === "request"),
+    sessionStarted: xrSessionEvents.some((e) => e.phase === "session-start"),
+    refused: xrSessionEvents.some((e) => e.phase === "session-refused"),
+    unavailable: xrSessionEvents.some((e) => e.phase === "unavailable"),
+    phases: xrSessionEvents.map((e) => e.phase),
+    modes: [...new Set(xrSessionEvents.map((e) => e.mode))],
+    errorNames: [...new Set(xrSessionEvents.map((e) => e.error).filter(Boolean))],
+  };
+}
+
+/**
+ * @param {NonNullable<Trace["consoleErrors"]>} consoleErrors
+ */
+function errorCodesForJev(consoleErrors) {
+  if (!consoleErrors.length) return null;
+  /** @type {Record<string, number>} */
+  const counts = {};
+  for (const e of consoleErrors) counts[e.code] = (counts[e.code] ?? 0) + 1;
+  return {
+    total: consoleErrors.length,
+    firstAtMs: consoleErrors[0].tOffsetMs,
+    counts,
+    // Said out loud in the payload so that a reader of a logged request can see
+    // the omission was a decision rather than an oversight.
+    messagesWithheld: true,
   };
 }
 

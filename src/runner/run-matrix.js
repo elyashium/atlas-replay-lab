@@ -1,5 +1,5 @@
 /**
- * The six-profile matrix — the "one command" of §5.4.
+ * The capability matrix — the "one command" of §5.4.
  *
  * Runs each profile in its own browser context against a freshly started
  * control-plane server, captures a trace and checkpoint screenshots per run,
@@ -20,6 +20,38 @@
  *    though the server also sends `Cache-Control: no-store` on every response,
  *    which is the real guarantee.
  *
+ * Isolation between runs is not this file's doing: `connection.newPage()`
+ * creates a fresh `Target.createBrowserContext` per run and disposes it on
+ * detach, so no cookie, cache entry, service worker or storage bucket survives
+ * from one profile to the next. That matters far more for `--url` than for
+ * Orbital — a third-party app is entitled to cache twelve megabytes, and the
+ * second profile measuring a warm cache would make every byte count in the
+ * report a fiction.
+ *
+ * ## The two modes
+ *
+ * Without `--url` this runs Orbital: the bundled experience, served by the
+ * control plane, routed by the live tier router, driven along the purchase
+ * flow. `servedTier` and `servedPath` are then *decisions* Atlas made.
+ *
+ * With `--url` it runs a stranger's app: the generic manifest as a measuring
+ * stick, the generic probe injected over CDP, the generic driver, and
+ * `classify-delivery.js` turning `servedTier`/`servedPath` into *measurements*
+ * of what that app delivered. Three things about that mode are deliberate:
+ *
+ *  - **No baseline half.** The failure story compares "router bypassed" against
+ *    "router engaged", and there is no router in the loop on someone else's
+ *    app. A baseline run would be the same run twice with a different label, so
+ *    it is refused rather than faked, and the report says why in
+ *    `summary.failureStory`.
+ *  - **The XR pair is in the default set.** A stranger's WebAR build is exactly
+ *    what `xr-granted`/`xr-denied` exist for, and Orbital — which has no XR
+ *    entry point — never runs them.
+ *  - **Nothing is served to the page.** The control plane still starts, because
+ *    the engine and the trace assembler live behind it, but the page under test
+ *    loads from its own origin and never talks to us. Its payload is read back
+ *    over CDP (`runSession`'s `harvest`).
+ *
  * Every number in the resulting report is read from a real captured trace. No
  * metric in this file is written by hand.
  *
@@ -31,18 +63,24 @@
 
 import path from "node:path";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 
 import { orbitalManifest } from "../manifest/atlas-orbital.manifest.js";
+import { genericManifest } from "../manifest/generic.manifest.js";
 import { validateManifest } from "../manifest/validate.js";
 import { selectEngine } from "../decision/index.js";
 import { launchBrowser } from "./cdp.js";
 import { startServer } from "./server.js";
-import { PROFILES, profileById } from "./profiles.js";
+import { PROFILES, GENERIC_PROFILES, profileById } from "./profiles.js";
 import { runSession } from "./session.js";
 import { driveHappyPath } from "./drive.js";
+import { driveGeneric } from "./drive-generic.js";
+import { buildXrStubScript, xrStubNote, POSE_SCRIPT_ID } from "./xr-stub.js";
+import { applyDeliveryClassification } from "./classify-delivery.js";
 import { causalHash } from "../trace/normalize.js";
 import { fromRoot, ensureDir, emptyDir, writeJson } from "../util/fsx.js";
 import { logger, banner } from "../util/log.js";
+
 
 const log = logger("matrix");
 
@@ -53,7 +91,56 @@ export const DEFAULT_SEED = 0x0b17a1;
 export const BASELINE_PROFILE_ID = "low-cpu-3g";
 export const BASELINE_FORCED_TIER = "high";
 
+/**
+ * The other half of a `--url` failure story: the profile a build is most likely
+ * to have actually been developed and demoed on. Comparing against it is what
+ * makes "and here is the same app on a cheap handset" land, because it is the
+ * run the author would recognise.
+ */
+export const GENERIC_REFERENCE_PROFILE_ID = "high-wifi";
+
 export const MATRIX_DIR = fromRoot("artifacts", "matrix");
+
+/**
+ * The probe is read off disk as text and registered with
+ * `Page.addScriptToEvaluateOnNewDocument`, never imported. It is a classic
+ * script, not a module, precisely so it can run in a document that has no
+ * import channel to us.
+ */
+const GENERIC_PROBE_PATH = fromRoot("experience", "probe-generic.js");
+
+/**
+ * Validates a `--url` target before a browser is launched.
+ *
+ * Only `http:` and `https:` are accepted, and the restriction is a real
+ * boundary rather than tidiness. `Page.addScriptToEvaluateOnNewDocument`
+ * registers the probe against *every* document the target loads; pointed at a
+ * `file:` URL that would run our injected script — which reads the DOM and
+ * enumerates resources — inside the local-filesystem origin. `javascript:` and
+ * `data:` are refused for the same reason in the other direction: the target
+ * would be a code fragment supplied on the command line rather than a page.
+ *
+ * @param {string} raw
+ * @returns {URL}
+ */
+export function parseTargetUrl(raw) {
+  /** @type {URL} */
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`--url "${raw}" is not a URL. Include the scheme, e.g. https://example.com/ar`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(
+      `--url must be http: or https:, not "${url.protocol}". Atlas injects a recorder into ` +
+        "every document the target loads, and it will not do that into a local-file or " +
+        "inline-code origin.",
+    );
+  }
+  return url;
+}
+
 
 /**
  * @typedef {object} MatrixRunRow
@@ -72,6 +159,9 @@ export const MATRIX_DIR = fromRoot("artifacts", "matrix");
  * @property {object | null} decision
  * @property {TraceVerdict | null} verdict
  * @property {{ completed: string[]; failedAt: string | null; error: string | null } | null} drive
+ * @property {import("./classify-delivery.js").DeliveryClassification | null} delivery
+ *   How `servedTier`/`servedPath` were arrived at. `null` on an Orbital run,
+ *   where they were not arrived at but *chosen* — the decision is in `decision`.
  * @property {Record<string, string>} screenshots
  * @property {string[]} pageErrors
  * @property {string | null} error
@@ -86,6 +176,7 @@ export const MATRIX_DIR = fromRoot("artifacts", "matrix");
  *   includeBaseline?: boolean;
  *   clean?: boolean;
  *   env?: NodeJS.ProcessEnv;
+ *   url?: string;
  * }} [opts]
  */
 export async function runMatrix(opts = {}) {
@@ -93,9 +184,24 @@ export async function runMatrix(opts = {}) {
   const startedAt = process.hrtime.bigint();
   const seed = opts.seed ?? readSeed(opts.env ?? process.env);
   const outDir = opts.outDir ?? MATRIX_DIR;
-  const manifest = orbitalManifest;
 
-  banner("Atlas Replay Lab — capability matrix");
+  // Parsed before anything is launched: a typo in the flag should cost a
+  // second, not a browser start and six throttled runs.
+  const target = opts.url ? parseTargetUrl(opts.url) : null;
+  const generic = target !== null;
+  const manifest = generic ? genericManifest : orbitalManifest;
+
+  banner(
+    generic
+      ? `Atlas Replay Lab — capability matrix against ${target.origin}${target.pathname}`
+      : "Atlas Replay Lab — capability matrix",
+  );
+  if (generic) {
+    log.info(
+      "generic mode: no tier router is in the loop. servedTier/servedPath are " +
+        "measurements of what this app delivered, not decisions Atlas made.",
+    );
+  }
 
   // A manifest that does not validate cannot produce a meaningful matrix, and
   // finding that out six throttled runs later would be a waste of ten minutes.
@@ -110,9 +216,15 @@ export async function runMatrix(opts = {}) {
     throw new Error(`manifest is invalid:\n  ${errors.join("\n  ")}`);
   }
 
-  await ensureAssets();
+  // Orbital's tier assets. A generic run serves the page nothing, so generating
+  // them would be a second of work for a file no request will ever reach.
+  if (!generic) await ensureAssets();
 
-  const profiles = (opts.profileIds?.length ? opts.profileIds.map(profileById) : PROFILES);
+  const genericProbe = generic ? await readFile(GENERIC_PROBE_PATH, "utf8") : null;
+
+  const defaultProfiles = generic ? GENERIC_PROFILES : PROFILES;
+  const profiles = opts.profileIds?.length ? opts.profileIds.map(profileById) : defaultProfiles;
+
 
   const selection = await selectEngine({ env: opts.env ?? process.env, allowFixture: true });
   log.info(selection.status);
@@ -142,7 +254,17 @@ export async function runMatrix(opts = {}) {
     /** @type {Array<{ profile: Profile; runKind: "baseline" | "adaptive"; forcedTier: string | null }>} */
     const plan = [];
 
-    const baselineWanted = opts.includeBaseline !== false;
+    // The baseline is "the router bypassed", which only means something when
+    // there is a router. On someone else's app there is not one, so asking for
+    // a baseline would produce the same run twice under two labels — a
+    // before/after with nothing between them. Refused out loud.
+    const baselineWanted = opts.includeBaseline !== false && !generic;
+    if (generic && opts.includeBaseline === true) {
+      log.warn(
+        "--url runs have no baseline half: Atlas does not route a third-party app, " +
+          "so there is no router to bypass. Running the adaptive set only.",
+      );
+    }
     const baselineProfile = profiles.find((p) => p.id === BASELINE_PROFILE_ID);
     if (baselineWanted && baselineProfile) {
       plan.push({ profile: baselineProfile, runKind: "baseline", forcedTier: BASELINE_FORCED_TIER });
@@ -163,8 +285,18 @@ export async function runMatrix(opts = {}) {
         log.info(`router bypassed: tier forced to "${step.forcedTier}" (baseline half of the failure story)`);
       }
 
-      /** @type {{ completed: string[]; failedAt: string | null; error: string | null } | null} */
+      /** @type {any} */
       let driveResult = null;
+
+      // The XR stub only exists on the two `xr-*` profiles, and only in generic
+      // mode — Orbital has no XR entry point, and installing a fake
+      // `navigator.xr` under it would put a capability in the capability probe's
+      // snapshot that the experience cannot use.
+      const xrGrant = generic ? (step.profile.xr ?? null) : null;
+      /** @type {string[]} */
+      const extraScripts = [];
+      if (xrGrant) extraScripts.push(buildXrStubScript({ seed, grant: xrGrant }));
+      if (genericProbe) extraScripts.push(genericProbe);
 
       const result = await runSession({
         connection: browser.connection,
@@ -176,8 +308,36 @@ export async function runMatrix(opts = {}) {
         runKind: step.runKind,
         forceTier: step.forcedTier,
         screenshotDir: path.join(runDir, "screenshots"),
+        target: target ? target.href : undefined,
+        extraScripts: extraScripts.length ? extraScripts : undefined,
+        // A third-party HTTPS page cannot POST to our loopback control plane
+        // (CORS, and mixed content), so its payload is read back over CDP.
+        // `returnByValue` because the payload is a plain JSON object and a
+        // remote-object handle would have to be walked property by property.
+        harvest: generic
+          ? (session) =>
+              session.evaluate("globalThis.__atlasGeneric.payload()", { returnByValue: true })
+          : undefined,
+        // In generic mode a drive that stopped early has still recorded
+        // everything up to the failure, and that is the evidence. Waiting out
+        // the full completion timeout to discover the page will never say
+        // "done" buys nothing.
+        doneOptional: generic,
         drive: async (session) => {
-          driveResult = await driveHappyPath(session, { mobile: step.profile.viewport.mobile });
+          driveResult = generic
+            ? await driveGeneric(session, {
+                mobile: step.profile.viewport.mobile,
+                seed,
+                viewport: step.profile.viewport,
+                // Attempted on every generic profile, not only the XR pair: an
+                // app that offers an AR button on a device with no WebXR is
+                // exactly the failure `xr-denied` exists to catch, and the
+                // probe reports "unavailable" honestly when there is nothing
+                // to request.
+                attemptXr: true,
+                xrMode: "immersive-ar",
+              })
+            : await driveHappyPath(session, { mobile: step.profile.viewport.mobile });
           if (driveResult.error) {
             log.warn(`drive stopped at "${driveResult.failedAt}": ${driveResult.error}`);
           }
@@ -189,10 +349,27 @@ export async function runMatrix(opts = {}) {
       let verdict = null;
       /** @type {string | null} */
       let tracePath = null;
+      /** @type {import("./classify-delivery.js").DeliveryClassification | null} */
+      let delivery = null;
 
       if (result.trace) {
         if (driveResult?.error) {
           result.trace.notes.push(`drive stopped at "${driveResult.failedAt}": ${driveResult.error}`);
+        }
+        if (xrGrant) {
+          // Recorded on every run that injects the stub, without exception. A
+          // report that said "XR works" on the strength of a scripted pose
+          // would be lying, and this note is what stops it.
+          result.trace.notes.push(xrStubNote(xrGrant));
+          result.trace.notes.push(`XR head path: ${POSE_SCRIPT_ID} (seeded ${seed})`);
+        }
+        if (generic) {
+          // Fills in servedTier/servedPath from what was *measured*, since no
+          // router chose them. Runs before the judge so the verdict reads the
+          // same fields it would on an Orbital trace.
+          delivery = applyDeliveryClassification(result.trace, manifest, driveResult?.surface ?? null);
+          log.info(`delivered: ${delivery.tierBasis}`);
+          log.info(`reached:   ${delivery.pathBasis}`);
         }
         // Integration point 2: the trace judge, on the same call path a
         // production trace stream would use — only `origin` differs.
@@ -222,6 +399,7 @@ export async function runMatrix(opts = {}) {
         decision: result.trace?.decision ?? null,
         verdict,
         drive: driveResult,
+        delivery,
         screenshots: Object.fromEntries(
           Object.entries(result.screenshots).map(([id, file]) => [id, rel(file)]),
         ),
@@ -244,7 +422,36 @@ export async function runMatrix(opts = {}) {
     finishedAtIso: new Date().toISOString(),
     wallMs: Math.round(Number(process.hrtime.bigint() - startedAt) / 1e6),
     seed,
-    reproduce: "node bin/atlas.js matrix",
+    reproduce: generic
+      ? `node bin/atlas.js matrix --url ${target.href}`
+      : "node bin/atlas.js matrix",
+    // Null on an Orbital run rather than absent, so a consumer can tell "this
+    // report is about our own experience" from "this key is from an older
+    // schema version" without guessing.
+    target: generic
+      ? {
+          url: target.href,
+          origin: target.origin,
+          mode: "generic",
+          // Stated in the report itself, not only in the prose, because this
+          // is the single most misreadable number in a `--url` run: a reader
+          // who assumes Atlas *chose* these tiers would conclude the router
+          // works on any app, which it does not, because it was never asked.
+          routed: false,
+          servedTierMeaning:
+            "measured from what the app delivered (asset bytes, WebGL use, frame " +
+            "pacing), not a tier Atlas selected. No Atlas router ran against this app.",
+          injected: [
+            "capability bootstrap (deterministic RNG, profile hints)",
+            "generic trace recorder (experience/probe-generic.js)",
+            "synthetic WebXR device on the xr-* profiles only (src/runner/xr-stub.js)",
+          ],
+          notServed:
+            "Atlas served this page nothing. The control plane ran only to host the " +
+            "decision engine and the trace assembler; the page loaded entirely from " +
+            "its own origin and never made a request to Atlas.",
+        }
+      : null,
     environment: {
       node: process.version,
       platform: `${process.platform}-${process.arch}`,
@@ -271,7 +478,7 @@ export async function runMatrix(opts = {}) {
     },
     budgets: manifest.budgets,
     runs,
-    summary: summarise(runs, manifest),
+    summary: summarise(runs, manifest, generic),
     serverStats: server.stats,
   };
 
@@ -290,8 +497,9 @@ export async function runMatrix(opts = {}) {
 /**
  * @param {MatrixRunRow[]} runs
  * @param {ExperienceManifest} manifest
+ * @param {boolean} [generic]
  */
-function summarise(runs, manifest) {
+function summarise(runs, manifest, generic = false) {
   const graded = runs.filter((r) => r.verdict);
   const outcome = /** @param {MatrixRunRow} r */ (r) => r.verdict?.outcome.value ?? "inconclusive";
 
@@ -304,9 +512,6 @@ function summarise(runs, manifest) {
     const cause = r.verdict?.rootCause.value ?? "unknown";
     if (outcome(r) !== "pass") byRootCause[cause] = (byRootCause[cause] ?? 0) + 1;
   }
-
-  const baseline = runs.find((r) => r.runKind === "baseline");
-  const adaptive = runs.find((r) => r.runKind === "adaptive" && r.profileId === BASELINE_PROFILE_ID);
 
   return {
     total: runs.length,
@@ -324,23 +529,88 @@ function summarise(runs, manifest) {
     // The failure story, computed rather than narrated. Both halves come from
     // captured traces; if either is missing the field says so instead of
     // inventing a comparison.
-    failureStory:
-      baseline && adaptive
-        ? {
-            profileId: BASELINE_PROFILE_ID,
-            budgetFirstFrameMs: manifest.budgets.firstFrameMs,
-            before: storyHalf(baseline),
-            after: storyHalf(adaptive),
-            firstFrameDeltaMs: delta(
-              baseline.metrics?.firstFrameMs ?? null,
-              adaptive.metrics?.firstFrameMs ?? null,
-            ),
-            transferDeltaBytes: delta(
-              baseline.metrics?.transferBytes ?? null,
-              adaptive.metrics?.transferBytes ?? null,
-            ),
-          }
-        : { unavailable: "baseline and adaptive runs of the failure profile were not both captured" },
+    failureStory: generic ? genericStory(runs, manifest) : routerStory(runs, manifest),
+  };
+}
+
+/**
+ * Orbital's failure story: the same device, the router bypassed and then
+ * engaged. The delta is attributable to the routing decision because nothing
+ * else about the two runs differs.
+ *
+ * @param {MatrixRunRow[]} runs
+ * @param {ExperienceManifest} manifest
+ */
+function routerStory(runs, manifest) {
+  const baseline = runs.find((r) => r.runKind === "baseline");
+  const adaptive = runs.find((r) => r.runKind === "adaptive" && r.profileId === BASELINE_PROFILE_ID);
+  if (!baseline || !adaptive) {
+    return { unavailable: "baseline and adaptive runs of the failure profile were not both captured" };
+  }
+  return {
+    mode: "router-comparison",
+    question: "what does the tier router change on the profile it matters most on?",
+    profileId: BASELINE_PROFILE_ID,
+    budgetFirstFrameMs: manifest.budgets.firstFrameMs,
+    before: storyHalf(baseline),
+    after: storyHalf(adaptive),
+    firstFrameDeltaMs: delta(baseline.metrics?.firstFrameMs ?? null, adaptive.metrics?.firstFrameMs ?? null),
+    transferDeltaBytes: delta(baseline.metrics?.transferBytes ?? null, adaptive.metrics?.transferBytes ?? null),
+  };
+}
+
+/**
+ * A `--url` run's failure story: **the visitor's app across two device classes**,
+ * not before-and-after a routing decision.
+ *
+ * The substitution is not a downgrade, it is the only honest comparison
+ * available. Atlas does not route a third-party app, so a "router bypassed"
+ * half would be the identical run under a second label — a before/after with
+ * nothing in between. What *can* be compared is the same build on the reference
+ * profile and on the one that breaks things, and the delta there is
+ * attributable to the device class, because that is the only thing that
+ * changed. `attribution` says so in the report rather than leaving a reader to
+ * assume Atlas improved anything.
+ *
+ * @param {MatrixRunRow[]} runs
+ * @param {ExperienceManifest} manifest
+ */
+function genericStory(runs, manifest) {
+  const reference = runs.find((r) => r.profileId === GENERIC_REFERENCE_PROFILE_ID);
+  const stressed = runs.find((r) => r.profileId === BASELINE_PROFILE_ID);
+
+  const common = {
+    mode: "device-comparison",
+    question: `what happens to this app between "${GENERIC_REFERENCE_PROFILE_ID}" and "${BASELINE_PROFILE_ID}"?`,
+    noBaselineHalf:
+      "no router-bypassed baseline was run. Atlas does not route a third-party app, so " +
+      "bypassing its router would change nothing about what was served, and the two halves " +
+      "would be the same run under two labels.",
+    attribution:
+      "the delta below is attributable to the device and network class, not to anything " +
+      "Atlas did. Atlas observed this app; it did not serve, route or degrade it.",
+  };
+
+  if (!reference || !stressed) {
+    return {
+      ...common,
+      unavailable:
+        `both "${GENERIC_REFERENCE_PROFILE_ID}" and "${BASELINE_PROFILE_ID}" are needed for the ` +
+        "comparison and were not both captured in this run",
+    };
+  }
+
+  return {
+    ...common,
+    referenceProfileId: GENERIC_REFERENCE_PROFILE_ID,
+    stressedProfileId: BASELINE_PROFILE_ID,
+    budgetFirstFrameMs: manifest.budgets.firstFrameMs,
+    reference: storyHalf(reference),
+    stressed: storyHalf(stressed),
+    // Signed so the direction is unambiguous: positive means the stressed
+    // profile was slower / heavier than the reference.
+    firstFrameDeltaMs: delta(stressed.metrics?.firstFrameMs ?? null, reference.metrics?.firstFrameMs ?? null),
+    transferDeltaBytes: delta(stressed.metrics?.transferBytes ?? null, reference.metrics?.transferBytes ?? null),
   };
 }
 
@@ -350,6 +620,11 @@ function storyHalf(row) {
     runId: row.runId,
     servedTier: row.servedTier,
     servedPath: row.servedPath,
+    // Present only on a `--url` run, and the difference matters: on Orbital the
+    // two fields above are a decision, here they are a reading, and this says
+    // what was read.
+    tierBasis: row.delivery?.tierBasis ?? null,
+    pathBasis: row.delivery?.pathBasis ?? null,
     forcedTier: row.forcedTier,
     firstFrameMs: row.metrics?.firstFrameMs ?? null,
     timeToInteractiveMs: row.metrics?.timeToInteractiveMs ?? null,

@@ -151,9 +151,14 @@ export async function driveGeneric(session, opts) {
     completed.push("looking");
   } catch (err) {
     // A failed gesture is a finding, not a crash: the trace and the report row
-    // still get written, which is the whole point of driving defensively.
+    // still get written, which is the whole point of driving defensively. The
+    // recorder is closed here rather than left open, because everything it
+    // captured up to the failure is the evidence for *why* it failed, and a
+    // harvest of an unflushed recorder would lose the last frame bucket.
     log.warn(`look-around failed: ${message(err)}`);
     await note(session, `scripted look-around failed: ${message(err)}`);
+    const surfaceAtFailure = await surface(session);
+    await session.evaluate("globalThis.__atlasGeneric.finish()").catch(() => {});
     return {
       completed,
       failedAt: "looking",
@@ -162,7 +167,7 @@ export async function driveGeneric(session, opts) {
       settled: settle.settled,
       looks,
       xr,
-      surface: await surface(session),
+      surface: surfaceAtFailure,
     };
   }
 

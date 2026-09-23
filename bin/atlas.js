@@ -117,13 +117,24 @@ const COMMANDS = {
   },
 
   matrix: {
-    summary: "run the six-profile capability matrix in Chrome over CDP",
-    usage: "atlas matrix [--seed <n>] [--profile <id>]... [--no-baseline] [--out <dir>]",
+    summary: "run the capability matrix in Chrome over CDP — on Orbital, or on any URL",
+    usage: "atlas matrix [--url <href>] [--seed <n>] [--profile <id>]... [--no-baseline] [--out <dir>]",
     detail:
       "Profiles run sequentially, never in parallel: CPU throttling is a whole-browser\n" +
       "setting and two throttled renderers on one machine contend, which would make\n" +
-      "every timing in the report a measurement of the harness.",
+      "every timing in the report a measurement of the harness.\n" +
+      "\n" +
+      "With --url the target is somebody else's app and nothing is served to it. Atlas\n" +
+      "injects a recorder, drives it generically, and *measures* what was delivered —\n" +
+      "servedTier/servedPath become readings, not routing decisions, and there is no\n" +
+      "baseline half because there is no Atlas router in that loop. The two xr-* profiles\n" +
+      "join the default set there; their WebXR is Atlas's own synthetic device, and every\n" +
+      "trace from them says so.",
     flags: {
+      url: {
+        type: "string",
+        describe: "run against this http(s) URL instead of the bundled experience",
+      },
       seed: { type: "number", describe: "capture seed (default 0x0b17a1)" },
       profile: { type: "list", describe: "run only these profile ids (repeatable)" },
       "no-baseline": { type: "boolean", describe: "skip the router-bypassed baseline run" },
@@ -133,9 +144,14 @@ const COMMANDS = {
     async run(args) {
       const { runMatrix } = await import("../src/runner/run-matrix.js");
       const result = await runMatrix({
+        url: args.flags.url,
         seed: args.flags.seed,
         profileIds: args.flags.profile,
-        includeBaseline: !args.flags["no-baseline"],
+        // `undefined` rather than `true` when the switch is absent, so that
+        // runMatrix can tell "the default" from "the user asked for a
+        // baseline" — it declines the second on a --url run, out loud, and
+        // has nothing to say about the first.
+        includeBaseline: args.flags["no-baseline"] ? false : undefined,
         clean: !args.flags["no-clean"],
         outDir: args.flags.out ? path.resolve(args.flags.out) : undefined,
       });

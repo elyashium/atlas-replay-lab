@@ -31,6 +31,23 @@ const MAX_CHECKPOINTS = 64;
 const MAX_ATTRIBUTE_KEYS = 24;
 const MAX_STRING_LEN = 256;
 
+/**
+ * Ceilings for the three generic-ingestion series. They ride as top-level
+ * trace fields rather than as event attributes because `attributes()` below
+ * deliberately drops objects and arrays — a flat attribute bag is what keeps
+ * the OTLP export honest — so a per-frame series has nowhere else to live.
+ *
+ * `MAX_FRAME_SAMPLES` matches the probe's own cap (experience/probe-generic.js)
+ * on purpose: at 60fps it is a minute of continuous rendering, which is longer
+ * than any matrix run, and a page that posts more than its own recorder can
+ * produce is a page we are not going to believe anyway.
+ */
+const MAX_FRAME_SAMPLES = 3600;
+const MAX_XR_EVENTS = 64;
+const MAX_ERROR_RECORDS = 60;
+/** Fixed vocabulary; anything else is a page inventing phases. */
+const XR_PHASES = ["request", "session-start", "session-refused", "session-end", "unavailable"];
+
 /** @type {TraceEventKind[]} */
 const EVENT_KINDS = ["lifecycle", "asset", "state", "interaction", "frame", "decision", "error"];
 
@@ -68,6 +85,16 @@ export function assembleTrace(rawPayload, opts) {
   trace.inputClasses = arr(payload.inputClasses, MAX_EVENTS).map((s) => str(s));
   trace.durationMs = num(payload.durationMs) ?? 0;
   trace.notes = arr(payload.notes, 64).map((s) => str(s));
+
+  // Generic ingestion. Absent from an Orbital payload, in which case these stay
+  // the empty arrays `newTrace` installed and every consumer can read `.length`
+  // without a guard. None of the three reaches `normalizeTrace`, so none of them
+  // can move `determinismHash` — see the note on `Trace` in types/atlas.d.ts.
+  trace.frameTimes = frameTimes(payload.frameTimes, trace.notes);
+  trace.xrSessionEvents = arr(payload.xrSessionEvents, MAX_XR_EVENTS)
+    .map(xrSessionEvent)
+    .filter(Boolean);
+  trace.consoleErrors = arr(payload.consoleErrors, MAX_ERROR_RECORDS).map(consoleError);
 
   // The page's own PerformanceResourceTiming total is recorded as a note rather
   // than as the metric. `deriveMetrics` sums the per-asset byte counts the
@@ -188,6 +215,84 @@ function checkpoint(raw) {
 }
 
 /**
+ * Per-frame durations, in order.
+ *
+ * Non-finite and negative samples are dropped rather than zeroed: a zero is a
+ * claim that a frame took no time, and the p5/p95 comfort statistics Slice 2
+ * computes over this series would read a run of injected zeros as the app
+ * being *fast*. A dropped sample is honestly missing; a fabricated one lies in
+ * the direction that flatters the app under test.
+ *
+ * Samples above 10s are dropped too. A gap that long is the tab being
+ * backgrounded or the process being suspended, not a frame — `requestAnimation
+ * Frame` simply stops being called and the next delta absorbs the whole pause.
+ *
+ * @param {unknown} raw
+ * @param {string[]} notes  appended to when something was discarded
+ * @returns {number[]}
+ */
+function frameTimes(raw, notes) {
+  if (!Array.isArray(raw)) return [];
+  const total = raw.length;
+  /** @type {number[]} */
+  const out = [];
+  let dropped = 0;
+  for (const value of raw) {
+    if (out.length >= MAX_FRAME_SAMPLES) break;
+    const n = num(value);
+    if (n === null || n < 0 || n > 10_000) {
+      dropped++;
+      continue;
+    }
+    out.push(round4(n));
+  }
+  if (total > MAX_FRAME_SAMPLES) {
+    notes.push(`frame-time series truncated on ingest: ${total} samples posted, ${MAX_FRAME_SAMPLES} kept`);
+  }
+  if (dropped > 0) {
+    notes.push(`${dropped} frame-time sample(s) discarded as non-finite, negative or > 10s`);
+  }
+  return out;
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {NonNullable<Trace["xrSessionEvents"]>[number] | null}
+ */
+function xrSessionEvent(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const e = /** @type {Record<string, any>} */ (raw);
+  // A phase outside the fixed vocabulary is a page inventing states, not a new
+  // kind of XR session. Dropping it keeps `classify-delivery.js` — which reads
+  // this list to decide whether the app reached the camera-xr path — reasoning
+  // over a closed set.
+  if (!XR_PHASES.includes(e.phase)) return null;
+  return {
+    tOffsetMs: num(e.tOffsetMs) ?? 0,
+    phase: e.phase,
+    mode: str(e.mode) || "unknown",
+    error: str(e.error) || null,
+  };
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {NonNullable<Trace["consoleErrors"]>[number]}
+ */
+function consoleError(raw) {
+  const e = /** @type {Record<string, any>} */ (raw && typeof raw === "object" ? raw : {});
+  return {
+    tOffsetMs: num(e.tOffsetMs) ?? 0,
+    code: str(e.code) || "unknown",
+    // Already scrubbed and clipped page-side (`scrubText` in probe-generic.js).
+    // Re-clipped here because this function is the trust boundary and the probe
+    // is code running inside a page we do not control. Only `code` is ever
+    // summarised for a model; `message` exists for the human reading the report.
+    message: str(e.message),
+  };
+}
+
+/**
  * A posted decision is reconstructed field by field rather than trusted
  * wholesale. The three answer objects mirror Jev's three question primitives
  * (choice / noul / score) and are the shape every engine must produce, so they
@@ -197,8 +302,7 @@ function checkpoint(raw) {
  *
  * @param {unknown} raw
  * @returns {Trace["decision"]}
- */
-function decision(raw) {
+ */function decision(raw) {
   if (!raw || typeof raw !== "object") return null;
   const d = /** @type {Record<string, any>} */ (raw);
   const tier = str(d.tier);
