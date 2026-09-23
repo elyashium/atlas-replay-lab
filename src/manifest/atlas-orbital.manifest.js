@@ -62,6 +62,23 @@ const base = {
       endState: "checkout-complete",
       maxStepsToEndState: 4,
     },
+    /**
+     * Comfort — see `src/gate/comfort.js`. Additive, and tighter than the
+     * generic manifest's because this is our own experience: we know what it
+     * draws and what it costs, so there is no excuse for it to stutter. A
+     * stranger's app gets the benefit of the doubt; ours does not.
+     */
+    comfort: {
+      id: "cmf.orbital-stays-smooth",
+      description:
+        "Orbital holds a smooth sustained frame rate through the look-around, " +
+        "answers taps inside its interaction budget, and — when XR is refused — " +
+        "still completes checkout on the 2D path.",
+      sustainedFpsFloor: 50,
+      sustainedWindowMs: 5000,
+      requireUsableXrFallback: true,
+      p95InputToFrameMs: 120,
+    },
   },
 
   budgets: {

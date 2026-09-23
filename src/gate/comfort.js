@@ -73,9 +73,6 @@ export const COMFORT_WINDOW_MS = 5000;
  */
 export const SUSTAINED_FPS_FLOOR = 30;
 
-/** Derived once so the two directions can never drift apart. */
-const SUSTAINED_FRAME_TIME_CEILING_MS = 1000 / SUSTAINED_FPS_FLOOR;
-
 /**
  * Percentile taken inside each window. The 95th percentile of frame *time* is
  * the 5th percentile of frame *rate* — the speed 95% of frames beat — which is
@@ -90,6 +87,57 @@ const WINDOW_PERCENTILE = 0.95;
  * and its p95 would read as a catastrophic but perfectly precise number.
  */
 const MIN_WINDOW_SAMPLES = 20;
+
+/**
+ * @typedef {object} ComfortPolicy
+ * @property {number} sustainedFpsFloor
+ * @property {number} sustainedWindowMs
+ * @property {boolean} requireUsableXrFallback
+ * @property {number} p95InputToFrameMs
+ * @property {"manifest" | "default"} source
+ */
+
+/**
+ * Resolves the thresholds to grade against.
+ *
+ * A manifest may declare `invariants.comfort`; when it does not — every trace
+ * captured before these invariants existed, and any hand-written manifest that
+ * has not caught up — the module constants above apply and `source` says so.
+ * This is what makes the block genuinely additive rather than a breaking change
+ * wearing an additive costume: nothing that worked before stops working, and
+ * the report never silently attributes a default to a customer who never
+ * declared it.
+ *
+ * @param {ExperienceManifest} manifest
+ * @returns {ComfortPolicy}
+ */
+export function comfortPolicy(manifest) {
+  const declared = /** @type {any} */ (manifest.invariants).comfort;
+  if (!declared) {
+    return {
+      sustainedFpsFloor: SUSTAINED_FPS_FLOOR,
+      sustainedWindowMs: COMFORT_WINDOW_MS,
+      requireUsableXrFallback: true,
+      p95InputToFrameMs: manifest.invariants.interaction.p95TapResponseMs,
+      source: "default",
+    };
+  }
+  return {
+    sustainedFpsFloor: numOr(declared.sustainedFpsFloor, SUSTAINED_FPS_FLOOR),
+    sustainedWindowMs: numOr(declared.sustainedWindowMs, COMFORT_WINDOW_MS),
+    requireUsableXrFallback: declared.requireUsableXrFallback !== false,
+    p95InputToFrameMs: numOr(
+      declared.p95InputToFrameMs,
+      manifest.invariants.interaction.p95TapResponseMs,
+    ),
+    source: "manifest",
+  };
+}
+
+/** @param {unknown} v @param {number} fallback */
+function numOr(v, fallback) {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : fallback;
+}
 
 /**
  * @typedef {object} ComfortDimension
@@ -109,6 +157,7 @@ const MIN_WINDOW_SAMPLES = 20;
 /**
  * @typedef {object} ComfortReport
  * @property {number} policyVersion
+ * @property {ComfortPolicy} policy
  * @property {{ sustainedPacing: ComfortDimension; xrFallback: ComfortDimension; responsiveness: ComfortDimension }} dimensions
  * @property {number} applicableCount
  * @property {number} heldCount
@@ -121,10 +170,11 @@ const MIN_WINDOW_SAMPLES = 20;
  * @returns {ComfortReport}
  */
 export function evaluateComfort(trace, manifest) {
+  const policy = comfortPolicy(manifest);
   const dimensions = {
-    sustainedPacing: sustainedPacing(trace),
-    xrFallback: xrFallback(trace, manifest),
-    responsiveness: responsiveness(trace, manifest),
+    sustainedPacing: sustainedPacing(trace, policy),
+    xrFallback: xrFallback(trace, manifest, policy),
+    responsiveness: responsiveness(trace, policy),
   };
 
   const all = Object.values(dimensions);
@@ -136,6 +186,7 @@ export function evaluateComfort(trace, manifest) {
 
   return {
     policyVersion: COMFORT_POLICY_VERSION,
+    policy,
     dimensions,
     applicableCount: all.filter((d) => d.applicable).length,
     heldCount: all.filter((d) => d.held === true).length,
@@ -156,19 +207,22 @@ export function evaluateComfort(trace, manifest) {
  * at and "p95 was 48ms" is not.
  *
  * @param {Trace} trace
+ * @param {ComfortPolicy} policy
  * @returns {ComfortDimension}
  */
-function sustainedPacing(trace) {
+function sustainedPacing(trace, policy) {
   const id = "comfort.sustained-pacing";
   const frames = Array.isArray(trace.frameTimes) ? trace.frameTimes : [];
+  const ceilingMs = 1000 / policy.sustainedFpsFloor;
   const threshold = {
-    sustainedFpsFloor: SUSTAINED_FPS_FLOOR,
-    frameTimeCeilingMs: round4(SUSTAINED_FRAME_TIME_CEILING_MS),
-    windowMs: COMFORT_WINDOW_MS,
+    sustainedFpsFloor: policy.sustainedFpsFloor,
+    frameTimeCeilingMs: round4(ceilingMs),
+    windowMs: policy.sustainedWindowMs,
     percentile: WINDOW_PERCENTILE,
+    source: policy.source,
   };
 
-  const worst = worstWindow(frames, COMFORT_WINDOW_MS);
+  const worst = worstWindow(frames, policy.sustainedWindowMs);
   if (!worst) {
     return {
       id,
@@ -176,7 +230,7 @@ function sustainedPacing(trace) {
       held: null,
       ratio: null,
       basis:
-        `no ${COMFORT_WINDOW_MS / 1000}s window of continuous rendering was captured ` +
+        `no ${policy.sustainedWindowMs / 1000}s window of continuous rendering was captured ` +
         `(${frames.length} frame sample(s), ${MIN_WINDOW_SAMPLES} minimum per window)`,
       measured: { frameSamples: frames.length, windows: 0 },
       threshold,
@@ -187,19 +241,19 @@ function sustainedPacing(trace) {
   }
 
   const sustainedFps = 1000 / worst.p95;
-  const held = worst.p95 <= SUSTAINED_FRAME_TIME_CEILING_MS;
+  const held = worst.p95 <= ceilingMs;
 
   /** @type {ComfortDimension} */
   const dimension = {
     id,
     applicable: true,
     held,
-    ratio: round4(worst.p95 / SUSTAINED_FRAME_TIME_CEILING_MS),
+    ratio: round4(worst.p95 / ceilingMs),
     basis: held
       ? `worst ${round4(worst.spanMs / 1000)}s window held a p95 frame time of ${round4(worst.p95)}ms ` +
-        `(${round4(sustainedFps)}fps sustained), inside the ${SUSTAINED_FPS_FLOOR}fps floor`
+        `(${round4(sustainedFps)}fps sustained), inside the ${policy.sustainedFpsFloor}fps floor`
       : `worst ${round4(worst.spanMs / 1000)}s window ran a p95 frame time of ${round4(worst.p95)}ms — ` +
-        `${round4(sustainedFps)}fps sustained, under the ${SUSTAINED_FPS_FLOOR}fps comfort floor — ` +
+        `${round4(sustainedFps)}fps sustained, under the ${policy.sustainedFpsFloor}fps comfort floor — ` +
         `starting around ${Math.round(worst.startMs)}ms into rendering`,
     measured: {
       frameSamples: frames.length,
@@ -219,7 +273,7 @@ function sustainedPacing(trace) {
     dimension.note =
       "This session reached the camera-xr path under emulation, so its frames came from " +
       "the page's requestAnimationFrame through Atlas's injected XR stub, not from a real " +
-      `XR compositor. The ${SUSTAINED_FPS_FLOOR}fps floor applied here is the flat-screen ` +
+      `XR compositor. The ${policy.sustainedFpsFloor}fps floor applied here is the flat-screen ` +
       "floor; headset comfort guidance (72-90Hz) is not assessable from this run and no " +
       "claim about it is made either way.";
   }
@@ -302,15 +356,35 @@ function worstWindow(frames, windowMs) {
  *
  * @param {Trace} trace
  * @param {ExperienceManifest} manifest
+ * @param {ComfortPolicy} policy
  * @returns {ComfortDimension}
  */
-function xrFallback(trace, manifest) {
+function xrFallback(trace, manifest, policy) {
   const id = "comfort.xr-refusal-fallback";
   const endState = manifest.invariants.business.endState;
   const events = trace.xrSessionEvents ?? [];
   const refusals = events.filter((e) => e.phase === "session-refused" || e.phase === "unavailable");
   const started = events.some((e) => e.phase === "session-start");
-  const threshold = { mustReachState: endState, mustAvoidState: "error" };
+  const threshold = {
+    mustReachState: endState,
+    mustAvoidState: "error",
+    required: policy.requireUsableXrFallback,
+    source: policy.source,
+  };
+
+  // A manifest may switch this off — an experience with no XR entry point at all
+  // has nothing to assert here. It is off by declaration, never by accident.
+  if (!policy.requireUsableXrFallback) {
+    return {
+      id,
+      applicable: false,
+      held: null,
+      ratio: null,
+      basis: "the manifest declares no XR fallback requirement for this experience",
+      measured: { xrAttempts: events.length, refusals: refusals.length, sessionStarted: started },
+      threshold,
+    };
+  }
 
   if (!refusals.length) {
     return {
@@ -396,15 +470,15 @@ function describe(e) {
  * one, since the real one is strictly larger.
  *
  * @param {Trace} trace
- * @param {ExperienceManifest} manifest
+ * @param {ComfortPolicy} policy
  * @returns {ComfortDimension}
  */
-function responsiveness(trace, manifest) {
+function responsiveness(trace, policy) {
   const id = "comfort.input-responsiveness";
-  const budgetMs = manifest.invariants.interaction.p95TapResponseMs;
+  const budgetMs = policy.p95InputToFrameMs;
   const p95 = trace.metrics.p95InteractionMs;
   const count = trace.metrics.interactionCount;
-  const threshold = { p95BudgetMs: budgetMs };
+  const threshold = { p95BudgetMs: budgetMs, source: policy.source };
   const measurementNote =
     "Measured input-event to next animation-frame callback: a lower bound on true " +
     "input-to-photon, which additionally includes paint, composite and display scanout.";

@@ -24,6 +24,7 @@
 
 import { resolvePath, satisfiedRequirements } from "../capability/buckets.js";
 import {
+  COMFORT_LEVELS,
   RISK_LEVELS,
   ROOT_CAUSE_OPTIONS,
   SEVERITY_LEVELS,
@@ -32,10 +33,68 @@ import {
   confidenceOfChoice,
   confidenceOfNoul,
   expectedScore,
+  incidentQuestionKey,
   round6,
   softmax,
 } from "./questions.js";
 import { validateStateOrdering } from "../manifest/validate.js";
+import { evaluateComfort } from "../gate/comfort.js";
+
+/**
+ * Hand-written matchers for the incidents this repo shipped with.
+ *
+ * This table is the honest shape of the rule-based answer to "have we seen this
+ * before", and it is deliberately incomplete. Each entry is a predicate someone
+ * wrote *after* seeing a specific failure, which means it recognises that
+ * failure and nothing else: an incident recorded by a customer next Tuesday has
+ * no entry here and never will, because nobody will be writing JavaScript in
+ * response to it.
+ *
+ * So this is the one question where the two engines are not doing the same work
+ * in two ways — one of them is structurally unable to do the work at all past
+ * the cases it was pre-taught. Keeping the table here, visible and obviously
+ * finite, is more useful than hiding the gap behind a 0.5: §4.4's comparison is
+ * only interesting if the rule engine's ceiling is legible.
+ *
+ * Returns `null` for "no matcher exists", which the caller turns into 0.5 and a
+ * rationale line, not into a confident "no".
+ *
+ * @type {Record<string, (ev: IncidentEvidence) => number>}
+ */
+const KNOWN_INCIDENT_MATCHERS = {
+  "inc-blankfirst": (ev) =>
+    ev.blankFirstFrame || (ev.minCoverage !== null && ev.minCoverage <= 0.002) ? 0.93 : 0.04,
+
+  "inc-heavyblank": (ev) =>
+    ev.transferBytes > 1_500_000 && ev.assetFailures === 0 && ev.framesRendered < 10 ? 0.9 : 0.05,
+
+  "inc-xrdeadend": (ev) => {
+    if (!ev.xrAttempted) return 0.03;
+    return ev.xrFallbackHeld === false ? 0.94 : 0.07;
+  },
+
+  "inc-stallwindow": (ev) => {
+    if (ev.pacingRatio === null) return 0.5;
+    if (ev.pacingRatio > 1.5) return 0.91;
+    if (ev.pacingRatio > 1) return 0.68;
+    return 0.05;
+  },
+
+  "inc-timingblind": (ev) =>
+    ev.transferBytes <= 2_000 && ev.framesRendered > 20 ? 0.88 : 0.05,
+};
+
+/**
+ * @typedef {object} IncidentEvidence
+ * @property {boolean} blankFirstFrame
+ * @property {number | null} minCoverage
+ * @property {number} transferBytes
+ * @property {number} assetFailures
+ * @property {number} framesRendered
+ * @property {boolean} xrAttempted
+ * @property {boolean | null} xrFallbackHeld
+ * @property {number | null} pacingRatio  worst-window p95 ÷ the declared budget
+ */
 
 /* ── cost model ──────────────────────────────────────────────────────────── */
 
@@ -409,6 +468,83 @@ export class RuleBasedDecisionEngine {
       confidenceOfNoul(pBusiness),
     ];
 
+    // ── comfort (score) and the XR-refusal fallback (noul) ─────────────────
+    //
+    // Both read `evaluateComfort`, which is the same arithmetic the Atlas score
+    // grades. That is the point: the rule engine's comfort answer is a
+    // *restatement* of measurements, and Jev's is an interpretation of them.
+    // When the two disagree, the disagreement is about meaning rather than
+    // about numbers, which is the only kind of disagreement worth reading.
+    const comfort = evaluateComfort(trace, manifest);
+    const pacing = comfort.dimensions.sustainedPacing;
+    const respond = comfort.dimensions.responsiveness;
+    const fallback = comfort.dimensions.xrFallback;
+
+    // Worst of the two continuous dimensions drives the level: a session that
+    // paces perfectly and ignores your finger is not comfortable.
+    const comfortRatios = [pacing.ratio, respond.ratio].filter(
+      /** @returns {r is number} */ (r) => typeof r === "number",
+    );
+    const worstRatio = comfortRatios.length ? Math.max(...comfortRatios) : null;
+    // ratio 0.5 → 0, 1.0 → 1, 1.5 → 2, 2.0 → 3, 2.5+ → 4. Linear in ratio
+    // because the underlying quantity is a frame time and doubling a frame
+    // time really does roughly double how bad it feels.
+    const comfortLevel =
+      worstRatio === null ? 1.6 : clamp((worstRatio - 0.5) * 2, 0, COMFORT_LEVELS.length - 1);
+    /** @type {Record<string, number>} */
+    const comfortScores = {};
+    COMFORT_LEVELS.forEach((level, idx) => {
+      // Flatter than the severity curve when there is no frame evidence: an
+      // engine with nothing to go on should look uncertain, not opinionated.
+      comfortScores[level] = (worstRatio === null ? -0.9 : -2.2) * Math.abs(idx - comfortLevel);
+    });
+    const comfortDist = softmax(comfortScores, 0.8);
+    if (worstRatio === null) {
+      rationale.push("no frame-time or input-latency evidence; comfort is a guess.");
+    } else if (!pacing.held || !respond.held) {
+      rationale.push(`comfort: ${comfort.findings.join(" ")}`);
+    }
+
+    // `xrFallback.held` is three-valued. `null` means XR was never attempted,
+    // which is not a failure and not a pass — 0.5, and the guard reads the low
+    // confidence correctly.
+    const pFallback =
+      fallback.held === null ? 0.5 : fallback.held ? 0.93 : 0.05;
+    if (fallback.held === false) rationale.push(`xr fallback: ${fallback.basis}`);
+
+    // ── incident recall (noul × k) ─────────────────────────────────────────
+    const incidents = ctx.incidents ?? [];
+    /** @type {IncidentEvidence} */
+    const evidence = {
+      blankFirstFrame,
+      minCoverage,
+      transferBytes: m.transferBytes,
+      assetFailures: m.assetFailures,
+      framesRendered: m.framesRendered,
+      xrAttempted: (trace.xrSessionEvents ?? []).length > 0,
+      xrFallbackHeld: fallback.held,
+      pacingRatio: pacing.ratio,
+    };
+    /** @type {Record<string, { pTrue: number }>} */
+    const incidentAnswers = {};
+    /** @type {string[]} */
+    const unmatchable = [];
+    incidents.forEach((inc, idx) => {
+      const matcher = KNOWN_INCIDENT_MATCHERS[inc.id];
+      if (matcher) {
+        incidentAnswers[incidentQuestionKey(idx)] = { pTrue: round6(matcher(evidence)) };
+      } else {
+        incidentAnswers[incidentQuestionKey(idx)] = { pTrue: 0.5 };
+        unmatchable.push(inc.id);
+      }
+    });
+    if (unmatchable.length) {
+      rationale.push(
+        `no hand-written matcher for ${unmatchable.join(", ")}; the rule engine ` +
+          "cannot recognise an incident it was not written against.",
+      );
+    }
+
     return {
       outcome: { value: outcome, distribution: outcomeDist },
       rootCause: { value: rootCause, distribution: causeDist },
@@ -420,6 +556,18 @@ export class RuleBasedDecisionEngine {
       visualInvariantHeld: { pTrue: round6(pVisual) },
       interactionInvariantHeld: { pTrue: round6(pInteraction) },
       businessInvariantHeld: { pTrue: round6(pBusiness) },
+      comfortRisk: {
+        score: expectedScore(comfortDist, COMFORT_LEVELS),
+        levels: [...COMFORT_LEVELS],
+        distribution: comfortDist,
+      },
+      accessibleFallback: { pTrue: round6(pFallback) },
+      incidentMatches: incidentAnswers,
+      // Deliberately unchanged: the six original answers still set the
+      // engine's confidence. The fan-out questions are additive information,
+      // and letting a 0.5 on an unmatchable incident drag the whole verdict's
+      // confidence below the guard floor would make adding an incident to the
+      // store silently degrade every future verdict.
       confidence: round6(Math.min(...distValues)),
       engine: this.name,
       rationale,

@@ -70,6 +70,28 @@ export const ROOT_CAUSE_OPTIONS = [
 export const SEVERITY_LEVELS = ["not blocking", "minor", "moderate", "major", "hard block"];
 
 /**
+ * How a real person's body would report this session. Ordered worst-last, like
+ * every other Score scale here.
+ *
+ * Deliberately visceral rather than technical. The whole point of handing this
+ * to a model is that "p95 frame time 46ms over a sustained window" is a fact
+ * the code already knows and a reader cannot feel; mapping that fact onto how
+ * unpleasant it is to be inside is a judgement, and judgements are what Jev is
+ * for. The measured numbers go in the state, never in the question — the model
+ * is never asked to compute a percentile, only to interpret one.
+ */
+export const COMFORT_LEVELS = [
+  "comfortable",
+  "slightly off",
+  "uncomfortable",
+  "queasy",
+  "unusable",
+];
+
+/** Question key for the i-th open incident in a fan-out. */
+export const incidentQuestionKey = (/** @type {number} */ i) => `matchesIncident${i}`;
+
+/**
  * Integration point 1 — the live tier router (§4.1).
  *
  * One batched call: Jev evaluates all three questions independently and in
@@ -161,20 +183,60 @@ export function tierQuestions(budgets) {
 /**
  * Integration point 2 — the trace judge (§4.2).
  *
- * Six questions, one call, one forward pass. The three invariant questions are
- * deliberately separate nouls rather than one "did it work" question: the
- * release gate weights them differently, and a session can hold its visual and
- * interaction invariants while failing the business one, which is precisely the
- * case worth catching.
+ * Eight fixed questions plus one per open incident, all in one call and one
+ * forward pass. The three invariant questions are deliberately separate nouls
+ * rather than one "did it work" question: the release gate weights them
+ * differently, and a session can hold its visual and interaction invariants
+ * while failing the business one, which is precisely the case worth catching.
+ *
+ * ## Why the fan-out is nearly free, and where it is not
+ *
+ * A batched System One call evaluates every question independently in a single
+ * parallel pass, so fourteen questions cost roughly one question's *inference*.
+ * What they do cost is input tokens: each criterion string is text on the wire,
+ * billed once. That is why the incident set is capped (`OPEN_INCIDENT_CAP`)
+ * rather than unbounded, and why the criteria below are written tightly — a
+ * paragraph where a sentence would do is a recurring bill.
+ *
+ * ## The division of labour, restated because it is easy to erode
+ *
+ * Nothing here asks the model to count, average, or compare a number to a
+ * budget. `comfortRisk` is handed a p95 that `src/gate/comfort.js` already
+ * computed and asked what it *feels* like; `accessibleFallback` is handed a
+ * state sequence and asked whether a person without a camera got anywhere. Both
+ * are judgements over evidence. The moment a question here starts with "how
+ * many" it has become the wrong tool, and the answer belongs in code.
  *
  * @param {import("../../types/atlas.js").ExperienceManifest} manifest
+ * @param {ReadonlyArray<{ id: string; title: string; signature: string; notLike: string }>} [incidents]
+ *   Open incidents from `src/gate/incidents.js`, already capped and ordered by
+ *   the caller. Defaults to none, so every existing caller keeps the six-question
+ *   set it was written against.
  * @returns {Record<string, Question>}
  */
-export function traceQuestions(manifest) {
+export function traceQuestions(manifest, incidents = []) {
   const v = manifest.invariants.visual;
   const i = manifest.invariants.interaction;
   const b = manifest.invariants.business;
   const bud = manifest.budgets;
+
+  /** @type {Record<string, Question>} */
+  const incidentQuestions = {};
+  incidents.forEach((inc, idx) => {
+    incidentQuestions[incidentQuestionKey(idx)] = {
+      type: "noul",
+      instructions:
+        `Does this session show the same failure as a previously recorded ` +
+        `incident: "${inc.title}"? Judge the shape of the failure, not an exact ` +
+        `match of numbers — the same bug rarely reproduces with identical ` +
+        `measurements. If the session shows no failure at all, this is false.`,
+      criteria: {
+        true: inc.signature,
+        false: inc.notLike,
+      },
+    };
+  });
+
   return {
     outcome: {
       type: "choice",
@@ -302,6 +364,70 @@ export function traceQuestions(manifest) {
           "after more steps than declared, or passes through an error state on the way.",
       },
     },
+
+    /*
+     * Slice 2 additions. Both are about how the session *felt*, which is the
+     * half of the report a stakeholder actually reads and the half no assertion
+     * in `release-gate.js` can produce.
+     */
+
+    comfortRisk: {
+      type: "score",
+      instructions:
+        "The measurements are already in the state: worst sustained-window p95 " +
+        "frame time, the frame-rate floor it is judged against, input-to-frame " +
+        "latency, and whether the experience was head-tracked or flat-screen. Do " +
+        "not recompute them. Judge what a person would report after two minutes " +
+        "inside this session. Weigh sustained stutter far more heavily than " +
+        "isolated hitches — a single dropped frame is invisible, five seconds of " +
+        "irregular pacing is not — and weigh any of it much more heavily when " +
+        "the session was head-tracked, because a flat screen that stutters is " +
+        "annoying and a headset that stutters makes people ill. If the trace " +
+        "carries no frame-time evidence at all, stay near the middle and expect " +
+        "the low confidence to be read as the absence of evidence it is.",
+      levels: [...COMFORT_LEVELS],
+      // Index-aligned with `levels` (see the wire note at the top of this file).
+      criteria: [
+        "Motion is smooth and input is answered immediately. Nothing about the " +
+          "pacing draws attention to itself.",
+        "Occasional hitches an attentive user would notice and a casual one would " +
+          "not. No sustained roughness; nobody would stop using it over this.",
+        "Visibly rough: sustained stretches of irregular pacing, or input that " +
+          "lags noticeably behind the finger. Usable, but the experience is " +
+          "degraded in a way every user would feel.",
+        "Physically unpleasant over a short session — sustained pacing well " +
+          "below the declared floor, or badly laggy input, on content that moves. " +
+          "A susceptible user would feel it in their stomach.",
+        "Cannot reasonably be used: the frame rate collapses for long stretches, " +
+          "or input is effectively unanswered. A user would close the tab rather " +
+          "than endure it.",
+      ],
+    },
+
+    accessibleFallback: {
+      type: "noul",
+      instructions:
+        "Consider a visitor who cannot or will not use the immersive path — no " +
+        "camera permission, no XR hardware, no controllers, or a refusal at the " +
+        "prompt. On the evidence in this trace, did that visitor still get a " +
+        "working experience? Judge what the session actually did after the " +
+        "immersive path was unavailable, not what the app might have intended.",
+      criteria: {
+        true:
+          "Either no immersive path was needed, or the immersive path was " +
+          "unavailable and the session carried on anyway: it kept rendering, " +
+          `answered input, and reached "${b.endState}" on a 2D, static or DOM ` +
+          "path without entering an error state. A simpler experience that works " +
+          "is a pass here.",
+        false:
+          "The immersive path was unavailable and the session did not recover: " +
+          `it entered an error state, stopped rendering, stalled short of ` +
+          `"${b.endState}", or left nothing on screen a visitor could act on. ` +
+          "Treating the refusal as fatal is the failure this question exists for.",
+      },
+    },
+
+    ...incidentQuestions,
   };
 }
 
