@@ -460,3 +460,33 @@ export const TRACE_ANSWERS = {
     accessibleFallback: { noul: 0.5 },
   },
 };
+
+/**
+ * Preflight answers, keyed by `PREFLIGHT_STATES[].id`.
+ *
+ * Deliberate divergence, documented so nobody "fixes" it: the rules say "mid"
+ * for the canonical page (effective ratio 0.27 against 12MB) and the fixture
+ * model says "high" at 0.62 — inside the guard's confidence band but richer
+ * than deterministic, so the guarded preflight serves "mid" and records why.
+ * That is the preflight equivalent of the `stalling-midsession` tier fixture:
+ * proof the richness override is load-bearing.
+ *
+ * @type {Record<string, {
+ *   tier: ChoiceAnswer;
+ *   blowBudget: ScoreAnswer;
+ *   transferFits: NoulAnswer;
+ * }>}
+ */
+export const PREFLIGHT_ANSWERS = {
+  "canonical-midweight": {
+    tier: {
+      choice: "high",
+      probabilities: { high: 0.62, mid: 0.3, low: 0.07, "static-fallback": 0.01 },
+    },
+    blowBudget: {
+      score: 0.35,
+      probabilities: { "very unlikely": 0.7, unlikely: 0.24, possible: 0.05, likely: 0.008, "very likely": 0.002 },
+    },
+    transferFits: { noul: 0.97 },
+  },
+};

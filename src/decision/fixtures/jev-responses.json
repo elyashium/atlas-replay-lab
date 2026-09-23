@@ -6,6 +6,163 @@
   "$manifestHash": "bbf16c3ba4304ad8",
   "cases": [
     {
+      "key": "8e660401e512181f",
+      "label": "preflight/canonical-midweight",
+      "request": {
+        "state": {
+          "page": {
+            "url": "https://example.com/showcase",
+            "assetCount": 27,
+            "totalBytes": 3200000,
+            "unknownBytes": 150000,
+            "byType": {
+              "script": {
+                "count": 6,
+                "bytes": 890000
+              },
+              "style": {
+                "count": 3,
+                "bytes": 120000
+              },
+              "image": {
+                "count": 14,
+                "bytes": 1850000
+              },
+              "video": {
+                "count": 1,
+                "bytes": 250000
+              },
+              "font": {
+                "count": 2,
+                "bytes": 90000
+              },
+              "model": {
+                "count": 0,
+                "bytes": 0
+              },
+              "other": {
+                "count": 1,
+                "bytes": 0
+              }
+            },
+            "largest": [
+              {
+                "hostHash": "9f2c…(illustrative)",
+                "type": "image",
+                "bytes": 1100000
+              },
+              {
+                "hostHash": "41ab…(illustrative)",
+                "type": "script",
+                "bytes": 620000
+              },
+              {
+                "hostHash": "77e0…(illustrative)",
+                "type": "video",
+                "bytes": 250000
+              }
+            ]
+          },
+          "experience": {
+            "id": "generic-url",
+            "version": "1.0.0",
+            "budgets": {
+              "firstFrameMs": 2500,
+              "timeToInteractiveMs": 6000,
+              "p95InteractionMs": 200,
+              "maxDroppedFrameRatio": 0.2,
+              "maxTransferBytes": 12000000,
+              "maxJsHeapMB": 600
+            },
+            "tiers": [
+              {
+                "id": "high",
+                "totalAssetBytes": 12000000
+              },
+              {
+                "id": "mid",
+                "totalAssetBytes": 5000000
+              },
+              {
+                "id": "low",
+                "totalAssetBytes": 1500000
+              }
+            ]
+          },
+          "origin": "preflight"
+        },
+        "questions": {
+          "tier": {
+            "type": "choice",
+            "instructions": "Given only this page's static asset weight, which quality tier will it most likely need? Judge transfer weight against the declared budget, not device capability — a light page earns the rich tier, a heavy one does not, regardless of what any device could render. Declared budgets: first frame <= 2500ms, transfer <= 12000000 bytes.",
+            "criteria": {
+              "high": "Total weight sits comfortably inside the transfer budget with clear headroom (well under half), asset count is modest, and no single asset dominates. Nothing in the weight suggests the first frame is at risk.",
+              "mid": "Weight is material but inside budget — roughly half the transfer ceiling, or a moderate asset count where one or two large files carry most of it. First frame plausible, not assured.",
+              "low": "Weight presses against the budget — near or just over the ceiling, or an asset count high enough that request overhead alone threatens the first frame. Expect the matrix to confirm trouble.",
+              "static-fallback": "Weight is far beyond any interactive tier: several multiples of the transfer budget, or so many assets that no connection class in the matrix could assemble the first frame in time. Do not attempt motion."
+            }
+          },
+          "blowBudget": {
+            "type": "score",
+            "instructions": "How likely is this page's static weight alone to exceed the transfer budget of 12000000 bytes? Judge bytes against the budget only. Unknown-byte assets count against the page: weight that could not be measured cannot be assumed to fit.",
+            "levels": [
+              "very unlikely",
+              "unlikely",
+              "possible",
+              "likely",
+              "very likely"
+            ],
+            "criteria": [
+              "Known weight is a small fraction of the budget with no meaningful unknown mass. Exceeding it would require a measurement error.",
+              "Inside budget with real headroom, or small unknown mass that headroom covers several times over.",
+              "Roughly at the budget once unknown mass is accounted for; plausible either way depending on what the unmeasured assets weigh.",
+              "Known weight already near the ceiling, or unknown mass large enough that the total is expected to exceed it.",
+              "Known weight alone exceeds the budget, or the unknown mass dwarfs what was measured. Exceeding it is the default assumption."
+            ]
+          },
+          "transferFits": {
+            "type": "noul",
+            "instructions": "Does the measured weight fit inside the declared transfer budget? Count known bytes plus unknown bytes at face value: unmeasured weight is weight, not headroom.",
+            "criteria": {
+              "true": "Known bytes plus a conservative allowance for the unknown mass sit at or below 12000000 bytes with room to spare.",
+              "false": "Known bytes alone approach or exceed the budget, or the unknown mass is large enough that fit cannot be established."
+            }
+          }
+        },
+        "model": "jev-latest"
+      },
+      "response": {
+        "answers": {
+          "tier": {
+            "choice": "high",
+            "probabilities": {
+              "high": 0.62,
+              "mid": 0.3,
+              "low": 0.07,
+              "static-fallback": 0.01
+            }
+          },
+          "blowBudget": {
+            "score": 0.35,
+            "probabilities": {
+              "very unlikely": 0.7,
+              "unlikely": 0.24,
+              "possible": 0.05,
+              "likely": 0.008,
+              "very likely": 0.002
+            }
+          },
+          "transferFits": {
+            "noul": 0.97
+          }
+        },
+        "latencyMs": 0,
+        "usage": {
+          "inputTokens": 905
+        }
+      }
+    },
+    {
       "key": "3d9748838b2c72e9",
       "label": "tier/camera-denied@ci-matrix",
       "request": {

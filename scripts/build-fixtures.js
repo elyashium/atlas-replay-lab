@@ -25,12 +25,14 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { orbitalManifest } from "../src/manifest/atlas-orbital.manifest.js";
-import { tierQuestions, traceQuestions, validateQuestions, RISK_LEVELS, SEVERITY_LEVELS, TIER_OPTIONS, OUTCOME_OPTIONS, ROOT_CAUSE_OPTIONS, COMFORT_LEVELS } from "../src/decision/questions.js";
-import { tierStateForJev, summariseTraceForJev } from "../src/decision/jev.js";
+import { genericManifest } from "../src/manifest/generic.manifest.js";
+import { tierQuestions, traceQuestions, preflightQuestions, validateQuestions, RISK_LEVELS, SEVERITY_LEVELS, TIER_OPTIONS, OUTCOME_OPTIONS, ROOT_CAUSE_OPTIONS, COMFORT_LEVELS } from "../src/decision/questions.js";
+import { tierStateForJev, summariseTraceForJev, preflightStateForJev } from "../src/decision/jev.js";
 import { fixtureKey, DEFAULT_MODEL } from "../src/decision/jev-transport.js";
 import { SYNTHETIC_STATES } from "../src/decision/fixtures/states.js";
 import { TRACE_SCENARIOS, buildScenarioTrace } from "../src/decision/fixtures/traces.js";
-import { TIER_ANSWERS, TRACE_ANSWERS } from "../src/decision/fixtures/answers.js";
+import { PREFLIGHT_STATES } from "../src/decision/fixtures/preflight.js";
+import { TIER_ANSWERS, TRACE_ANSWERS, PREFLIGHT_ANSWERS } from "../src/decision/fixtures/answers.js";
 import { writeJson, fromRoot } from "../src/util/fsx.js";
 import { logger } from "../src/util/log.js";
 
@@ -80,12 +82,16 @@ export function buildFixtureFile() {
 
   const tQ = tierQuestions(manifest.budgets);
   const jQ = traceQuestions(manifest);
+  // Preflight always judges against the generic manifest: it assesses stranger
+  // pages, and Orbital's budgets describe Orbital, not the web.
+  const pQ = preflightQuestions(genericManifest.budgets);
 
   // Structural validation first. A malformed question set would still produce
   // fixtures — they would just be fixtures for a badly-posed question, which is
   // the failure mode hardest to spot later.
   problems.push(...validateQuestions(tQ).map((p) => `tierQuestions: ${p}`));
   problems.push(...validateQuestions(jQ).map((p) => `traceQuestions: ${p}`));
+  problems.push(...validateQuestions(pQ).map((p) => `preflightQuestions: ${p}`));
 
   /* ── tier router ──────────────────────────────────────────────────────── */
   for (const synth of SYNTHETIC_STATES) {
@@ -157,6 +163,33 @@ export function buildFixtureFile() {
     });
 
     examples.push({ id: scenario.id, trace });
+  }
+
+  /* ── preflight ──────────────────────────────────────────────────────── */
+  for (const pre of PREFLIGHT_STATES) {
+    const answers = PREFLIGHT_ANSWERS[pre.id];
+    if (!answers) {
+      problems.push(`no hand-authored preflight answer for "${pre.id}"`);
+      continue;
+    }
+    problems.push(
+      ...checkChoice(`${pre.id}.tier`, answers.tier, TIER_OPTIONS),
+      ...checkScore(`${pre.id}.blowBudget`, answers.blowBudget, RISK_LEVELS),
+      ...checkNoul(`${pre.id}.transferFits`, answers.transferFits),
+    );
+
+    const state = preflightStateForJev(pre.stats, { manifest: genericManifest, origin: "preflight" });
+    const request = { state, questions: pQ, model: DEFAULT_MODEL };
+    cases.push({
+      key: fixtureKey(request),
+      label: `preflight/${pre.id}`,
+      request,
+      response: {
+        answers: { ...answers },
+        latencyMs: 0,
+        usage: { inputTokens: approxTokens(request) },
+      },
+    });
   }
 
   /* ── collisions ───────────────────────────────────────────────────────── */

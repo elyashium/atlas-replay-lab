@@ -391,6 +391,36 @@ const COMMANDS = {
       return 0;
     },
   },
+
+  preflight: {
+    summary: "assess a page's static weight before running the matrix",
+    usage: "atlas preflight --url <https://…> [--out <dir>]",
+    detail:
+      "Fetches the page, sizes its assets by header (nothing is downloaded or\n" +
+      "executed), and assesses which tier the weight points at — the prediction\n" +
+      "`atlas matrix --url` then confirms or refutes. Rules always; Jev joins\n" +
+      "when configured. Private hosts are refused unless\n" +
+      "ATLAS_PREFLIGHT_ALLOW_PRIVATE=1. Always exits 0: preflight predicts,\n" +
+      "the matrix decides.",
+    flags: {
+      url: { type: "string", describe: "page to assess (http(s) only, required)" },
+      out: { type: "string", describe: "output directory (default artifacts/preflight)" },
+      "max-assets": { type: "number", describe: "cap on sized assets (default 40)" },
+      "allow-private": { type: "boolean", describe: "permit private/loopback targets (local dev only)" },
+    },
+    async run(args) {
+      if (!args.flags.url) throw new UsageError('"--url" is required: atlas preflight --url <https://…>');
+      const { runPreflight } = await import("../src/preflight/run-preflight.js");
+      await runPreflight({
+        url: args.flags.url,
+        outDir: args.flags.out ? path.resolve(args.flags.out) : undefined,
+        maxAssets: args.flags["max-assets"],
+        allowPrivate: args.flags["allow-private"] || undefined,
+        quiet,
+      });
+      return 0;
+    },
+  },
 };
 
 /* ── doctor ──────────────────────────────────────────────────────────────── */
