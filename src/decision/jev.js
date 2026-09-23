@@ -35,6 +35,7 @@
 
 import { resolvePath } from "../capability/buckets.js";
 import {
+  COMFORT_LEVELS,
   OUTCOME_OPTIONS,
   RISK_LEVELS,
   ROOT_CAUSE_OPTIONS,
@@ -43,12 +44,14 @@ import {
   confidenceOfChoice,
   confidenceOfNoul,
   expectedScore,
+  incidentQuestionKey,
   round6,
   tierQuestions,
   traceQuestions,
 } from "./questions.js";
 import { DEFAULT_MODEL } from "./jev-transport.js";
 import { percentile, round4 } from "../trace/schema.js";
+import { evaluateComfort } from "../gate/comfort.js";
 
 /** @implements {DecisionEngine} */
 export class JevDecisionEngine {
@@ -108,7 +111,8 @@ export class JevDecisionEngine {
    * @returns {Promise<TraceVerdict>}
    */
   async judgeTrace(trace, ctx) {
-    const questions = traceQuestions(ctx.manifest);
+    const incidents = ctx.incidents ?? [];
+    const questions = traceQuestions(ctx.manifest, incidents);
     const res = await this.#call({ state: summariseTraceForJev(trace, ctx), questions });
 
     const outcomeDist = normalizeDistribution(readDistribution(res.answers.outcome), OUTCOME_OPTIONS);
@@ -117,6 +121,26 @@ export class JevDecisionEngine {
     const pVisual = readProbability(res.answers.visualInvariantHeld);
     const pInteraction = readProbability(res.answers.interactionInvariantHeld);
     const pBusiness = readProbability(res.answers.businessInvariantHeld);
+
+    // ── Slice 2 fan-out ────────────────────────────────────────────────────
+    //
+    // `#call` has already verified that every question key came back, so these
+    // reads cannot silently produce a default. They are still written as
+    // optional fields on the verdict, because a *caller* may have asked the
+    // six-question set (no incidents, older ctx) and a reader downstream must
+    // not assume the fan-out happened.
+    const comfortDist = normalizeDistribution(
+      readScoreDistribution(res.answers.comfortRisk, COMFORT_LEVELS),
+      COMFORT_LEVELS,
+    );
+    const pFallback = readProbability(res.answers.accessibleFallback);
+
+    /** @type {Record<string, { pTrue: number }>} */
+    const incidentMatches = {};
+    incidents.forEach((_inc, idx) => {
+      const key = incidentQuestionKey(idx);
+      incidentMatches[key] = { pTrue: round6(readProbability(res.answers[key])) };
+    });
 
     return {
       outcome: {
@@ -135,6 +159,18 @@ export class JevDecisionEngine {
       visualInvariantHeld: { pTrue: round6(pVisual) },
       interactionInvariantHeld: { pTrue: round6(pInteraction) },
       businessInvariantHeld: { pTrue: round6(pBusiness) },
+      comfortRisk: {
+        score: readScore(res.answers.comfortRisk) ?? expectedScore(comfortDist, COMFORT_LEVELS),
+        levels: [...COMFORT_LEVELS],
+        distribution: comfortDist,
+      },
+      accessibleFallback: { pTrue: round6(pFallback) },
+      incidentMatches,
+      // The fan-out answers are deliberately excluded from `confidence`, which
+      // stays a function of the same five answers it was before Slice 2. The
+      // guard thresholds on this number, and an uncertain answer to "is this
+      // incident #4 again?" is normal — most sessions are not incident #4 — so
+      // folding it in would fire the guard on healthy runs.
       confidence: round6(
         Math.min(
           confidenceOfChoice(outcomeDist),
@@ -290,6 +326,52 @@ export function summariseTraceForJev(trace, ctx) {
     frameProfile: frameProfileForJev(trace.frameTimes ?? []),
     xr: xrSummaryForJev(trace.xrSessionEvents ?? []),
     errorCodes: errorCodesForJev(trace.consoleErrors ?? []),
+    comfort: comfortStateForJev(trace, ctx.manifest),
+  };
+}
+
+/**
+ * The measurements `comfortRisk` interprets — and deliberately not the verdict.
+ *
+ * `evaluateComfort` produces both: numbers (worst sustained-window p95, input
+ * latency, the thresholds they are judged against) and a pass/fail `held` per
+ * dimension. Only the numbers go on the wire. Sending `held` would turn the
+ * comfort question into a lookup — the model would read "held: false" and
+ * report discomfort, and the answer would carry no information the code did not
+ * already have.
+ *
+ * What is sent is the part a model is actually better at using: how far past
+ * budget, sustained over how long, on content that did or did not move with the
+ * user's head. `head-tracked` is the single most load-bearing field here, which
+ * is why it is stated rather than left to be inferred from `servedPath`.
+ *
+ * `accessibleFallback` gets no block of its own: the XR phases, the state
+ * sequence and `reachedEndState` are already in the state above, and everything
+ * that question needs is in them.
+ *
+ * @param {Trace} trace
+ * @param {import("../../types/atlas.js").ExperienceManifest} manifest
+ */
+function comfortStateForJev(trace, manifest) {
+  const report = evaluateComfort(trace, manifest);
+  const pacing = report.dimensions.sustainedPacing;
+  const respond = report.dimensions.responsiveness;
+  return {
+    headTracked: trace.servedPath === "camera-xr",
+    sustainedWindowMs: report.policy.sustainedWindowMs,
+    frameTimeFloorMs: round4(1000 / report.policy.sustainedFpsFloor),
+    worstWindowP95FrameMs: pacing.measured.worstWindowP95Ms ?? null,
+    medianWindowP95FrameMs: pacing.measured.medianWindowP95Ms ?? null,
+    windowsExamined: pacing.measured.windows ?? 0,
+    inputToFrameBudgetMs: report.policy.p95InputToFrameMs,
+    inputToFrameP95Ms: respond.measured.p95InteractionMs ?? null,
+    inputSamples: respond.measured.interactionCount ?? 0,
+    // Stated so a reader of the fixture — or of the report — knows the latency
+    // above is a floor, not the number a user perceives.
+    inputMeasurementNote:
+      "Input-to-frame is the interval from the input event to the next " +
+      "animation-frame callback. Paint, composite and display scanout happen " +
+      "after it, so the true figure a person perceives is higher.",
   };
 }
 

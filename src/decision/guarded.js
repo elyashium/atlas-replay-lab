@@ -174,8 +174,9 @@ export class GuardedDecisionEngine {
         primary.confidence < this.verdictFloor
           ? `primary confidence ${primary.confidence.toFixed(3)} below floor ${this.verdictFloor}`
           : `primary verdict '${primary.outcome.value}' is more permissive than deterministic '${safe.outcome.value}'; gate fails closed`;
+      const merged = mergeTighteningFanOut(safe, primary, this.primary.name);
       return {
-        ...safe,
+        ...merged.verdict,
         guard: {
           primaryEngine: this.primary.name,
           primaryConfidence: primary.confidence,
@@ -183,6 +184,7 @@ export class GuardedDecisionEngine {
           overridden: true,
           reason,
           primaryAnswer: primary.outcome,
+          ...(merged.provenance.length ? { fanOut: merged.provenance } : {}),
         },
       };
     }
@@ -209,6 +211,89 @@ export function severityRank(/** @type {string} */ outcome) {
     case "fail": return 3;
     default: return 2;
   }
+}
+
+/**
+ * Keeps the primary engine's fan-out answers when — and only when — they are
+ * more pessimistic than the deterministic ones.
+ *
+ * ## Why this is not a hole in fail-closed
+ *
+ * The guard's rule is that the model may tighten a verdict and never loosen it.
+ * Every merge here moves in one direction: a higher probability that the
+ * session is a known incident, a lower probability that a camera-less visitor
+ * got anywhere, a worse comfort level. Taking the worse of two answers cannot
+ * turn a HOLD into a SHIP. The override on `outcome` still stands untouched —
+ * this preserves *evidence*, not the verdict.
+ *
+ * ## Why the provenance list exists
+ *
+ * A merged verdict carries `engine: "rule-based"` because the deterministic
+ * engine produced the answer that gates the release. If a comfort level or an
+ * incident match inside it silently came from Jev, the `engine` field becomes a
+ * quiet lie and a reader cannot tell which numbers were measured and which were
+ * judged. So every merged key is named, with the pair of values that caused it.
+ * A report that shows a model's answer must be able to say it was the model's.
+ *
+ * @param {TraceVerdict} safe      the deterministic verdict that will be served
+ * @param {TraceVerdict} primary   the overridden model verdict
+ * @param {string} primaryName
+ * @returns {{ verdict: TraceVerdict; provenance: Array<{ key: string; from: string; was: number; became: number }> }}
+ */
+export function mergeTighteningFanOut(safe, primary, primaryName) {
+  /** @type {Array<{ key: string; from: string; was: number; became: number }>} */
+  const provenance = [];
+  /** @type {TraceVerdict} */
+  const verdict = { ...safe };
+
+  // Comfort: a higher fractional score is a worse experience.
+  if (primary.comfortRisk && (!safe.comfortRisk || primary.comfortRisk.score > safe.comfortRisk.score)) {
+    provenance.push({
+      key: "comfortRisk",
+      from: primaryName,
+      was: safe.comfortRisk?.score ?? Number.NaN,
+      became: primary.comfortRisk.score,
+    });
+    verdict.comfortRisk = primary.comfortRisk;
+  }
+
+  // Accessible fallback: a *lower* P(true) is the pessimistic direction.
+  if (
+    primary.accessibleFallback &&
+    (!safe.accessibleFallback || primary.accessibleFallback.pTrue < safe.accessibleFallback.pTrue)
+  ) {
+    provenance.push({
+      key: "accessibleFallback",
+      from: primaryName,
+      was: safe.accessibleFallback?.pTrue ?? Number.NaN,
+      became: primary.accessibleFallback.pTrue,
+    });
+    verdict.accessibleFallback = primary.accessibleFallback;
+  }
+
+  // Incident recall, key by key. This is the merge that earns the whole
+  // function: the deterministic engine answers 0.5 for any incident it has no
+  // hand-written matcher for, and a model that recognises one is the only
+  // source of that information there is.
+  if (primary.incidentMatches) {
+    /** @type {Record<string, { pTrue: number }>} */
+    const matches = { ...(safe.incidentMatches ?? {}) };
+    for (const [key, answer] of Object.entries(primary.incidentMatches)) {
+      const current = matches[key];
+      if (!current || answer.pTrue > current.pTrue) {
+        provenance.push({
+          key,
+          from: primaryName,
+          was: current?.pTrue ?? Number.NaN,
+          became: answer.pTrue,
+        });
+        matches[key] = answer;
+      }
+    }
+    if (Object.keys(matches).length) verdict.incidentMatches = matches;
+  }
+
+  return { verdict, provenance };
 }
 
 /**

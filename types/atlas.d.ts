@@ -283,6 +283,35 @@ export interface TraceVerdict {
   visualInvariantHeld: NoulAnswer;
   interactionInvariantHeld: NoulAnswer;
   businessInvariantHeld: NoulAnswer;
+
+  /* ── Slice 2 fan-out, all optional ────────────────────────────────────────
+   *
+   * Optional because a verdict stored before Slice 2 is still a valid verdict,
+   * and because the gate must keep working when the answers are absent rather
+   * than treating absence as a failing value. Every reader of these fields
+   * checks for undefined; none of them are inputs to `confidence`.
+   */
+
+  /**
+   * How unpleasant the session would be to sit through, on COMFORT_LEVELS.
+   * An interpretation of measurements `src/gate/comfort.js` already made — the
+   * model is never asked to compute the percentile it is shown.
+   */
+  comfortRisk?: ScoreAnswer;
+  /**
+   * P(a visitor with no camera / XR / controllers still got a working
+   * experience). ~0.5 when XR was never attempted: not a pass, not a failure.
+   */
+  accessibleFallback?: NoulAnswer;
+  /**
+   * P(this session is a recurrence of a known incident), keyed by the fan-out
+   * question key (`matchesIncident0`, `matchesIncident1`, …). The index maps to
+   * `DecisionContext.incidents` at the same position — the store's order at
+   * call time is the only thing that makes the keys meaningful, which is why
+   * `run-judge.js` records the id alongside the answer when it reports.
+   */
+  incidentMatches?: Record<string, NoulAnswer>;
+
   confidence: number;
   engine: string;
   rationale: string[];
@@ -298,6 +327,14 @@ export interface GuardReport {
   /** What the primary engine answered before the override, for the report. */
   primaryAnswer?: unknown;
   error?: string;
+  /**
+   * Fan-out answers kept from the overridden primary engine because they were
+   * strictly more pessimistic than the deterministic ones. Present only when at
+   * least one was kept. Each entry names the engine the answer came from, so a
+   * verdict stamped `engine: "rule-based"` can still be audited for which of
+   * its numbers a model actually produced.
+   */
+  fanOut?: Array<{ key: string; from: string; was: number; became: number }>;
 }
 
 export interface DecisionContext {
@@ -305,6 +342,22 @@ export interface DecisionContext {
   /** Where this state came from — identical code path either way (see §4.1). */
   origin: "ci-matrix" | "production";
   profileId?: string;
+  /**
+   * Open incidents to fan out over, already capped and ordered by the caller
+   * (`openIncidents` in src/gate/incidents.js). Position is significant: it
+   * determines the `matchesIncident<i>` question keys and therefore how the
+   * answers map back to incident ids. Absent means "do not fan out", which is
+   * what every pre-Slice-2 caller gets.
+   */
+  incidents?: ReadonlyArray<IncidentRef>;
+}
+
+/** The fields of an incident a decision engine actually needs. */
+export interface IncidentRef {
+  id: string;
+  title: string;
+  signature: string;
+  notLike: string;
 }
 
 /** The single interface the rest of Atlas programs against. */
