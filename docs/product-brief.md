@@ -126,10 +126,15 @@ free report markets the score).
 
 ## 7. Build plan (phases, milestones, acceptance)
 
-**Phase 0 — Foundations (2–3 weeks, solo-dev feasible)**
-Slice 1 of the showcase roadmap (generic URL target) + multi-run isolation
-+ hosted report pages behind auth. Done when: a stranger's URL can be
-submitted and certified with zero operator involvement.
+**Phase 0 — Foundations (2–3 weeks, solo-dev feasible)** — engine side DONE (2026-09-23)
+Slice 1 of the showcase roadmap (generic URL target) is built and tested
+(`matrix --url`, generic probe/driver/manifest, `tests/generic.test.js`), as
+are the building blocks Phase 1 assumes: Atlas score v1 (`src/gate/atlas-score.js`),
+score floor in the gate (rule 8), batch triage (`atlas judge`), failure memory
+(`src/gate/incidents.js`), and static preflight (`atlas preflight`). Remaining
+for the phase: multi-run isolation + hosted report pages behind auth (the
+control-plane half — new service, not this repo). Done when: a stranger's URL
+can be submitted and certified with zero operator involvement.
 
 **Phase 1 — Sellable certification (4–6 weeks)**
 Control plane MVP: orgs, API keys, Stripe (run packs), shareable
