@@ -5,7 +5,11 @@ with a degrade report, a replayable failure, and a single rating. No rewrite:
 the matrix / trace / replay / gate / judge stays as-is; each slice adds one
 ingestion path and the invariants needed to rate it.
 
-Status: plan only. Slices build in order; each is independently demoable.
+Status (2026-09-23): Slices 1–2 built and tested — `matrix --url`, generic
+probe/driver/manifest, comfort invariants, Atlas score, incident memory,
+fan-out judge, score floor in the gate (rule 8), triage in the HTML report,
+and `preflight`. Slice 3 (.glb upload, XR session stub) is still plan only.
+Slices build in order; each is independently demoable.
 
 ## Constraints carried in (non-negotiable)
 
@@ -22,7 +26,7 @@ Status: plan only. Slices build in order; each is independently demoable.
   arithmetic on money/quantities/dates in questions. Frame counts, p95s, and
   budget comparisons stay in code; Jev gets semantic judgments + confidence.
 
-## Slice 1 — Point at any URL
+## Slice 1 — Point at any URL ✅ built (tests/generic.test.js)
 
 `atlas matrix --url <https://…>` runs the six-profile matrix against a
 deployed third-party WebXR/WebGL app instead of Orbital.
@@ -45,9 +49,11 @@ deployed third-party WebXR/WebGL app instead of Orbital.
 - Accept: paste an 8th Wall / PlayCanvas / three.js URL, get a full report
   with zero per-app code. Failure story: the *visitor's* app on `low-cpu-3g`.
 
-## Slice 2 — Rate it
+## Slice 2 — Rate it ✅ built (score, comfort, fan-out, preflight, rule 8, report section)
 
-One number plus the evidence behind it.
+One number plus the evidence behind it. The triage section of `report.html`
+is the closest thing to the "what your users feel" panel: per-trace scores
+with labels, comfort findings, and the measured triage cost.
 
 - Comfort invariants (manifest, additive): sustained-fps floor (e.g. p5 frame
   time over a 5s window — motion-sickness proxy), XR-session-fail fallback
@@ -71,7 +77,7 @@ One number plus the evidence behind it.
 - Accept: two different visitor URLs get different scores with legible,
   disputable reasons; preflight prediction matches matrix outcome ≥ direction.
 
-## Slice 3 — Upload a `.glb`
+## Slice 3 — Upload a `.glb` ⏳ plan only
 
 For visitors without a deployed URL.
 

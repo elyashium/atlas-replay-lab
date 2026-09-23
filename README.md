@@ -38,14 +38,20 @@ Five things, each of which is a real artifact on disk after one command:
    alone. [ADR-0004](docs/adr/0004-determinism-model.md)
 
 5. **Applies a release rule** to what was captured, and exits non-zero when the
-   rule says hold. A gate that cannot fail is decoration.
+   rule says hold — including a deterministic 0–100 Atlas score floor per
+   critical profile. A gate that cannot fail is decoration.
+
+6. **Predicts before running** (`atlas preflight --url`): sizes a page's
+   assets by header without executing anything, and says which tier the
+   weight points at. The matrix then confirms or refutes.
 
 ## The decision layer
 
-Two decisions in the system are judgement calls rather than calculations: which
-tier to serve a given device (live, on every page load), and whether a completed
+Three decisions in the system are judgement calls rather than calculations: which
+tier to serve a given device (live, on every page load), whether a completed
 session passed, degraded acceptably, failed, or produced too little evidence to
-say (offline, over each captured trace).
+say (offline, over each captured trace), and which tier a page's static weight
+points at before any browser runs (preflight, over measured bytes).
 
 Both go through one `DecisionEngine` interface with three implementations:
 
@@ -225,6 +231,7 @@ hand-copied metric is exactly the kind of number that goes stale and then lies.
 | `TYPESAFE_BASE_URL` | API base override (default `https://api.typesafe.ai`). |
 | `TYPESAFE_TIMEOUT_MS` | Live-call timeout (default 4000). |
 | `ATLAS_JEV_FIXTURES=1` | Runs the Jev code path against hand-authored illustrative fixtures. |
+| `ATLAS_PREFLIGHT_ALLOW_PRIVATE=1` | Let `preflight` fetch private/loopback targets (local dev only). |
 | `ATLAS_CHROME` | Path to a Chromium-family browser, if detection fails. |
 | `ATLAS_HEADFUL=1` | Run the browser visibly. |
 
@@ -243,9 +250,10 @@ src/judge/              batch trace triage over captured traces
 src/trace/              the flight recorder schema, normalisation and hashing
 src/runner/             CDP, WebSocket, profiles, the matrix and replay runners
 src/image/              PNG codec and perceptual diff, both hand-written
-src/gate/               the release rule
+src/gate/               the release rule (incl. the Atlas score floor)
+src/preflight/          static pre-launch weight assessment
 src/report/             the engine comparison and the HTML report
-tests/                  six suites, run with node:test
+tests/                  run with node:test (`node --test tests/<name>.test.js` to focus)
 scripts/                deterministic asset and fixture generators
 examples/traces/        ten example traces — written by `atlas fixtures`
 docs/trace-schema.md    what a trace contains and why

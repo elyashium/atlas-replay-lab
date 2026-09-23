@@ -20,6 +20,7 @@
     "compare": "node bin/atlas.js compare",
     "judge": "node bin/atlas.js judge",
     "jev-check": "node bin/atlas.js jev-check",
+    "preflight": "node bin/atlas.js preflight",
     "report": "node bin/atlas.js report",
     "serve": "node bin/atlas.js serve",
     "doctor": "node bin/atlas.js doctor",
