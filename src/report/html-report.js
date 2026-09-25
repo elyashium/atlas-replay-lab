@@ -35,6 +35,7 @@ import { REPLAY_DIR } from "../runner/run-replay.js";
 import { GATE_DIR } from "../gate/release-gate.js";
 import { COMPARE_DIR } from "./engine-comparison.js";
 import { JUDGE_DIR } from "../judge/run-judge.js";
+import { PREFLIGHT_DIR } from "../preflight/run-preflight.js";
 import { readJson, writeFileEnsured, fromRoot, ROOT } from "../util/fsx.js";
 import { logger } from "../util/log.js";
 
@@ -87,6 +88,7 @@ export async function renderReport(opts = {}) {
     gate: await load(path.join(GATE_DIR, "report.json")),
     compare: await load(path.join(COMPARE_DIR, "engine-comparison.json")),
     judge: await load(path.join(JUDGE_DIR, "judge-report.json")),
+    preflight: await load(path.join(PREFLIGHT_DIR, "report.json")),
     replays: await loadReplays(),
   };
 
@@ -100,6 +102,7 @@ export async function renderReport(opts = {}) {
       sources.gate ? "gate" : null,
       sources.compare ? "compare" : null,
       sources.judge ? `judge×${sources.judge.data.counts?.judged ?? "?"}` : null,
+      sources.preflight ? "preflight" : null,
     ].filter(Boolean);
     log.info(
       present.length
@@ -149,7 +152,7 @@ async function loadReplays() {
 /* ── page ────────────────────────────────────────────────────────────────── */
 
 /**
- * @param {{ matrix: any; gate: any; compare: any; replays: any[] }} s
+ * @param {{ matrix: any; gate: any; compare: any; judge: any; preflight: any; replays: any[] }} s
  * @param {string} outDir
  */
 function renderHtml(s, outDir) {
@@ -165,11 +168,13 @@ function renderHtml(s, outDir) {
     header(s, generatedAt),
     disclaimers(),
     gateSection(s.gate),
+    preflightSection(s.preflight),
     failureStory(s.matrix, href),
     matrixSection(s.matrix, href),
     replaySection(s.replays, href),
     compareSection(s.compare),
     judgeSection(s.judge),
+    predictionSection(s.preflight, s.matrix, s.gate),
     provenance(s, generatedAt),
   ].join("\n");
 
@@ -601,6 +606,177 @@ function compareSection(compare) {
 
   <p class="note">${esc(c.groundTruth.caveat)}</p>
   <p class="source">Source: <code>${esc(rel(compare.path))}</code> · reproduce with <code>node bin/atlas.js compare</code></p>
+</section>`;
+}
+
+/**
+ * Pre-launch prediction: what static asset weight said before any browser ran.
+ * @param {any} preflight
+ */
+function preflightSection(preflight) {
+  if (!preflight) {
+    return notRun(
+      "Pre-launch prediction",
+      "node bin/atlas.js preflight --url <https://…>",
+      "No static weight assessment on disk. The matrix below ran without a prediction to confirm or refute.",
+    );
+  }
+  const p = preflight.data;
+  const a = p.assessment ?? {};
+  const r = p.rules ?? {};
+  const assets = p.assets ?? {};
+  const mb = (n) => (typeof n === "number" ? `${(n / 1_000_000).toFixed(1)}MB` : "—");
+  const cost = p.jevRun
+    ? `${p.jevRun.calls} call(s), ${p.jevRun.inputTokens} input tokens, ≈$${p.jevRun.estimatedUsd}, model ${esc(p.jevRun.model)}`
+    : "rule-based assessment only — nothing was called, nothing was spent.";
+  return `
+<section>
+  <h2>Pre-launch prediction</h2>
+  <p class="lede">
+    Static asset weight, measured without running a browser. The matrix below either confirms
+    this prediction or refutes it — both outcomes are findings (see the check at the end).
+  </p>
+  <div class="mode-note ${esc(p.mode)}"><b>${esc(p.mode)}</b> — weight predicts, the matrix decides.</div>
+  <div class="facts">
+    ${fact("url", p.url ?? "—")}
+    ${fact("likely tier", `${a.tier ?? "?"} (${a.engine ?? "?"}, confidence ${a.confidence ?? "?"})`)}
+    ${fact("transfer", `${mb(assets.totalBytes)} known${assets.unknownBytes ? ` + ${mb(assets.unknownBytes)} unknown` : ""} across ${assets.count ?? "?"} assets — ${a.transferFits !== undefined && a.transferFits !== null ? (a.transferFits >= 0.5 ? "fits" : "does NOT fit") : "?"} (p=${a.transferFits ?? "?"})`)}
+    ${fact("blow-budget score", a.blowBudget ? `${a.blowBudget.score} (${(a.blowBudget.levels ?? [])[Math.round(a.blowBudget.score)] ?? "?"})` : "—")}
+    ${fact("rules agree", p.agreement ? (p.agreement.tier ? `yes (both ${esc(r.tier ?? "?")})` : `no — served "${esc(a.tier ?? "?")}", rules said "${esc(r.tier ?? "?")}"`) : "—")}
+  </div>
+  ${(a.rationale ?? []).length ? `<ul>${a.rationale.map((/** @type {string} */ line) => `<li>${esc(line)}</li>`).join("")}</ul>` : ""}
+  ${a.guard?.overridden ? `<p class="warning">Guard overrode the model: ${esc(a.guard.reason)}</p>` : ""}
+  <p class="note">Assessment cost: ${cost}</p>
+  <p class="note">${esc(p.$limitations ?? "")}</p>
+  <p class="source">Source: <code>${esc(rel(preflight.path))}</code> · reproduce with <code>${esc(p.reproduce ?? "node bin/atlas.js preflight --url <https://…>")}</code></p>
+</section>`;
+}
+
+/**
+ * Did the matrix confirm or refute the preflight prediction? Pure over the two
+ * reports (plus the gate when present), so it is unit-testable without a
+ * browser and re-runnable by hand. Exported for tests.
+ *
+ * The comparison is directional, not exact: preflight predicts ONE tier for a
+ * page's weight while the matrix observes per-profile tiers, so the verdict
+ * rests on transfer-fit vs observed trouble, with the tier comparison as
+ * supporting evidence. n=1 page either way — the section says so.
+ *
+ * @param {any} preflightData
+ * @param {any} matrixData
+ * @param {any} gateData
+ */
+export function predictionCheck(preflightData, matrixData, gateData) {
+  if (!preflightData || !matrixData) {
+    return {
+      status: "missing",
+      headline: "Prediction check needs both a preflight report and a matrix report.",
+      detail: !preflightData && !matrixData
+        ? "neither artifacts/preflight/report.json nor artifacts/matrix/report.json exists."
+        : !preflightData
+          ? "artifacts/preflight/report.json is missing — run `atlas preflight --url <https://…>` first."
+          : "artifacts/matrix/report.json is missing — run `atlas matrix` first.",
+    };
+  }
+  const target = matrixData.target ?? null;
+  if (!target || target.mode !== "generic" || !target.url) {
+    return {
+      status: "not-applicable",
+      headline: "Preflight assesses stranger pages over HTTP; this matrix ran Orbital or an upload.",
+      detail: "There is no page weight to predict from, so there is nothing to confirm or refute.",
+    };
+  }
+  // Same target or no verdict: a preflight for example.com says nothing about
+  // a matrix run of example.org, and stating that beats a coincidental match.
+  const sameTarget = (() => {
+    try {
+      const a = new URL(preflightData.url);
+      const b = new URL(target.url);
+      return a.origin === b.origin && a.pathname === b.pathname;
+    } catch {
+      return false;
+    }
+  })();
+  if (!sameTarget) {
+    return {
+      status: "mismatched-target",
+      headline: "Preflight and matrix ran against different targets — not comparable.",
+      detail: `preflight assessed ${preflightData.url ?? "?"}, matrix ran ${target.url ?? "?"}. Re-run one of them.`,
+    };
+  }
+
+  const predictedTier = preflightData.assessment?.tier ?? null;
+  const fits = preflightData.assessment?.transferFits;
+  const predictedFit = typeof fits === "number" ? fits >= 0.5 : null;
+  const rows = Array.isArray(matrixData.runs) ? matrixData.runs : [];
+  const graded = rows.filter((r) => r && !r.error && r.verdict);
+  const fails = graded.filter((r) => r.verdict.outcome?.value === "fail").length;
+  const inconclusive = graded.filter((r) => r.verdict.outcome?.value === "inconclusive").length;
+  const observedTiers = [...new Set(graded.map((r) => r.servedTier).filter(Boolean))];
+  const gateDecision = gateData?.decision ?? null;
+
+  const trouble = fails > 0 || gateDecision === "hold";
+  let status;
+  let headline;
+  if (predictedFit === null) {
+    status = "refuted";
+    headline = "No usable fit prediction — cannot judge the prediction.";
+  } else if (predictedFit && !trouble) {
+    status = "confirmed";
+    headline = `Confirmed: predicted transfer fit (p=${fits}), matrix shows no failures${gateDecision ? `, gate says ${gateDecision}` : ""}.`;
+  } else if (!predictedFit && trouble) {
+    status = "confirmed";
+    headline = `Confirmed: predicted trouble (fit p=${fits}), matrix shows ${fails} failure(s)${gateDecision ? `, gate says ${gateDecision}` : ""}.`;
+  } else if (predictedFit && trouble) {
+    status = "refuted";
+    headline = `Refuted: predicted fit (p=${fits}) but the matrix failed ${fails} run(s)${inconclusive ? ` (${inconclusive} inconclusive)` : ""} — likely decode, render, or runtime cost, which static weight cannot see.`;
+  } else {
+    status = "refuted";
+    headline = `Refuted: predicted trouble (fit p=${fits}) but the matrix passed — conservative static estimate (unknown-bytes caution, cache effects, or lighter real payloads).`;
+  }
+  return {
+    status,
+    headline,
+    detail: `predicted tier "${predictedTier ?? "?"}", observed tiers {${observedTiers.join(", ") || "none"}} across ${graded.length} graded run(s). n=1 page: a smoke signal about the weight model, not an evaluation of it.`,
+    predictedTier,
+    predictedFit: fits ?? null,
+    observedTiers,
+    fails,
+    inconclusive,
+    gateDecision,
+  };
+}
+
+/**
+ * The verdict on the prediction, rendered from the check above.
+ * @param {any} preflight
+ * @param {any} matrix
+ * @param {any} gate
+ */
+function predictionSection(preflight, matrix, gate) {
+  const check = predictionCheck(preflight?.data ?? null, matrix?.data ?? null, gate?.data ?? null);
+  if (check.status === "missing") {
+    return notRun("Prediction check", "node bin/atlas.js preflight --url <https://…> + node bin/atlas.js matrix --url <same>", check.detail);
+  }
+  if (check.status === "not-applicable" || check.status === "mismatched-target") {
+    return `
+<section>
+  <h2>Prediction check</h2>
+  <p class="note">${esc(check.headline)} ${esc(check.detail)}</p>
+</section>`;
+  }
+  const verdict = check.status === "confirmed" ? "confirmed" : "refuted";
+  return `
+<section>
+  <h2>Prediction check: ${verdict}</h2>
+  <p class="lede">${esc(check.headline)}</p>
+  <p class="note">${esc(check.detail)}</p>
+  <div class="facts">
+    ${fact("predicted tier", check.predictedTier ?? "—")}
+    ${fact("observed tiers", (check.observedTiers ?? []).join(", ") || "—")}
+    ${fact("failures observed", String(check.fails ?? 0))}
+    ${fact("gate", check.gateDecision ?? "not run")}
+  </div>
 </section>`;
 }
 

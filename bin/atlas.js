@@ -70,37 +70,62 @@ let quiet = false;
 /** @type {Record<string, Command>} */
 const COMMANDS = {
   all: {
-    summary: "matrix → replay → gate → compare → report (the one command)",
-    usage: "atlas all [--seed <n>] [--profile <id>]... [--no-replay]",
+    summary: "matrix → replay → gate → judge → compare → report (the one command)",
+    usage: "atlas all [--url <href> | --glb <file>] [--seed <n>] [--profile <id>]... [--no-replay]",
     detail:
       "Runs the whole pipeline end to end and leaves a complete artifacts/ directory behind.\n" +
-      "Exits 1 if the release gate holds. Assets are generated on demand if missing.",
+      "Exits 1 if the release gate holds. Assets are generated on demand if missing.\n" +
+      "With --url: preflight runs first (no browser), then the generic matrix, judge,\n" +
+      "gate, compare, report — no replay stage (nothing was routed, so there is no\n" +
+      "before/after to reproduce). With --glb: same, minus preflight (an upload has\n" +
+      "no page to fetch until the matrix serves it).",
     flags: {
+      url: { type: "string", describe: "run the full pipeline against this http(s) URL" },
+      glb: { type: "string", describe: "run the full pipeline against this .glb file in the viewer" },
       seed: { type: "number", describe: "override the capture seed (hex or decimal)" },
       profile: { type: "list", describe: "restrict the matrix to these profile ids (repeatable)" },
       "no-replay": { type: "boolean", describe: "skip the replay stage" },
     },
     async run(args) {
+      if (args.flags.url && args.flags.glb) {
+        throw new UsageError("`--url` and `--glb` are mutually exclusive: one run, one target.");
+      }
       const { runMatrix } = await import("../src/runner/run-matrix.js");
       const { runReplay } = await import("../src/runner/run-replay.js");
       const { runGate } = await import("../src/gate/release-gate.js");
+      const { runJudge } = await import("../src/judge/run-judge.js");
       const { runComparison } = await import("../src/report/engine-comparison.js");
       const { renderReport } = await import("../src/report/html-report.js");
 
       const started = Date.now();
+      const generic = Boolean(args.flags.url || args.flags.glb);
 
-      await runMatrix({ seed: args.flags.seed, profileIds: args.flags.profile });
+      if (args.flags.url) {
+        const { runPreflight } = await import("../src/preflight/run-preflight.js");
+        await runPreflight({ url: args.flags.url, quiet });
+      }
 
-      if (!args.flags["no-replay"]) {
+      await runMatrix({
+        url: args.flags.url,
+        glb: args.flags.glb,
+        seed: args.flags.seed,
+        profileIds: args.flags.profile,
+      });
+
+      if (!generic && !args.flags["no-replay"]) {
         // Both halves of the failure story are replayed, in the order the story
         // is told: first that the failure reproduces exactly, then that the fix
         // does. Replaying only the fixed run would leave "the baseline failed"
-        // as an assertion rather than a reproducible fact.
+        // as an assertion rather than a reproducible fact. Generic runs skip
+        // this: nothing was routed, so there is no bypassed-vs-engaged pair.
         await runReplay({ profileId: "low-cpu-3g", baseline: true });
         await runReplay({ profileId: "low-cpu-3g" });
+      } else if (generic) {
+        log.info("replay stage skipped: generic runs route nothing, so there is no failure story to reproduce.");
       }
 
       const gate = await runGate({ quiet });
+      await runJudge({ quiet });
       await runComparison({ quiet });
       const report = await renderReport({ quiet });
 
