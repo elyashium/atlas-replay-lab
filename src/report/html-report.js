@@ -77,19 +77,20 @@ const DISCLAIMERS = [
 ];
 
 /**
- * @param {{ outFile?: string; quiet?: boolean }} [opts]
+ * @param {{ outFile?: string; artifactsDir?: string; quiet?: boolean }} [opts]
  */
 export async function renderReport(opts = {}) {
   const outFile = opts.outFile ?? fromRoot("artifacts", "report.html");
   const outDir = path.dirname(outFile);
+  const artifactsDir = opts.artifactsDir ?? fromRoot("artifacts");
 
   const sources = {
-    matrix: await load(path.join(MATRIX_DIR, "report.json")),
-    gate: await load(path.join(GATE_DIR, "report.json")),
-    compare: await load(path.join(COMPARE_DIR, "engine-comparison.json")),
-    judge: await load(path.join(JUDGE_DIR, "judge-report.json")),
-    preflight: await load(path.join(PREFLIGHT_DIR, "report.json")),
-    replays: await loadReplays(),
+    matrix: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), MATRIX_DIR), "report.json")),
+    gate: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), GATE_DIR), "report.json")),
+    compare: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), COMPARE_DIR), "engine-comparison.json")),
+    judge: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), JUDGE_DIR), "judge-report.json")),
+    preflight: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), PREFLIGHT_DIR), "report.json")),
+    replays: await loadReplays(path.join(artifactsDir, path.relative(fromRoot("artifacts"), REPLAY_DIR))),
   };
 
   const html = renderHtml(sources, outDir);
@@ -133,13 +134,13 @@ async function load(file) {
  * first — the failure story is told before → after, so its evidence is listed
  * in the same direction.
  */
-async function loadReplays() {
-  if (!existsSync(REPLAY_DIR)) return [];
+async function loadReplays(replayDir) {
+  if (!existsSync(replayDir)) return [];
   /** @type {Array<{ path: string; data: any }>} */
   const found = [];
-  for (const entry of await readdir(REPLAY_DIR, { withFileTypes: true })) {
+  for (const entry of await readdir(replayDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const loaded = await load(path.join(REPLAY_DIR, entry.name, "report.json"));
+    const loaded = await load(path.join(replayDir, entry.name, "report.json"));
     if (loaded) found.push(loaded);
   }
   return found.sort((a, b) => {

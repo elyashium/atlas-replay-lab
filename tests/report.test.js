@@ -102,7 +102,7 @@ test("works without a gate report", () => {
 test("render builds a page even with nothing on disk", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "atlas-report-"));
   const outFile = path.join(dir, "report.html");
-  const { file } = await renderReport({ outFile, quiet: true });
+  const { file } = await renderReport({ outFile, artifactsDir: path.join(dir, "artifacts"), quiet: true });
   assert.equal(file, outFile);
   const html = await readFile(outFile, "utf8");
   assert.match(html, /<!doctype html>/);
