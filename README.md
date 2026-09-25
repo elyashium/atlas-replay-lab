@@ -185,21 +185,17 @@ real renderer on a real clock. It does **not** support any claim about "all
 devices" or about how a specific handset behaves. Those need a real-device lab,
 which this is not a substitute for.
 
-## The failure story
+## Current local proof status
 
-The repository tells one failure end to end, and every timestamp in it is
-captured by the harness rather than typed by a human:
-
-1. A **baseline** run on `low-cpu-3g` bypasses the tier router and serves the
-   high tier to a device that cannot render it. It fails.
-2. The **adaptive** run on the same profile lets the `DecisionEngine` route,
-   which downgrades the tier and resolves a fallback path. It passes.
-3. **Replay** re-runs both captures and shows each reproduces, so "the fix
-   worked" is a reproducible claim rather than an assertion.
-
-Run it, then read `artifacts/report.html`. The before/after numbers live there,
-written by the runner. They are deliberately not quoted in this README — a
-hand-copied metric is exactly the kind of number that goes stale and then lies.
+The Orbital matrix and release report are useful local evidence, but the latest
+measured run does **not** establish a clean baseline-failure/adaptive-pass
+story: the baseline and adaptive profile were both labeled
+`degraded-but-acceptable`, replay screenshots exceeded tolerance, and the gate
+returned HOLD. The no-WebGL profile failed its first-frame visual invariant.
+See [the Phase 0 evidence record](docs/evidence/phase0-2026-09-26.md) for
+per-profile measurements and limitations. Treat `artifacts/report.html` as the
+source for a particular local run; do not describe Phase 0 as complete until a
+fresh run supports the claim.
 
 ## Commands
 

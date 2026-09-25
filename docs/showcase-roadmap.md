@@ -1,125 +1,86 @@
-# Atlas Upload — showcase roadmap (URL → rating → upload)
+# Atlas release QA roadmap
 
-Goal: a showcase visitor brings **their own** AR/VR web experience and leaves
-with a degrade report, a replayable failure, and a single rating. No rewrite:
-the matrix / trace / replay / gate / judge stays as-is; each slice adds one
-ingestion path and the invariants needed to rate it.
+This roadmap replaces the old visitor showcase plan. Atlas is for Web3D, WebAR,
+and interactive commerce teams that need evidence for a release decision. It is
+not a generic XR builder. See [`product-brief.md`](product-brief.md) for the
+product direction and [Phase 0 evidence](evidence/phase0-2026-09-26.md) for the
+latest measured local run.
 
-Status (2026-09-24): all three slices built and tested — `matrix --url`, generic
-probe/driver/manifest, comfort invariants, Atlas score, incident memory,
-fan-out judge, score floor in the gate (rule 8), triage in the HTML report,
-`preflight`, and `matrix --glb` (moderated upload → staged viewer → matrix,
-verified live on desktop and xr-granted profiles). Slices build in order; each
-is independently demoable.
+## Existing CLI foundation
 
-## Constraints carried in (non-negotiable)
+The repository contains an offline CLI and controlled Orbital experience,
+profile matrix, trace capture, replay, static URL preflight, generic URL probe,
+`.glb` viewer path, trace judge, and release gate. They are starting components
+for the product, not a complete customer workflow.
 
-- Zero dependencies (ADR-0002), ESM, Node ≥ 18.17. No npm packages — the XR
-  session stub is our own injected script via the existing CDP `inject.js`
-  path, not IWER/playwright-webxr (good tools, wrong dependency posture).
-- Privacy boundary unchanged: no camera frames/audio ever, `tOffsetMs` only,
-  summaries—not event streams—leave the box, Jev egress opt-in per PRIVACY.md.
-- Honesty posture unchanged: emulation is labeled emulation (Chromium CDP +
-  injected XR stub, no real GPU drivers, no handsets, no HMDs); vendor numbers
-  stay attributed; live Jev numbers ship with sample sizes. Real-device
-  connector stays explicit Stage 3, never implied.
-- Jev weaknesses respected (per TypeSafe's own docs): no counting, no
-  arithmetic on money/quantities/dates in questions. Frame counts, p95s, and
-  budget comparisons stay in code; Jev gets semantic judgments + confidence.
+- `matrix --url` observes a supplied third-party page with generic behavior. It
+  does not verify ownership, understand the site's success condition, perform
+  an authenticated customer journey, or adaptively repair that site.
+- `matrix --glb` evaluates the Atlas viewer around the uploaded asset. It does
+  not measure the asset inside a customer's eventual host application.
+- Injected WebXR behavior is synthetic. CDP network/CPU and viewport profiles
+  are emulations, not physical device, Safari, radio, GPU, thermal, or camera
+  tests.
+- The controlled Orbital experience is a separate demonstration. A successful
+  Orbital run says nothing about another team's app.
 
-## Slice 1 — Point at any URL ✅ built (tests/generic.test.js)
+## Phase 0 — trustworthy local proof
 
-`atlas matrix --url <https://…>` runs the six-profile matrix against a
-deployed third-party WebXR/WebGL app instead of Orbital.
+**Current status: incomplete.** Portable test discovery and local fixes are in
+place, and the latest environment passed the unit suite and `doctor`. The full
+Orbital run produced HOLD: its adaptive profile missed declared timing budgets,
+the WebGL-unavailable lane failed its visual invariant, and replay screenshots
+did not reproduce within tolerance. See the evidence note for metrics and exact
+limits. No clean before/after recording is claimed.
 
-- Generic probe (new `experience/probe-generic.js`, injected the same way as
-  `capability-probe.js`): rAF frame-time series, XR `sessionstart`/`end` /
-  `error` events, console errors, WebGL context loss, first-non-blank-canvas
-  timestamp via pixel sampling, declared fallback detection (does the page
-  render *something* usable when `navigator.xr` is absent?).
-- Generic driver (`src/runner/drive-generic.js`): load → wait-for-settle →
-  scripted look-around (mouse drag / touch swipe) → attempt XR session button
-  if present → screenshots at checkpoints. No app-specific states; the trace
-  records the generic spine (load/interact/session-attempt/checkout-if-found).
-- Trace schema: additive optional fields (`frameTimes`, `xrSessionEvents`,
-  `consoleErrors`) — old traces still validate; `summariseTraceForJev`
-  compresses frame series to histogram buckets (never ships raw series).
-- Matrix profiles gain two XR-flavored variants (8 total): `xr-granted`
-  (session supported, permission granted) and `xr-denied` (session requested,
-  permission refused) — same CDP mechanics as `camera-denied`.
-- Accept: paste an 8th Wall / PlayCanvas / three.js URL, get a full report
-  with zero per-app code. Failure story: the *visitor's* app on `low-cpu-3g`.
+Exit only when a fresh baseline exposes a meaningful declared-budget failure,
+the adaptive result meets the stated policy, captured journeys replay within
+the defined evidence tolerance, and the generated report has been visually
+checked at desktop and mobile sizes. Show only numbers from those artifacts.
 
-## Slice 2 — Rate it ✅ built (score, comfort, fan-out, preflight, rule 8, report section)
+## Phase 1 — owned staging contract
 
-One number plus the evidence behind it. The triage section of `report.html`
-is the closest thing to the "what your users feel" panel: per-trace scores
-with labels, comfort findings, and the measured triage cost.
+Make owned staging URLs the primary customer mode. Add a versioned contract
+that can be configured without editing Atlas source:
 
-- Comfort invariants (manifest, additive): sustained-fps floor (e.g. p5 frame
-  time over a 5s window — motion-sickness proxy), XR-session-fail fallback
-  (refused/unavailable session must still leave a usable 2D/static page),
-  input-to-photon responsiveness budget. All computed in code from the trace.
-- Atlas score 0–100 (composite-scoring pattern): weighted sum of
-  visual / interaction / business / comfort sub-scores, weights in
-  `src/gate/atlas-score.js` as versioned constants, raw dimensions preserved
-  in the report (never just the number — cf. Bloss0m's "don't keep only 0.82").
-- Judge fan-out (same single call, ~10 questions): add `comfortRisk` (Score),
-  `accessibleFallback` (Noul: usable without XR/controllers?), and per-known-
-  incident `matchesIncident<i>` (Noul × k open incidents — failure memory;
-  capped by the 255-option/32k-token budget, oldest incidents retire first).
-- Pre-flight risk (the showcase magic): `atlas preflight --url` fetches
-  headers + asset manifest only (no browser), sends byte counts / texture
-  sizes / script weight as state, asks `blowBudget` (Score) + `tier` (Choice).
-  Predicts the failure *before* the matrix runs; the matrix then confirms or
-  refutes — both outcomes are interesting on stage.
-- Report: "what your users feel" section — p95 frame time → comfort label via
-  a Score question, plain-language fallback verdict, before/after tier panels.
-- Accept: two different visitor URLs get different scores with legible,
-  disputable reasons; preflight prediction matches matrix outcome ≥ direction.
+- verified domain or explicitly authorized private target;
+- allowed origins and redirect policy;
+- environment and scoped test credential strategy;
+- journey steps for load, interaction, optional XR, and declared completion;
+- stable success/fallback selectors or events;
+- interaction budgets, critical profiles, and per-target gate policy.
 
-## Slice 3 — Upload a `.glb` ✅ built (tests/viewer.test.js + live matrix runs)
+Surface missing selectors, blocked authentication, unsatisfied steps, and
+harness failures as distinct evidence states. A generic gesture must not claim
+business success. Compare versions under the same target contract and profile,
+and state whether customer code or Atlas's runner changed. Mark a captured
+journey replayable only when input and instrumentation fidelity support it.
 
-For visitors without a deployed URL.
+## Phase 2 — hosted application
 
-- Viewer harness (`experience/viewer/`): standard three.js-free WebGL viewer
-  (our own minimal renderer, consistent with zero-deps) with an owned degrade
-  ladder — pixel ratio → shadow map → poly/LOD → lighting → static poster.
-  Upload = file drop → content-hash → served locally → matrix runs against it.
-- XR session stub (`src/runner/xr-stub.js`, injected pre-load): fake
-  `navigator.xr` supporting `immersive-vr` request/end + synthetic head-pose
-  sequence (scripted look path, seeded) so session lifecycle, pose-driven
-  rendering, and session-fail fallback are all exercisable without a headset.
-  Pose scripts are seeded and stored in the trace → replay re-applies them.
-- Upload moderation: schema/type validation in code; Jev pre-flight judges
-  semantic risk from asset stats (poly count, texture bytes, node count).
-  Never executes upload content outside the sandboxed page context.
-- Accept: drag → degrade → replay → score in under 5 minutes on stage.
+Wrap the versioned CLI engine with a web UI and API. Provide organization and
+project access, target verification, contract setup, explicit screenshot/egress
+consent, dry run, queued isolated Chrome workers, run status, cancellation,
+retry/idempotency, and reports with metrics, screenshots, traces, and policy
+versions. Keep profiles sequential within each worker and isolate browser state
+between jobs and tenants.
 
-## Showcase demo (90 seconds, Slice 1+2)
+Do not expose arbitrary public URL runs until SSRF/DNS rebinding protections
+cover redirects and browser subresources, with network isolation and allowlists.
+Bound upload types/sizes/resources, execution time, CPU, memory, disk, and
+quotas. Demonstrate per-tenant access controls, audit logs, secrets scrubbing,
+and retention deletion including shared links and backups before hosted launch.
 
-1. Paste URL (visitor's or a planted heavy three.js scene). Preflight scores
-   it risky in one call (~1s, ~$0.0001).
-2. Matrix runs the failure profile live; report shows the exact tier where it
-   breaks + comfort label.
-3. Replay the divergence; flip to the adapted tier; re-run to green.
-4. Atlas score before/after + per-trace cost line ("this whole triage cost
-   a fifth of a cent").
+## Phase 3 — target build release status
 
-## Cost/latency envelope (measured 2026-09-22, jev-1.13.0)
+Submit the actual target commit/build to a GitHub status check. Return
+SHIP/HOLD/INCONCLUSIVE with the policy version and report link. Unavailable
+workers and missing evidence cannot become green. Verify a controlled PR fails
+on a reproduced regression and passes after the target fix.
 
-| Stage | Calls | Measured |
-|---|---|---|
-| preflight | 1 | ~1.3s, ~300 tokens, ~$0.00001 |
-| compare (12 pkt + 10 traces) | 22 | mean ~490ms, ~$0.0023 total |
-| judge (10 traces) | 10 | mean ~514ms, ~$0.00015/trace |
+## Later work
 
-Fan-out keeps Slice 2 at the same call count as today (questions ride free;
-only state+question tokens bill). Full showcase run stays under a cent.
-
-## Explicit non-goals
-
-- Real-device/HMD lab (Stage 3; needs hardware + ADB + a venue rig).
-- Native (non-web) AR/VR uploads — browser-runnable only.
-- Auto-fixing visitor code — we locate + prove, humans fix.
-- Any claim beyond what's measured: emulation labeled, n=small caveats kept.
+Physical Android/iPhone coverage and consent-based production monitoring are
+separate later lanes. Record specific device and browser versions, run counts,
+provenance, and privacy limits. Native applications, pricing/billing,
+compliance claims, and auto-remediation are outside the current scope.
