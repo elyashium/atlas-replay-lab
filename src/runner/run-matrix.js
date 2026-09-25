@@ -844,9 +844,10 @@ function delta(before, after) {
 /**
  * Generates the tier assets if they are not on disk, so the matrix really is
  * one command from a fresh clone. The generator is deterministic, so doing this
- * lazily does not make the run any less reproducible.
+ * lazily does not make the run any less reproducible. Exported for `serve`,
+ * which has the same fresh-clone problem.
  */
-async function ensureAssets() {
+export async function ensureAssets() {
   const marker = fromRoot("experience", "assets", "generated", "sizes.json");
   if (existsSync(marker)) return;
   log.info("tier assets not found; generating them (deterministic, ~1s)");

@@ -345,6 +345,11 @@ const COMMANDS = {
       const { orbitalManifest } = await import("../src/manifest/atlas-orbital.manifest.js");
       const { selectEngine } = await import("../src/decision/index.js");
       const { startServer } = await import("../src/runner/server.js");
+      const { ensureAssets } = await import("../src/runner/run-matrix.js");
+
+      // Same fresh-clone guarantee as the matrix: without generated tier
+      // assets every tier 404s and the page dies at ALL_ASSETS_UNAVAILABLE.
+      await ensureAssets();
 
       const selection = await selectEngine({ env: process.env, allowFixture: true });
       const server = await startServer({
