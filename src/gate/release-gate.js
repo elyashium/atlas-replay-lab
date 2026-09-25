@@ -16,10 +16,11 @@
  *  3. No critical profile's `releaseBlocking` score reaches **major** (index 3
  *     of the 5-level scale).
  *  4. The **business invariant** holds everywhere: every critical profile
- *     reached `checkout-complete`. This one is absolute and tier-independent —
- *     degrading the visuals is the entire point of the tier ladder, so a low
- *     tier is never an excuse; losing checkout is a different kind of failure
- *     from looking worse.
+ *     reached the manifest's end state (`checkout-complete` on Orbital,
+ *     `session-complete` on generic runs). This one is absolute and
+ *     tier-independent — degrading the visuals is the entire point of the tier
+ *     ladder, so a low tier is never an excuse; losing the end state is a
+ *     different kind of failure from looking worse.
  *  5. No critical profile is `inconclusive`. A gate that reads "we don't know"
  *     as "yes" is not a gate. These block, but they block with a distinct
  *     reason code, because the fix is usually to the harness, not the product.
@@ -63,7 +64,7 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { orbitalManifest } from "../manifest/atlas-orbital.manifest.js";
-import { manifestFor } from "../manifest/select.js";
+import { manifestFor, manifestById } from "../manifest/select.js";
 import { scoreTrace } from "./atlas-score.js";
 import { PROFILES } from "../runner/profiles.js";
 import { SEVERITY_LEVELS } from "../decision/questions.js";
@@ -115,7 +116,6 @@ export const SCORE_FLOOR = 50;
  * }} [opts]
  */
 export async function runGate(opts = {}) {
-  const manifest = orbitalManifest;
   const matrixPath = opts.matrixReportPath ?? path.join(MATRIX_DIR, "report.json");
 
   if (!existsSync(matrixPath)) {
@@ -127,6 +127,18 @@ export async function runGate(opts = {}) {
 
   const matrix = await readJson(matrixPath);
   const replay = await loadReplay(opts.replayReportPath);
+
+  // The bar comes from the manifest the matrix ran against, selected by
+  // recorded id — grading a generic run against Orbital's checkout invariant
+  // would hold a stranger's app to an end state it never declared. Reports
+  // without an id predate selection and grade against Orbital, as before.
+  const { manifest, matched: manifestMatched } = manifestById(matrix.manifest?.id);
+  if (matrix.manifest?.id && !manifestMatched) {
+    log.warn(
+      `matrix report names unknown manifest id "${matrix.manifest.id}" — grading ` +
+        `against Orbital (${orbitalManifest.id}@${orbitalManifest.version}) instead.`,
+    );
+  }
 
   /** @type {Finding[]} */
   const findings = [];
@@ -217,8 +229,9 @@ export async function runGate(opts = {}) {
         runId: run.runId,
         message:
           `never reached "${manifest.invariants.business.endState}". A lower tier is an ` +
-          "acceptable degradation; an unreachable checkout is not.",
+          "acceptable degradation; an unreachable end state is not.",
         evidence: {
+          endState: manifest.invariants.business.endState,
           statesVisited: run.drive?.completed ?? null,
           failedAt: run.drive?.failedAt ?? null,
           servedTier: run.servedTier,
@@ -234,7 +247,7 @@ export async function runGate(opts = {}) {
         rule: "4-business-invariant",
         runId: run.runId,
         message:
-          `reached checkout in ${run.metrics.stepsToEndState} steps, over the declared ` +
+          `reached "${manifest.invariants.business.endState}" in ${run.metrics.stepsToEndState} steps, over the declared ` +
           `maximum of ${manifest.invariants.business.maxStepsToEndState}`,
       });
     }
@@ -367,12 +380,18 @@ export async function runGate(opts = {}) {
     rule: {
       summary:
         "Ship when every critical profile ran, none failed, none scored 'major' or worse, all " +
-        "reached checkout, none were inconclusive, and every critical profile's Atlas score " +
+        "reached the manifest end state, none were inconclusive, and every critical profile's Atlas score " +
         `clears ${SCORE_FLOOR}. Budget breaches warn; they do not block.`,
       blockingSeverityIndex: BLOCKING_SEVERITY_INDEX,
       blockingSeverityLevel: SEVERITY_LEVELS[BLOCKING_SEVERITY_INDEX],
       decisionConfidenceFloor: DECISION_CONFIDENCE_FLOOR,
       scoreFloor: SCORE_FLOOR,
+      manifest: {
+        id: manifest.id,
+        version: manifest.version,
+        contentHash: manifest.contentHash,
+        matched: manifestMatched,
+      },
       businessInvariant: manifest.invariants.business,
       criticalProfiles: [...criticalIds],
       baselineExcluded:

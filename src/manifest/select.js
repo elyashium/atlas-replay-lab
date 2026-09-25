@@ -30,15 +30,27 @@ const MANIFESTS = {
  * @returns {{ manifest: import("../../types/atlas.js").ExperienceManifest; matched: boolean; hashMatches: boolean }}
  */
 export function manifestFor(trace) {
-  const id = trace.resource?.["atlas.manifest.id"];
-  const manifest = (id && MANIFESTS[id]) || orbitalManifest;
+  const { manifest, matched } = manifestById(trace.resource?.["atlas.manifest.id"]);
   return {
     manifest,
-    matched: Boolean(id && MANIFESTS[id]),
+    matched,
     // A trace captured before a manifest edit carries the old hash. The verdict
     // is still computable — the invariants it is judged against are simply not
     // byte-identical to the ones it ran under, and saying so is cheaper than
     // pretending otherwise or refusing to judge.
     hashMatches: trace.resource?.["atlas.manifest.hash"] === manifest.contentHash,
   };
+}
+
+/**
+ * Manifest lookup by recorded id, for components that read a report rather
+ * than a trace (the gate grades matrix rows). Unknown or missing ids fall
+ * back to Orbital — the conservative choice: its invariants are the strictest
+ * in the repo — and say so via `matched: false`.
+ *
+ * @param {string | null | undefined} id
+ */
+export function manifestById(id) {
+  const manifest = (id && MANIFESTS[id]) || orbitalManifest;
+  return { manifest, matched: Boolean(id && MANIFESTS[id]) };
 }

@@ -24,6 +24,7 @@ import { fromRoot } from "../src/util/fsx.js";
 import { SEVERITY_LEVELS, ROOT_CAUSE_OPTIONS } from "../src/decision/questions.js";
 import { PROFILES } from "../src/runner/profiles.js";
 import { orbitalManifest } from "../src/manifest/atlas-orbital.manifest.js";
+import { genericManifest } from "../src/manifest/generic.manifest.js";
 
 const CRITICAL = PROFILES.filter((p) => p.critical).map((p) => p.id);
 
@@ -93,13 +94,13 @@ function passingRun(profileId, over = {}) {
   };
 }
 
-/** @param {any[]} runs */
-function matrixReport(runs) {
+/** @param {any[]} runs @param {any} [manifest] */
+function matrixReport(runs, manifest = { contentHash: orbitalManifest.contentHash }) {
   return {
     kind: "atlas.matrix",
     startedAtIso: "2026-01-01T00:00:00.000Z",
     engine: { name: "rule-based", kind: "deterministic" },
-    manifest: { contentHash: orbitalManifest.contentHash },
+    manifest,
     runs,
   };
 }
@@ -117,16 +118,17 @@ const allPassing = () => CRITICAL.map((id) => passingRun(id));
  * @param {any} [opts]
  */
 async function gate(t, runs, opts = {}) {
+  const { manifest, ...runOpts } = opts;
   const dir = await mkdtemp(path.join(os.tmpdir(), "atlas-gate-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const matrixPath = path.join(dir, "report.json");
-  await writeFile(matrixPath, JSON.stringify(matrixReport(runs)), "utf8");
+  await writeFile(matrixPath, JSON.stringify(matrixReport(runs, manifest)), "utf8");
   return runGate({
     matrixReportPath: matrixPath,
     replayReportPath: null,
     outDir: path.join(dir, "gate"),
     quiet: true,
-    ...opts,
+    ...runOpts,
   });
 }
 
@@ -574,4 +576,39 @@ test("an unreadable trace is skipped by the score rule, not scored as zero", asy
   const { report, shipped } = await gate(t, runs);
   assert.equal(shipped, true, JSON.stringify(blocks(report), null, 2));
   assert.equal(byRule(report, "8-score-floor").length, 0);
+});
+
+/* ── manifest-aware grading ───────────────────────────────────────────────── */
+
+const genericId = () => ({ id: genericManifest.id, version: genericManifest.version, contentHash: genericManifest.contentHash });
+
+test("a clean generic matrix ships against the generic bar", async (t) => {
+  const { report, shipped } = await gate(t, allPassing(), { manifest: genericId() });
+  assert.equal(shipped, true, JSON.stringify(blocks(report), null, 2));
+  assert.equal(report.rule.manifest.id, "generic-url");
+  assert.equal(report.rule.manifest.matched, true);
+});
+
+test("a generic miss names session-complete, not checkout", async (t) => {
+  const runs = allPassing().map((r) =>
+    r.profileId === "low-cpu-3g"
+      ? passingRun(r.profileId, { metrics: { reachedEndState: false } })
+      : r,
+  );
+  const { report, shipped } = await gate(t, runs, { manifest: genericId() });
+  assert.equal(shipped, false);
+  const found = byRule(report, "4-business-invariant");
+  assert.equal(found.length, 1);
+  assert.equal(found[0].severity, "block");
+  assert.match(found[0].message, /session-complete/);
+  assert.doesNotMatch(found[0].message, /checkout/);
+});
+
+test("an unknown manifest id falls back to Orbital out loud", async (t) => {
+  const { report, shipped } = await gate(t, allPassing(), {
+    manifest: { id: "no-such-manifest", contentHash: "deadbeef" },
+  });
+  assert.equal(shipped, true, JSON.stringify(blocks(report), null, 2));
+  assert.equal(report.rule.manifest.id, "orbital");
+  assert.equal(report.rule.manifest.matched, false);
 });
