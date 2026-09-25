@@ -159,7 +159,11 @@ const COMMANDS = {
       "With --glb the target is Atlas's own model viewer over your upload: moderated\n" +
       "(magic, size and triangle caps), staged under the output dir, served locally.\n" +
       "The viewer routes itself through the shared control plane; the matrix observes\n" +
-      "it exactly like a stranger page.",
+      "it exactly like a stranger page.\n" +
+      "\n" +
+      "Each profile is retried once on harness failure (--retry <n> to change); a\n" +
+      "profile that keeps failing is quarantined as an error row rather than aborting\n" +
+      "the matrix, and the gate reads the absence as absence.",
     flags: {
       url: {
         type: "string",
@@ -171,6 +175,7 @@ const COMMANDS = {
       },
       seed: { type: "number", describe: "capture seed (default 0x0b17a1)" },
       profile: { type: "list", describe: "run only these profile ids (repeatable)" },
+      retry: { type: "number", describe: "retries per profile on harness failure (default 1)" },
       "no-baseline": { type: "boolean", describe: "skip the router-bypassed baseline run" },
       "no-clean": { type: "boolean", describe: "keep previous artifacts in the output directory" },
       out: { type: "string", describe: "output directory (default artifacts/matrix)" },
@@ -189,6 +194,7 @@ const COMMANDS = {
         includeBaseline: args.flags["no-baseline"] ? false : undefined,
         clean: !args.flags["no-clean"],
         outDir: args.flags.out ? path.resolve(args.flags.out) : undefined,
+        retry: args.flags.retry,
       });
       // The matrix reports what happened; it does not decide whether that is
       // shippable. `gate` does, and it exits accordingly. So a matrix whose runs

@@ -143,6 +143,46 @@ export function parseTargetUrl(raw) {
   return url;
 }
 
+/**
+ * A quarantined row for a profile the harness could not run to completion.
+ * Shape-complete (never null fields where the typedef promises a shape key)
+ * so the gate, the judge, and the report all read it as "absence of evidence"
+ * rather than crashing on it: rule 1 blocks critical absences, everything
+ * else skips. Exported for tests.
+ *
+ * @param {{ profile: Profile; runKind: "baseline" | "adaptive"; forcedTier: string | null }} step
+ * @param {string} runId
+ * @param {string} traceId
+ * @param {string} message
+ * @param {number} attempts
+ * @param {bigint} stepStarted
+ * @returns {MatrixRunRow}
+ */
+export function harnessErrorRow(step, runId, traceId, message, attempts, stepStarted) {
+  return {
+    runId,
+    profileId: step.profile.id,
+    label: step.profile.label,
+    runKind: step.runKind,
+    forcedTier: step.forcedTier,
+    traceId,
+    tracePath: null,
+    determinismHash: null,
+    causalHash: null,
+    servedTier: null,
+    servedPath: null,
+    metrics: null,
+    decision: null,
+    verdict: null,
+    drive: null,
+    delivery: null,
+    screenshots: {},
+    pageErrors: [],
+    error: `harness failed after ${attempts} attempt(s): ${message}`,
+    wallMs: Math.round(Number(process.hrtime.bigint() - stepStarted) / 1e6),
+  };
+}
+
 /** Default caps for `--glb` uploads; overridable per run (see stageUpload). */
 export const DEFAULT_GLB_MAX_BYTES = 50_000_000;
 export const DEFAULT_GLB_MAX_TRIANGLES = 60_000;
@@ -228,6 +268,7 @@ export async function stageUpload(bytes, fileName, outDir, env) {
  *   env?: NodeJS.ProcessEnv;
  *   url?: string;
  *   glb?: string;
+ *   retry?: number;
  * }} [opts]
  */
 export async function runMatrix(opts = {}) {
@@ -375,6 +416,11 @@ export async function runMatrix(opts = {}) {
         log.info(`router bypassed: tier forced to "${step.forcedTier}" (baseline half of the failure story)`);
       }
 
+      // One step, retried: a transient CDP/browser hiccup must cost a rerun of
+      // one profile, not the whole matrix (previously an exception here skipped
+      // the report entirely). Everything a step produces lives inside runStepOnce
+      // so a retry starts clean; quarantine below is what the gate's rule 1 reads.
+      const runStepOnce = async () => {
       /** @type {any} */
       let driveResult = null;
 
@@ -472,7 +518,7 @@ export async function runMatrix(opts = {}) {
         await writeJson(path.join(runDir, "verdict.json"), verdict);
       }
 
-      const row = /** @type {MatrixRunRow} */ ({
+      return /** @type {MatrixRunRow} */ ({
         runId,
         profileId: step.profile.id,
         label: step.profile.label,
@@ -496,8 +542,28 @@ export async function runMatrix(opts = {}) {
         error: result.error,
         wallMs: result.wallMs,
       });
-      runs.push(row);
-      logRow(row);
+      };
+
+      const maxAttempts = 1 + Math.max(0, Math.floor(opts.retry ?? 1));
+      /** @type {MatrixRunRow | null} */
+      let row = null;
+      const stepStarted = process.hrtime.bigint();
+      for (let attempt = 1; attempt <= maxAttempts && !row; attempt++) {
+        if (attempt > 1) log.warn(`${runId}: retrying after harness failure (attempt ${attempt}/${maxAttempts})`);
+        try {
+          row = await runStepOnce();
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (attempt >= maxAttempts) {
+            log.error(`${runId}: harness failed after ${attempt} attempt(s), quarantined: ${message}`);
+            row = harnessErrorRow(step, runId, traceId, message, attempt, stepStarted);
+          } else {
+            log.warn(`${runId}: harness failure on attempt ${attempt}/${maxAttempts}: ${message}`);
+          }
+        }
+      }
+      runs.push(/** @type {MatrixRunRow} */ (row));
+      logRow(/** @type {MatrixRunRow} */ (row));
     }
   } finally {
     await server.close().catch(() => {});
