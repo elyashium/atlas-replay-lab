@@ -79,6 +79,7 @@ const app = {
   finished: false,
 };
 let recordedInteractionCount = 0;
+let checkpointPending = false;
 
 // A runner may need to preserve what the recorder has already seen when an
 // intentionally overloaded baseline stops responding to scripted input. Keep
@@ -93,6 +94,11 @@ if (ATLAS.emulated) {
   });
   Object.defineProperty(globalThis, "__atlasInteractionCount", {
     get: () => recordedInteractionCount,
+    configurable: false,
+    enumerable: false,
+  });
+  Object.defineProperty(globalThis, "__atlasCheckpointPending", {
+    get: () => checkpointPending,
     configurable: false,
     enumerable: false,
   });
@@ -450,7 +456,7 @@ async function enterFirstFrame(loaded) {
   recorder.event("interactive", "lifecycle", { state: "interactive", tier: app.tier?.id ?? null, path: app.path });
   wireInteractions();
   updateHud();
-  await recorder.checkpoint("cp-interactive", "interactive");
+  await checkpointAtFixedPhase("cp-interactive", "interactive");
 }
 
 /**
@@ -616,15 +622,35 @@ function go(next) {
   setState(next);
   app.recorder?.state(/** @type {any} */ (next));
 
-  if (next === "product-detail") void app.recorder?.checkpoint("cp-product-detail", "product-detail");
+  if (next === "product-detail") return checkpointAtFixedPhase("cp-product-detail", "product-detail");
   if (next === "checkout-complete") void finishCheckout();
 }
 
 async function finishCheckout() {
   // Deterministic mock order id — derived from the seeded RNG, never a clock.
   el.orderId.textContent = `ORB-${Math.floor(random() * 0xffffff).toString(16).toUpperCase().padStart(6, "0")}`;
-  await app.recorder?.checkpoint("cp-checkout", "checkout-complete");
+  await checkpointAtFixedPhase("cp-checkout", "checkout-complete");
   await finish();
+}
+
+/**
+ * Freeze the animated layer at the same seeded phase for every checkpoint.
+ * This keeps replay screenshots comparable while the live experience remains
+ * animated between captures.
+ * @param {string} id
+ * @param {import("../types/atlas.js").ExperienceState} state
+ */
+async function checkpointAtFixedPhase(id, state) {
+  const shouldAnimate = app.path !== "static-safe" && !app.capability?.reducedMotionPreferred;
+  checkpointPending = true;
+  if (shouldAnimate) app.scene?.stopAnimating();
+  app.scene?.renderFrame(CHECKPOINT_PHASE);
+  try {
+    await app.recorder?.checkpoint(id, state);
+  } finally {
+    if (shouldAnimate && !app.finished) app.scene?.startAnimating(CHECKPOINT_PHASE);
+    checkpointPending = false;
+  }
 }
 
 /* ── teardown ─────────────────────────────────────────────────────────── */

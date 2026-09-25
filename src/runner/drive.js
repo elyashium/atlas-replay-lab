@@ -104,10 +104,14 @@ export function waitForDone(session, timeoutMs) {
  * @param {number} [timeoutMs]
  */
 export function waitForInteraction(session, count, timeoutMs = 30_000) {
-  return waitForPage(session, `globalThis.__atlasInteractionCount >= ${count}`, {
+  return waitForPage(
+    session,
+    `globalThis.__atlasInteractionCount >= ${count} && !globalThis.__atlasCheckpointPending`,
+    {
     timeoutMs,
-    label: `recorded interaction ${count}`,
-  });
+      label: `recorded interaction ${count} and checkpoint capture`,
+    },
+  );
 }
 
 /**

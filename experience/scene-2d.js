@@ -46,7 +46,7 @@ export class Canvas2dScene {
     // The 2D path has no shader glow to amplify each sprite. Give it a larger
     // minimum footprint so its first frame remains visibly non-blank at the
     // lowest tier without increasing the sprite count.
-    this.spriteSize = Math.min(48, Math.max(14, Math.round(opts.tier.params.textureSize / 4)));
+    this.spriteSize = Math.min(24, Math.max(8, Math.round(opts.tier.params.textureSize / 11)));
 
     /** @type {Array<{ a: number; r: number; speed: number; size: number; tint: number; fade: number }>} */
     this.particles = [];
