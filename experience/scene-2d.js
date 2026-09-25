@@ -43,7 +43,10 @@ export class Canvas2dScene {
     // sprite request here would just guarantee a dropped-frame failure on the
     // exact devices this path exists to rescue.
     this.particleCount = Math.min(opts.tier.params.particleCount, 320);
-    this.spriteSize = Math.max(8, Math.round(opts.tier.params.textureSize / 22));
+    // The 2D path has no shader glow to amplify each sprite. Give it a larger
+    // minimum footprint so its first frame remains visibly non-blank at the
+    // lowest tier without increasing the sprite count.
+    this.spriteSize = Math.min(24, Math.max(8, Math.round(opts.tier.params.textureSize / 11)));
 
     /** @type {Array<{ a: number; r: number; speed: number; size: number; tint: number; fade: number }>} */
     this.particles = [];

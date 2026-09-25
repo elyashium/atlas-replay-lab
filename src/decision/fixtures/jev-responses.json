@@ -3,7 +3,7 @@
   "$note": "ILLUSTRATIVE FIXTURES — hand-authored, NOT captured from a live Jev deployment. Every probability here was written by a human to exercise the Jev code path without an API key. They are not evidence of how Jev behaves, and any agreement rate computed against them measures only this file. Regenerate with: node scripts/build-fixtures.js",
   "$generatedBy": "scripts/build-fixtures.js",
   "$model": "jev-latest",
-  "$manifestHash": "bbf16c3ba4304ad8",
+  "$manifestHash": "e5cb8bbd173cc9aa",
   "cases": [
     {
       "key": "8e660401e512181f",
@@ -163,7 +163,7 @@
       }
     },
     {
-      "key": "3d9748838b2c72e9",
+      "key": "130329c22b1b0465",
       "label": "tier/camera-denied@ci-matrix",
       "request": {
         "state": {
@@ -187,7 +187,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -301,7 +301,7 @@
       }
     },
     {
-      "key": "bdd2213a8c6fddf6",
+      "key": "aac79c1a1745e4f5",
       "label": "tier/camera-denied@production",
       "request": {
         "state": {
@@ -325,7 +325,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -439,7 +439,7 @@
       }
     },
     {
-      "key": "8e19cad5b1c070e3",
+      "key": "eb33bcc608ce06a3",
       "label": "tier/desktop-wifi-strong@ci-matrix",
       "request": {
         "state": {
@@ -463,7 +463,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -577,7 +577,7 @@
       }
     },
     {
-      "key": "ce12ee00a5e1b448",
+      "key": "749dc9298b0eccb1",
       "label": "tier/desktop-wifi-strong@production",
       "request": {
         "state": {
@@ -601,7 +601,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -715,7 +715,7 @@
       }
     },
     {
-      "key": "3675a1cfbfef5e2a",
+      "key": "7d16f068616e5dd9",
       "label": "tier/flagship-android-4g@ci-matrix",
       "request": {
         "state": {
@@ -739,7 +739,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -853,7 +853,7 @@
       }
     },
     {
-      "key": "c73a0891abb0c83b",
+      "key": "f55af9f04f0b3f27",
       "label": "tier/flagship-android-4g@production",
       "request": {
         "state": {
@@ -877,7 +877,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -991,7 +991,7 @@
       }
     },
     {
-      "key": "784bc1f27dd7b877",
+      "key": "33063475f4920b15",
       "label": "tier/low-cpu-3g@ci-matrix",
       "request": {
         "state": {
@@ -1015,7 +1015,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -1129,7 +1129,7 @@
       }
     },
     {
-      "key": "4e19b3b35be62be0",
+      "key": "351543a02a8fabad",
       "label": "tier/low-cpu-3g@production",
       "request": {
         "state": {
@@ -1153,7 +1153,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -1267,7 +1267,7 @@
       }
     },
     {
-      "key": "1e6bd94d9f93f671",
+      "key": "31e157ef7ac090e5",
       "label": "tier/mid-android-3g@ci-matrix",
       "request": {
         "state": {
@@ -1291,7 +1291,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -1405,7 +1405,7 @@
       }
     },
     {
-      "key": "55dcdb564a3a5310",
+      "key": "05c0545e71f86272",
       "label": "tier/mid-android-3g@production",
       "request": {
         "state": {
@@ -1429,7 +1429,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -1543,7 +1543,7 @@
       }
     },
     {
-      "key": "8e91c5d70fa06ad7",
+      "key": "da923f9cd7b608de",
       "label": "tier/mid-android-4g@ci-matrix",
       "request": {
         "state": {
@@ -1567,7 +1567,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -1681,7 +1681,7 @@
       }
     },
     {
-      "key": "38d56a24fa80b011",
+      "key": "a6bd020d5cb02f2e",
       "label": "tier/mid-android-4g@production",
       "request": {
         "state": {
@@ -1705,7 +1705,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -1819,7 +1819,7 @@
       }
     },
     {
-      "key": "13d36e0c71a24bbe",
+      "key": "7ca99bb6a3645797",
       "label": "tier/no-webgl@ci-matrix",
       "request": {
         "state": {
@@ -1843,7 +1843,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -1957,7 +1957,7 @@
       }
     },
     {
-      "key": "fc88df3a9efd7e29",
+      "key": "af342955c703bdd2",
       "label": "tier/no-webgl@production",
       "request": {
         "state": {
@@ -1981,7 +1981,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -2095,7 +2095,7 @@
       }
     },
     {
-      "key": "fe9637273700d231",
+      "key": "5f8f78570d2900da",
       "label": "tier/packet-loss-4g@ci-matrix",
       "request": {
         "state": {
@@ -2119,7 +2119,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -2233,7 +2233,7 @@
       }
     },
     {
-      "key": "1203356de404f810",
+      "key": "7ed813f962a540d8",
       "label": "tier/packet-loss-4g@production",
       "request": {
         "state": {
@@ -2257,7 +2257,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -2371,7 +2371,7 @@
       }
     },
     {
-      "key": "3443f495bcb89a10",
+      "key": "b4c4e8d2de2884fb",
       "label": "tier/reduced-motion@ci-matrix",
       "request": {
         "state": {
@@ -2395,7 +2395,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -2509,7 +2509,7 @@
       }
     },
     {
-      "key": "1a9f9ddc89e68ad2",
+      "key": "2bce2d35c3c53fb9",
       "label": "tier/reduced-motion@production",
       "request": {
         "state": {
@@ -2533,7 +2533,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -2647,7 +2647,7 @@
       }
     },
     {
-      "key": "ada823de0997d516",
+      "key": "abcf9e14e625f38d",
       "label": "tier/slow-2g-minimal@ci-matrix",
       "request": {
         "state": {
@@ -2671,7 +2671,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -2785,7 +2785,7 @@
       }
     },
     {
-      "key": "e0dcb4957abf210d",
+      "key": "306da70c9fd3fa04",
       "label": "tier/slow-2g-minimal@production",
       "request": {
         "state": {
@@ -2809,7 +2809,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -2923,7 +2923,7 @@
       }
     },
     {
-      "key": "3ab31d7c20238ebc",
+      "key": "fe6d37392fc8249f",
       "label": "tier/stalling-midsession@ci-matrix",
       "request": {
         "state": {
@@ -2947,7 +2947,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -3061,7 +3061,7 @@
       }
     },
     {
-      "key": "dffca308eeaaa42a",
+      "key": "e290af81fb5f2150",
       "label": "tier/stalling-midsession@production",
       "request": {
         "state": {
@@ -3085,7 +3085,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -3199,7 +3199,7 @@
       }
     },
     {
-      "key": "3b292a233591580e",
+      "key": "bfd5a1885bbc4122",
       "label": "tier/unknown-everything@ci-matrix",
       "request": {
         "state": {
@@ -3223,7 +3223,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -3337,7 +3337,7 @@
       }
     },
     {
-      "key": "23b157489e1dd49d",
+      "key": "23da0dee666a5d98",
       "label": "tier/unknown-everything@production",
       "request": {
         "state": {
@@ -3361,7 +3361,7 @@
           },
           "experience": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -3475,13 +3475,13 @@
       }
     },
     {
-      "key": "c0b5f752bfbb7040",
+      "key": "91b129dd42255156",
       "label": "trace/degraded-packet-loss",
       "request": {
         "state": {
           "manifest": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -3493,7 +3493,7 @@
             "invariants": {
               "visual": {
                 "id": "vis.focal-product-visible",
-                "description": "The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+                "description": "The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
                 "minFocalCoverage": 0.06,
                 "maxAlphaEdgeDrift": 0.35,
                 "forbidBlankFirstFrame": true
@@ -3863,7 +3863,7 @@
           },
           "visualInvariantHeld": {
             "type": "noul",
-            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
             "criteria": {
               "true": "The first frame was non-blank, focal coverage stayed at or above 0.06 at every checkpoint, and alpha-edge drift between checkpoints stayed at or below 0.35.",
               "false": "The first frame was blank, or focal coverage fell below the declared minimum at any checkpoint, or alpha-edge drift exceeded the declared maximum between checkpoints."
@@ -3972,18 +3972,18 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 3416
+          "inputTokens": 3418
         }
       }
     },
     {
-      "key": "af9bf8cdb4078fac",
+      "key": "f0b0305ebe6744b8",
       "label": "trace/fail-baseline-low-cpu-3g",
       "request": {
         "state": {
           "manifest": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -3995,7 +3995,7 @@
             "invariants": {
               "visual": {
                 "id": "vis.focal-product-visible",
-                "description": "The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+                "description": "The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
                 "minFocalCoverage": 0.06,
                 "maxAlphaEdgeDrift": 0.35,
                 "forbidBlankFirstFrame": true
@@ -4298,7 +4298,7 @@
           },
           "visualInvariantHeld": {
             "type": "noul",
-            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
             "criteria": {
               "true": "The first frame was non-blank, focal coverage stayed at or above 0.06 at every checkpoint, and alpha-edge drift between checkpoints stayed at or below 0.35.",
               "false": "The first frame was blank, or focal coverage fell below the declared minimum at any checkpoint, or alpha-edge drift exceeded the declared maximum between checkpoints."
@@ -4407,18 +4407,18 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 3174
+          "inputTokens": 3177
         }
       }
     },
     {
-      "key": "674c463007df2d6e",
+      "key": "43849a5db33bbdb6",
       "label": "trace/fail-codec-unsupported",
       "request": {
         "state": {
           "manifest": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -4430,7 +4430,7 @@
             "invariants": {
               "visual": {
                 "id": "vis.focal-product-visible",
-                "description": "The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+                "description": "The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
                 "minFocalCoverage": 0.06,
                 "maxAlphaEdgeDrift": 0.35,
                 "forbidBlankFirstFrame": true
@@ -4680,7 +4680,7 @@
           },
           "visualInvariantHeld": {
             "type": "noul",
-            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
             "criteria": {
               "true": "The first frame was non-blank, focal coverage stayed at or above 0.06 at every checkpoint, and alpha-edge drift between checkpoints stayed at or below 0.35.",
               "false": "The first frame was blank, or focal coverage fell below the declared minimum at any checkpoint, or alpha-edge drift exceeded the declared maximum between checkpoints."
@@ -4789,18 +4789,18 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2998
+          "inputTokens": 3001
         }
       }
     },
     {
-      "key": "67517b3fe4e3c917",
+      "key": "b4f19733614069e3",
       "label": "trace/fail-manifest-bug-404",
       "request": {
         "state": {
           "manifest": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -4812,7 +4812,7 @@
             "invariants": {
               "visual": {
                 "id": "vis.focal-product-visible",
-                "description": "The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+                "description": "The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
                 "minFocalCoverage": 0.06,
                 "maxAlphaEdgeDrift": 0.35,
                 "forbidBlankFirstFrame": true
@@ -5074,7 +5074,7 @@
           },
           "visualInvariantHeld": {
             "type": "noul",
-            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
             "criteria": {
               "true": "The first frame was non-blank, focal coverage stayed at or above 0.06 at every checkpoint, and alpha-edge drift between checkpoints stayed at or below 0.35.",
               "false": "The first frame was blank, or focal coverage fell below the declared minimum at any checkpoint, or alpha-edge drift exceeded the declared maximum between checkpoints."
@@ -5183,18 +5183,18 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 3031
+          "inputTokens": 3034
         }
       }
     },
     {
-      "key": "7fbb24be611063f2",
+      "key": "46ce73d8b586a9db",
       "label": "trace/fail-memory-pressure",
       "request": {
         "state": {
           "manifest": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -5206,7 +5206,7 @@
             "invariants": {
               "visual": {
                 "id": "vis.focal-product-visible",
-                "description": "The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+                "description": "The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
                 "minFocalCoverage": 0.06,
                 "maxAlphaEdgeDrift": 0.35,
                 "forbidBlankFirstFrame": true
@@ -5538,7 +5538,7 @@
           },
           "visualInvariantHeld": {
             "type": "noul",
-            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
             "criteria": {
               "true": "The first frame was non-blank, focal coverage stayed at or above 0.06 at every checkpoint, and alpha-edge drift between checkpoints stayed at or below 0.35.",
               "false": "The first frame was blank, or focal coverage fell below the declared minimum at any checkpoint, or alpha-edge drift exceeded the declared maximum between checkpoints."
@@ -5647,18 +5647,18 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 3258
+          "inputTokens": 3261
         }
       }
     },
     {
-      "key": "3edb5ed3fd186776",
+      "key": "dd2e16a89edb623c",
       "label": "trace/fail-render-stall",
       "request": {
         "state": {
           "manifest": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -5670,7 +5670,7 @@
             "invariants": {
               "visual": {
                 "id": "vis.focal-product-visible",
-                "description": "The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+                "description": "The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
                 "minFocalCoverage": 0.06,
                 "maxAlphaEdgeDrift": 0.35,
                 "forbidBlankFirstFrame": true
@@ -6000,7 +6000,7 @@
           },
           "visualInvariantHeld": {
             "type": "noul",
-            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
             "criteria": {
               "true": "The first frame was non-blank, focal coverage stayed at or above 0.06 at every checkpoint, and alpha-edge drift between checkpoints stayed at or below 0.35.",
               "false": "The first frame was blank, or focal coverage fell below the declared minimum at any checkpoint, or alpha-edge drift exceeded the declared maximum between checkpoints."
@@ -6109,18 +6109,18 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 3262
+          "inputTokens": 3265
         }
       }
     },
     {
-      "key": "df4ab9fe718f65b4",
+      "key": "2bb39498755065c5",
       "label": "trace/inconclusive-truncated",
       "request": {
         "state": {
           "manifest": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -6132,7 +6132,7 @@
             "invariants": {
               "visual": {
                 "id": "vis.focal-product-visible",
-                "description": "The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+                "description": "The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
                 "minFocalCoverage": 0.06,
                 "maxAlphaEdgeDrift": 0.35,
                 "forbidBlankFirstFrame": true
@@ -6353,7 +6353,7 @@
           },
           "visualInvariantHeld": {
             "type": "noul",
-            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
             "criteria": {
               "true": "The first frame was non-blank, focal coverage stayed at or above 0.06 at every checkpoint, and alpha-edge drift between checkpoints stayed at or below 0.35.",
               "false": "The first frame was blank, or focal coverage fell below the declared minimum at any checkpoint, or alpha-edge drift exceeded the declared maximum between checkpoints."
@@ -6462,18 +6462,18 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 2905
+          "inputTokens": 2908
         }
       }
     },
     {
-      "key": "195548e3624f9b5c",
+      "key": "1148d29f35960ff9",
       "label": "trace/pass-adaptive-low-cpu-3g",
       "request": {
         "state": {
           "manifest": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -6485,7 +6485,7 @@
             "invariants": {
               "visual": {
                 "id": "vis.focal-product-visible",
-                "description": "The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+                "description": "The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
                 "minFocalCoverage": 0.06,
                 "maxAlphaEdgeDrift": 0.35,
                 "forbidBlankFirstFrame": true
@@ -6843,7 +6843,7 @@
           },
           "visualInvariantHeld": {
             "type": "noul",
-            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
             "criteria": {
               "true": "The first frame was non-blank, focal coverage stayed at or above 0.06 at every checkpoint, and alpha-edge drift between checkpoints stayed at or below 0.35.",
               "false": "The first frame was blank, or focal coverage fell below the declared minimum at any checkpoint, or alpha-edge drift exceeded the declared maximum between checkpoints."
@@ -6952,18 +6952,18 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 3376
+          "inputTokens": 3379
         }
       }
     },
     {
-      "key": "e8c7b047c7819895",
+      "key": "a41dbc5104f507f5",
       "label": "trace/pass-camera-denied-fallback",
       "request": {
         "state": {
           "manifest": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -6975,7 +6975,7 @@
             "invariants": {
               "visual": {
                 "id": "vis.focal-product-visible",
-                "description": "The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+                "description": "The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
                 "minFocalCoverage": 0.06,
                 "maxAlphaEdgeDrift": 0.35,
                 "forbidBlankFirstFrame": true
@@ -7353,7 +7353,7 @@
           },
           "visualInvariantHeld": {
             "type": "noul",
-            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
             "criteria": {
               "true": "The first frame was non-blank, focal coverage stayed at or above 0.06 at every checkpoint, and alpha-edge drift between checkpoints stayed at or below 0.35.",
               "false": "The first frame was blank, or focal coverage fell below the declared minimum at any checkpoint, or alpha-edge drift exceeded the declared maximum between checkpoints."
@@ -7462,18 +7462,18 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 3439
+          "inputTokens": 3441
         }
       }
     },
     {
-      "key": "e245364b9d23abca",
+      "key": "cb4d605be0a22de7",
       "label": "trace/pass-high-desktop",
       "request": {
         "state": {
           "manifest": {
             "id": "orbital",
-            "version": "1.4.0",
+            "version": "1.4.1",
             "budgets": {
               "firstFrameMs": 1200,
               "timeToInteractiveMs": 2500,
@@ -7485,7 +7485,7 @@
             "invariants": {
               "visual": {
                 "id": "vis.focal-product-visible",
-                "description": "The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+                "description": "The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
                 "minFocalCoverage": 0.06,
                 "maxAlphaEdgeDrift": 0.35,
                 "forbidBlankFirstFrame": true
@@ -7855,7 +7855,7 @@
           },
           "visualInvariantHeld": {
             "type": "noul",
-            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The focal product layer stays visible and its alpha edges stay stable from first frame through checkout; the first frame is never blank.",
+            "instructions": "Did the declared visual invariant hold throughout this trace? Invariant: The first captured frame has visible product content; edge stability is compared only between repeated captures of the same experience state.",
             "criteria": {
               "true": "The first frame was non-blank, focal coverage stayed at or above 0.06 at every checkpoint, and alpha-edge drift between checkpoints stayed at or below 0.35.",
               "false": "The first frame was blank, or focal coverage fell below the declared minimum at any checkpoint, or alpha-edge drift exceeded the declared maximum between checkpoints."
@@ -7964,7 +7964,7 @@
         },
         "latencyMs": 0,
         "usage": {
-          "inputTokens": 3410
+          "inputTokens": 3412
         }
       }
     }

@@ -210,7 +210,10 @@ export async function runJudge(opts = {}) {
 async function collectTraceFiles(explicitFiles, explicitDirs) {
   /** @type {string[]} */
   const files = [...explicitFiles];
-  const dirs = explicitDirs.length
+  // Explicit trace paths are a bounded request: do not silently mix them with
+  // whichever ignored artifacts happen to exist in the checkout. Default
+  // directories apply only when the caller supplies neither form of input.
+  const dirs = explicitFiles.length || explicitDirs.length
     ? explicitDirs
     : DEFAULT_DIRS.map((d) => fromRoot(d)).filter((d) => existsSync(d));
   for (const dir of dirs) {

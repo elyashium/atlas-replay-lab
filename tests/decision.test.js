@@ -317,6 +317,19 @@ test("a blank first frame is always at least a major severity", async () => {
   }
 });
 
+test("visual gating ignores expected layout changes between different states", async () => {
+  const scenario = TRACE_SCENARIOS.find((s) => s.id === "pass-high-desktop");
+  assert.ok(scenario);
+  const trace = buildScenarioTrace(scenario, manifest);
+  const detail = trace.checkpoints.find((c) => c.state === "product-detail");
+  assert.ok(detail);
+  detail.focalCoverage = 0.001;
+  detail.alphaEdgeDrift = 0.9;
+
+  const verdict = await rules.judgeTrace(trace, ctx);
+  assert.ok(verdict.visualInvariantHeld.pTrue >= 0.5);
+});
+
 /* ── both engines, same fixtures ──────────────────────────────────────────── */
 
 test("the Jev engine returns the same decision shape as the rule engine", async () => {

@@ -453,6 +453,24 @@ export async function runMatrix(opts = {}) {
         harvest: generic
           ? (session) => session.evaluate("globalThis.__atlasGeneric.payload()")
           : undefined,
+        partialHarvest: generic
+          ? undefined
+          : async (session) => {
+              const payload = await session.evaluate("globalThis.__atlasSnapshot?.() ?? null");
+              if (!payload || typeof payload !== "object") return null;
+              return {
+                ...payload,
+                events: [
+                  ...(Array.isArray(payload.events) ? payload.events : []),
+                  {
+                    tOffsetMs: payload.durationMs ?? 0,
+                    name: "runner-session-abort",
+                    kind: "error",
+                    attributes: { code: "DRIVE_STOPPED" },
+                  },
+                ],
+              };
+            },
         // In generic mode a drive that stopped early has still recorded
         // everything up to the failure, and that is the evidence. Waiting out
         // the full completion timeout to discover the page will never say
@@ -490,6 +508,11 @@ export async function runMatrix(opts = {}) {
       if (result.trace) {
         if (driveResult?.error) {
           result.trace.notes.push(`drive stopped at "${driveResult.failedAt}": ${driveResult.error}`);
+        }
+        if (step.profile.viewport.mobile) {
+          result.trace.notes.push(
+            "scripted interactions used synthetic DOM click() over a mobile-emulated viewport; physical touch handling was not tested",
+          );
         }
         if (xrGrant) {
           // Recorded on every run that injects the stub, without exception. A

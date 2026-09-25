@@ -16,15 +16,15 @@ import { sha256 } from "../util/hash.js";
 const base = {
   schemaVersion: 1,
   id: "orbital",
-  version: "1.4.0",
+  version: "1.4.1",
   title: "Orbital — interactive product layer",
 
   invariants: {
     visual: {
       id: "vis.focal-product-visible",
       description:
-        "The focal product layer stays visible and its alpha edges stay stable " +
-        "from first frame through checkout; the first frame is never blank.",
+        "The first captured frame has visible product content; edge stability is " +
+        "compared only between repeated captures of the same experience state.",
       minFocalCoverage: 0.06,
       maxAlphaEdgeDrift: 0.35,
       forbidBlankFirstFrame: true,

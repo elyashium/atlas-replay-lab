@@ -78,6 +78,25 @@ const app = {
   interactionIndex: 0,
   finished: false,
 };
+let recordedInteractionCount = 0;
+
+// A runner may need to preserve what the recorder has already seen when an
+// intentionally overloaded baseline stops responding to scripted input. Keep
+// the snapshot hook private to injected runs; ordinary visitors never receive
+// it, and it returns the same allow-listed payload used by normal completion.
+if (ATLAS.emulated) {
+  Object.defineProperty(globalThis, "__atlasSnapshot", {
+    value: snapshotPayload,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+  Object.defineProperty(globalThis, "__atlasInteractionCount", {
+    get: () => recordedInteractionCount,
+    configurable: false,
+    enumerable: false,
+  });
+}
 
 main().catch((err) => fail("BOOT_FAILED", err));
 
@@ -567,7 +586,7 @@ function bind(id, inputClass, target, action) {
   const node = document.getElementById(id);
   if (!node) return;
   node.addEventListener(
-    "pointerdown",
+    "click",
     () => {
       const started = performance.now();
       action();
@@ -579,6 +598,7 @@ function bind(id, inputClass, target, action) {
             latencyMs: performance.now() - started,
             index: app.interactionIndex++,
           });
+          recordedInteractionCount++;
         }),
       );
     },
@@ -612,16 +632,10 @@ async function finishCheckout() {
 async function finish() {
   if (app.finished) return;
   app.finished = true;
-  const recorder = /** @type {Recorder} */ (app.recorder);
   app.scene?.stopAnimating();
-  recorder.event("session-end", "lifecycle", { state: app.state });
-
-  const payload = recorder.toPayload({
-    capability: /** @type {CapabilitySnapshot} */ (app.capability),
-    decision: app.decision,
-    servedTier: app.tier?.id ?? null,
-    servedPath: app.path,
-  });
+  app.recorder?.event("session-end", "lifecycle", { state: app.state });
+  const payload = snapshotPayload();
+  if (!payload) return;
 
   try {
     await fetch("api/trace", {
@@ -634,6 +648,16 @@ async function finish() {
   }
   /** @type {any} */ (globalThis).__atlasDone = true;
   /** @type {any} */ (globalThis).__atlasPayload = payload;
+}
+
+function snapshotPayload() {
+  if (!app.recorder || !app.capability) return null;
+  return app.recorder.toPayload({
+    capability: /** @type {CapabilitySnapshot} */ (app.capability),
+    decision: app.decision,
+    servedTier: app.tier?.id ?? null,
+    servedPath: app.path,
+  });
 }
 
 /**

@@ -359,11 +359,20 @@ export class RuleBasedDecisionEngine {
 
     // ── the three invariants, evaluated independently ──────────────────────
     const blankFirstFrame = m.firstFrameNonBlank === false;
-    const coverage = trace.checkpoints
-      .map((c) => c.focalCoverage)
-      .filter(/** @returns {v is number} */ (v) => typeof v === "number");
-    const minCoverage = coverage.length ? Math.min(...coverage) : null;
+    // Focal coverage answers whether the first product frame appeared. Later
+    // checkpoints may contain a detail panel, cart or other UI state, so their
+    // modal screenshot colour is not a valid blank-frame reference.
+    const firstFrameCheckpoint = trace.checkpoints.find(
+      (c) => c.id === "cp-first-frame" || c.state === "first-frame",
+    );
+    const minCoverage = typeof firstFrameCheckpoint?.focalCoverage === "number"
+      ? firstFrameCheckpoint.focalCoverage
+      : null;
+    // Edge drift is a stability measure only between repeated captures of the
+    // same app state. Different states can have different valid layouts.
     const drift = trace.checkpoints
+      .slice(1)
+      .filter((c, index) => c.state === trace.checkpoints[index].state)
       .map((c) => c.alphaEdgeDrift)
       .filter(/** @returns {v is number} */ (v) => typeof v === "number");
     const maxDrift = drift.length ? Math.max(...drift) : null;

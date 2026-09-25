@@ -96,6 +96,21 @@ export function waitForDone(session, timeoutMs) {
 }
 
 /**
+ * Waits until the page records an interaction before the next step. This
+ * preserves causal event order when two animation frames take longer than a
+ * fixed sleep under CPU throttling.
+ * @param {CdpSession} session
+ * @param {number} count
+ * @param {number} [timeoutMs]
+ */
+export function waitForInteraction(session, count, timeoutMs = 30_000) {
+  return waitForPage(session, `globalThis.__atlasInteractionCount >= ${count}`, {
+    timeoutMs,
+    label: `recorded interaction ${count}`,
+  });
+}
+
+/**
  * Resolves the tappable centre of a target, in CSS pixels. Returns null while
  * the element is absent or has no layout box, which is the normal state for a
  * panel that has not been revealed yet.
@@ -144,15 +159,17 @@ export async function tap(session, target, opts) {
   const y = Math.round(centre.y);
 
   if (opts.mobile) {
-    await session.send("Input.dispatchTouchEvent", {
-      type: "touchStart",
-      touchPoints: [{ x, y, radiusX: 12, radiusY: 12, force: 1 }],
-    });
-    // A real tap is not instantaneous. 55ms is short enough not to distort the
-    // interaction-latency metric (which is measured from pointerdown, before
-    // the release) and long enough that the page sees a plausible gesture.
-    await sleep(55);
-    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    // Headless Chrome's touch emulation did not deliver the scripted input to
+    // the app's pointer handler. Exercise the same accessible click action by
+    // name while retaining the mobile viewport/network/CPU profile. This is a
+    // synthetic DOM click, not evidence of physical touch handling.
+    const clicked = await session.evaluate(`(() => {
+      const node = document.querySelector('[data-atlas-target=' + ${JSON.stringify(JSON.stringify(target))} + ']');
+      if (!node) return false;
+      node.click();
+      return true;
+    })()`);
+    if (!clicked) throw new Error(`target "${target}" was not clickable`);
   } else {
     const base = { x, y, button: "left", buttons: 1, clickCount: 1 };
     await session.send("Input.dispatchMouseEvent", { type: "mousePressed", ...base });
@@ -188,6 +205,7 @@ export async function driveHappyPath(session, opts) {
     try {
       await tap(session, step.target, { mobile: opts.mobile, timeoutMs: stepTimeoutMs });
       await waitForState(session, step.expectState, stepTimeoutMs);
+      await waitForInteraction(session, completed.length + 1, stepTimeoutMs);
       completed.push(step.target);
     } catch (err) {
       return { completed, failedAt: step.target, error: message(err) };
@@ -227,10 +245,12 @@ export async function driveFromTrace(session, trace, opts) {
     const target = String(event.attributes.target);
     try {
       await tap(session, target, { mobile: opts.mobile, timeoutMs: stepTimeoutMs });
-      // Wait for the tap to have had a visible effect before issuing the next
-      // one, rather than firing all of them at the recorded offsets into a
-      // renderer that may be slower this time.
-      await sleep(120);
+      const interactionIndex = Number(event.attributes.index);
+      await waitForInteraction(
+        session,
+        Number.isInteger(interactionIndex) ? interactionIndex + 1 : replayed + 1,
+        stepTimeoutMs,
+      );
       replayed++;
     } catch (err) {
       return { replayed, failedAt: target, error: message(err) };

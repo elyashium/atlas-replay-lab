@@ -85,6 +85,7 @@ const BINDING = "__atlasBinding";
  *   target?: string;
  *   extraScripts?: string[];
  *   harvest?: (session: CdpSession) => Promise<unknown>;
+ *   partialHarvest?: (session: CdpSession) => Promise<unknown>;
  *   doneOptional?: boolean;
  * }} opts
  * @returns {Promise<SessionResult>}
@@ -174,22 +175,35 @@ export async function runSession(opts) {
 
     // Drive first: the page will not reach `checkout-complete` — and therefore
     // will not post its trace — until something taps through the flow.
-    await opts.drive(session);
+    const driveResult = await opts.drive(session);
+    const driveStopped = Boolean(
+      driveResult &&
+        typeof driveResult === "object" &&
+        typeof driveResult.error === "string" &&
+        driveResult.error,
+    );
 
-    try {
-      await waitForDone(session, opts.doneTimeoutMs ?? 180_000);
-    } catch (err) {
+    if (driveStopped && opts.partialHarvest) {
       // On the harvest path a drive that gave up early leaves `__atlasDone`
-      // false for the rest of the session, and there is no point spending the
-      // full timeout discovering that. What the probe recorded up to the
-      // failure is still the most informative thing we have, so the timeout
-      // becomes a note and the harvest proceeds.
-      if (!opts.doneOptional) throw err;
+      // false for the rest of the session. The page exposes a runner-only,
+      // schema-shaped snapshot so the failed journey remains inspectable.
       harnessNotes.push(
-        `the page never marked itself complete (${message(err)}); ` +
-          "the trace below is what the recorder had captured by that point",
+        "scripted journey stopped before completion; the partial trace records " +
+          "what the page observed before the runner stopped waiting",
       );
-      log.warn(`${opts.profile.id}: completion never signalled; harvesting anyway`);
+    } else {
+      try {
+        await waitForDone(session, opts.doneTimeoutMs ?? 180_000);
+      } catch (err) {
+        // A generic page cannot be expected to expose an Atlas completion hook.
+        // Its recorder snapshot is the evidence even when its journey stops.
+        if (!opts.doneOptional) throw err;
+        harnessNotes.push(
+          `the page never marked itself complete (${message(err)}); ` +
+            "the trace below is what the recorder had captured by that point",
+        );
+        log.warn(`${opts.profile.id}: completion never signalled; harvesting anyway`);
+      }
     }
 
     // Let any in-flight checkpoint capture finish before the target closes.
@@ -199,7 +213,14 @@ export async function runSession(opts) {
 
     // Either the page posted it over HTTP (Orbital) or we read it back over CDP
     // (`--url`). Both land in `assembleTrace`.
-    const trace = await obtainTrace(session, opts, 10_000);
+    const trace = await obtainTrace(
+      session,
+      {
+        ...opts,
+        harvest: opts.harvest ?? (driveStopped ? opts.partialHarvest : undefined),
+      },
+      10_000,
+    );
     if (!trace) {
       harnessError = opts.harvest
         ? "the page's recorder produced no payload"
