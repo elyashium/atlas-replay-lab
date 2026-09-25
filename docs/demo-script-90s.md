@@ -122,7 +122,8 @@ Thirty seconds, no slides:
 > agreement rate. With no key it says `agreement N/A — no live Jev key` and
 > finishes."
 
-**If asked how fast Jev is:** TypeSafe reports 70 to 500 milliseconds. That is
-their published figure. This repo has not measured it and has never run against a
-live deployment — the only measurement here is the two-engine agreement on
-synthetic inputs, which is not a benchmark and not a calibration study.
+**If asked how fast Jev is:** The README records one live smoke run on synthetic
+inputs: 22 successful calls, about 490 ms mean latency, and 53,583 input tokens.
+That small smoke sample is not a benchmark, customer workload, or production
+latency claim. TypeSafe's published 70–500 ms figure is their claim, not an
+Atlas measurement.
