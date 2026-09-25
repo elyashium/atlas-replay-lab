@@ -5,7 +5,7 @@ Single entry point: `node bin/atlas.js`. Zero dependencies by design (ADR-0002: 
 ## First commands
 
 - `node bin/atlas.js doctor` — start here. Launches a real browser (not just path detection) plus manifest/asset/engine checks. Exits 1 if `atlas all` would fail.
-- `node bin/atlas.js all` — full pipeline: matrix → replay (baseline + adaptive `low-cpu-3g`) → gate → compare → `artifacts/report.html`. Exits 1 on HOLD.
+- `node bin/atlas.js all` — full pipeline: matrix → replay (Orbital only) → gate → judge → compare → `artifacts/report.html`. Exits 1 on HOLD. `--url` adds preflight first and skips replay; `--glb` skips preflight too (no page to fetch yet).
 - `node bin/atlas.js <cmd> --help` — per-command flags. `--seed` accepts hex (`0x…`).
 - `node bin/atlas.js judge --dir <traces>` — batch-judge captured traces (rules always; +Jev when configured). Always exits 0.
 - `node bin/atlas.js jev-check` — the one command requiring `TYPESAFE_API_KEY`; validates key + one live smoke call.
@@ -16,7 +16,7 @@ Single entry point: `node bin/atlas.js`. Zero dependencies by design (ADR-0002: 
 ## Tests
 
 - `npm test` = `node --test tests/`. No network, no browser, no key.
-- Focused: `node --test tests/<name>.test.js` (`manifest`, `decision`, `gate`, `trace`, `image`, `ws`, `generic`, `judge`, `preflight`, `jev-transport`).
+- Focused: `node --test tests/<name>.test.js` (`manifest`, `decision`, `gate`, `trace`, `image`, `ws`, `generic`, `judge`, `preflight`, `jev-transport`, `viewer`, `matrix`, `report`).
 - `decision.test.js` builds fixtures in memory — never requires running `atlas fixtures` first.
 ## Browser runs (matrix / replay / serve)
 
@@ -28,6 +28,7 @@ Single entry point: `node bin/atlas.js`. Zero dependencies by design (ADR-0002: 
 
 - `gate`, `all`: 1 on HOLD. `replay`: 1 if not reproduced. `compare`: always 0 (disagreement is a finding).
 - `matrix` exits 0 even when runs fail verdicts; only a harness-lost run (missing trace) exits 1.
+- Profiles retry once on harness failure (`--retry <n>`); a still-failing profile becomes a quarantined error row (gate rule 1 owns it), never an aborted matrix.
 - `judge`, `preflight`: always 0 — they observe/predict, `gate` decides.
 ## Decision layer
 
@@ -41,6 +42,7 @@ Single entry point: `node bin/atlas.js`. Zero dependencies by design (ADR-0002: 
 
 - Manifest is the contract: `src/manifest/atlas-orbital.manifest.js` + `src/manifest/validate.js`, content-hashed into every trace. Validate after edits via `doctor` or `manifest.test.js`.
 - Gate rule 8 (`SCORE_FLOOR = 50` in `release-gate.js`): a critical profile under the floor blocks. Loads each run's trace; unreadable trace = silent skip (rule 1 owns that absence).
+- Gate grades against the manifest recorded in the matrix report (`manifestById`, Orbital fallback); rule 4 names that manifest's end state, not always checkout.
 - Privacy boundary (`PRIVACY.md`, enforced by `validate.js` + `tests/manifest.test.js`): never add raw camera frames, raw audio, wall-clock timestamps in the event stream (`tOffsetMs` only), input coordinates (latency + `tap:class` only), free-text trace fields, UA/IP/device ids, or fingerprints. Capability consumers only see `normalizeSnapshot` output (`src/capability/buckets.js`).
 - Determinism (ADR-0004): seeded RNG + quantised offsets; never fake the clock.
 - No Flam integration of any kind (ADR-0001): no branding, SDK, API, or endpoint references anywhere.

@@ -206,7 +206,7 @@ hand-copied metric is exactly the kind of number that goes stale and then lies.
 | | |
 |---|---|
 | `node bin/atlas.js doctor` | Check Node, the browser, the manifest, assets, engines. Start here. |
-| `node bin/atlas.js all` | Everything: matrix → replay → gate → compare → report. Exits 1 on HOLD. |
+| `node bin/atlas.js all` | Everything: matrix → replay (Orbital only) → gate → judge → compare → report. Exits 1 on HOLD. `--url` adds preflight, skips replay. |
 | `node bin/atlas.js matrix` | The capability matrix: Orbital, `--url <href>` for a third-party page, `--glb <file>` for an uploaded model in the viewer |
 | `node bin/atlas.js replay` | Re-run a captured trace and prove it reproduces |
 | `node bin/atlas.js gate` | Apply the release rule to what was captured |
