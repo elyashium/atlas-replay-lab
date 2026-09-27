@@ -49,8 +49,8 @@ const random = typeof ATLAS.random === "function" ? ATLAS.random : mulberry32(DE
 
 const el = {
   stage: /** @type {HTMLElement} */ (document.getElementById("stage")),
+  bootVeil: /** @type {HTMLElement} */ (document.getElementById("boot-veil")),
   camera: /** @type {HTMLVideoElement} */ (document.getElementById("camera")),
-  anchor: /** @type {HTMLImageElement} */ (document.getElementById("anchor")),
   poster: /** @type {HTMLImageElement} */ (document.getElementById("poster")),
   layer: /** @type {HTMLCanvasElement} */ (document.getElementById("layer")),
   hudTier: /** @type {HTMLElement} */ (document.getElementById("hud-tier")),
@@ -219,7 +219,10 @@ async function decide(state) {
  * @param {CapabilitySnapshot} s
  */
 function resolvePathLocally(s) {
-  if (s.cameraPermission === "granted" && s.webglVersion >= 1) return "camera-xr";
+  const cameraUnsafe =
+    (s.gpuTier === "low" && (s.deviceMemoryGB ?? 4) <= 2) ||
+    (s.recentFrameTimeMsP95 ?? 0) > 60;
+  if (s.cameraPermission === "granted" && s.webglVersion >= 1 && !cameraUnsafe) return "camera-xr";
   return "interactive-2d";
 }
 
@@ -247,12 +250,6 @@ async function loadForTier(requestedTier) {
     }
     app.tier = manifest.tiers[manifest.tiers.length - 1];
     return { tier: app.tier, textureImage: el.poster };
-  }
-
-  if (app.path === "interactive-2d") {
-    // The anchor stands in for the camera feed. Non-critical: if it fails the
-    // product layer still composites over the page background.
-    await loadImageAsset("anchor", "assets/generated/anchor.png", false).catch(() => null);
   }
 
   for (let i = startIdx; i < ladder.length; i++) {
@@ -349,10 +346,6 @@ async function loadImageAsset(assetId, url, critical) {
       critical,
       durationMs: performance.now() - started,
     });
-    if (assetId === "anchor") {
-      el.anchor.src = img.src;
-      return img;
-    }
     return img;
   } catch (err) {
     app.recorder?.asset({
@@ -434,18 +427,17 @@ async function enterFirstFrame(loaded) {
     app.scene?.renderFrame(CHECKPOINT_PHASE);
   }
 
+  setState("first-frame");
+  await waitForBootVeil();
   recorder.event("first-frame", "lifecycle", {
     state: "first-frame",
     tier: loaded.tier.id,
     path: app.path,
     // Blankness is measured from the captured checkpoint PNG on the Node side
-    // (src/runner/run-matrix.js), not guessed here — the page never reads
-    // pixels back, and the composited result includes layers the page cannot
-    // see anyway.
+    // (src/runner/run-matrix.js), not guessed here.
     nonBlank: null,
   });
-  setState("first-frame");
-  await recorder.checkpoint("cp-first-frame", "first-frame");
+  await checkpointAtFixedPhase("cp-first-frame", "first-frame");
 
   // Sample real frames before deciding whether this device can hold the tier.
   recorder.startFrameSampling(loaded.tier.params.targetFps);
@@ -462,6 +454,22 @@ async function enterFirstFrame(loaded) {
   wireInteractions();
   updateHud();
   await checkpointAtFixedPhase("cp-interactive", "interactive");
+}
+
+/** Wait until the real loading overlay has faded before measuring visible content. */
+function waitForBootVeil() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      el.bootVeil.removeEventListener("transitionend", finish);
+      resolve();
+    };
+    const timeout = setTimeout(finish, 250);
+    el.bootVeil.addEventListener("transitionend", finish, { once: true });
+  });
 }
 
 /**
@@ -529,6 +537,15 @@ async function maybeDowngrade(loaded) {
  */
 function buildScene(tier, textureImage) {
   const opts = { canvas: el.layer, tier, textureImage, random, dpr: window.devicePixelRatio || 1 };
+  if (app.path === "interactive-2d") {
+    try {
+      app.scene = new Canvas2dScene().init(opts);
+      return true;
+    } catch (err) {
+      fail("SCENE_UNAVAILABLE", err);
+      return false;
+    }
+  }
   try {
     app.scene = new WebglScene().init(opts);
     return true;
@@ -567,7 +584,6 @@ async function attachCamera() {
     });
     app.path = "interactive-2d";
     applyPath("interactive-2d");
-    await loadImageAsset("anchor", "assets/generated/anchor.png", false).catch(() => null);
     updateHud();
   }
 }
@@ -651,6 +667,12 @@ async function checkpointAtFixedPhase(id, state) {
   if (shouldAnimate) app.scene?.stopAnimating();
   app.scene?.renderFrame(CHECKPOINT_PHASE);
   try {
+    // A draw call can return before SwiftShader has composited its pixels.
+    // Give the same fixed frame two paint opportunities before capture; no
+    // wall-clock value is read or fabricated.
+    if (ATLAS.emulated) {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }
     await app.recorder?.checkpoint(id, state);
   } finally {
     if (shouldAnimate && !app.finished) app.scene?.startAnimating(CHECKPOINT_PHASE);

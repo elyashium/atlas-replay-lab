@@ -152,12 +152,12 @@ const base = {
     },
     {
       id: "interactive-2d",
-      label: "2D interactive over a static anchor",
+      label: "2D interactive over the static scene background",
       requires: [],
       priority: 1,
       description:
-        "Same interaction model and same business end state, composited over a " +
-        "static anchor image using Canvas2D. No camera, no WebGL required.",
+        "Same interaction model and same business end state, composited over the " +
+        "static scene background using Canvas2D. No camera or WebGL required.",
     },
     {
       id: "static-safe",

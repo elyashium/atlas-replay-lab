@@ -270,10 +270,6 @@ export async function generateAssets() {
     }
   }
 
-  const anchor = renderBackdrop({ width: 720, height: 1280, seed: 4242, targetBytes: 120_000, dark: 96 });
-  await writeFileEnsured(path.join(OUT_DIR, "anchor.png"), anchor);
-  produced.push({ file: "assets/generated/anchor.png", declaredBytes: null, actualBytes: anchor.length, note: "720x1280 static anchor (interactive-2d path)" });
-
   const poster = renderBackdrop({ width: 480, height: 854, seed: 909, targetBytes: 42_000, dark: 78 });
   await writeFileEnsured(path.join(OUT_DIR, "poster.png"), poster);
   produced.push({ file: "assets/generated/poster.png", declaredBytes: null, actualBytes: poster.length, note: "480x854 poster (static-safe path)" });

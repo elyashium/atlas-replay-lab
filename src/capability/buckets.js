@@ -113,9 +113,16 @@ export function satisfiedRequirements(s) {
 export function resolvePath(s, manifest, tier) {
   // static-fallback always means the static-safe path, whatever the hardware.
   if (tier === "static-fallback") return "static-safe";
+  // Keep the route decision aligned with RuleBasedDecisionEngine's camera
+  // safety assessment. A granted permission plus WebGL is not enough when
+  // observed hardware/frames say camera compositing is unsafe.
+  const cameraUnsafe =
+    (s.gpuTier === "low" && (s.deviceMemoryGB ?? 4) <= 2) ||
+    (s.recentFrameTimeMsP95 ?? 0) > 60;
   const have = satisfiedRequirements(s);
   const ordered = [...manifest.fallbackPaths].sort((a, b) => a.priority - b.priority);
   for (const p of ordered) {
+    if (p.id === "camera-xr" && cameraUnsafe) continue;
     if ((p.requires ?? []).every((r) => have.has(r))) return p.id;
   }
   return "static-safe";

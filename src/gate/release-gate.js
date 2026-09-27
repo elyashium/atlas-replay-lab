@@ -467,11 +467,10 @@ async function loadTrace(tracePath) {
  * Budget comparisons. First-frame, TTI, and interaction overruns above 2x
  * their declared target block; smaller breaches and other metrics warn.
  *
- * The budgets in the manifest are the high-tier targets. A low-CPU device on
- * 3G being served the low tier and still missing the high-tier first-frame
- * budget is the ladder doing its job, not a regression — so these inform rather
- * than block. They are still computed on every run because the trend across
- * runs is the thing worth watching.
+ * The budgets in the manifest are tier-independent targets. A low-CPU device
+ * served the low tier may miss them by less than 2x; that remains a warning.
+ * More than 2x on first-frame, TTI, or p95 interaction blocks a critical run.
+ * All other budget metrics remain warnings and are kept for trend visibility.
  *
  * @param {any} run
  * @param {ExperienceManifest} manifest

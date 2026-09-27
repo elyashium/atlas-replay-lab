@@ -353,7 +353,7 @@ test("ordinary overruns across budgets warn but do not block", async (t) => {
     metrics: {
       firstFrameMs: 1800,
       timeToInteractiveMs: 4000,
-      p95InteractionMs: 160,
+      p95InteractionMs: 300,
       transferBytes: 5_000_000,
       jsHeapUsedMB: 400,
       droppedFrameRatio: 0.55,

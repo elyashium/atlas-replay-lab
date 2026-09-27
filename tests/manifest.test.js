@@ -269,6 +269,20 @@ test("no WebGL falls back to 2D even with the camera granted", () => {
   assert.equal(resolvePath(snap({ webglVersion: 0 }), orbitalManifest, "low"), "interactive-2d");
 });
 
+test("known weak GPU and memory use the camera-free 2D path", () => {
+  assert.equal(
+    resolvePath(snap({ gpuTier: "low", deviceMemoryGB: 2 }), orbitalManifest, "low"),
+    "interactive-2d",
+  );
+});
+
+test("a measured frame stall moves camera experiences to the 2D path", () => {
+  assert.equal(
+    resolvePath(snap({ recentFrameTimeMsP95: 61 }), orbitalManifest, "low"),
+    "interactive-2d",
+  );
+});
+
 test("the static-fallback tier always resolves to the static-safe path", () => {
   // Even on hardware that could do better: static-fallback is a decision about
   // risk, and honouring it must not depend on what the device can do.
