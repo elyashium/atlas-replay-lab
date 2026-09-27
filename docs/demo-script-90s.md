@@ -82,10 +82,10 @@ report.*
 > a business invariant that didn't hold, an inconclusive run, a replay that didn't
 > reproduce."
 
-> "And it deliberately *doesn't* block on budget breaches, on a low-confidence
-> decision — that one ships with a note for a human — or on the baseline, which is
-> excluded from grading because it's the control and it's supposed to fail. What
-> doesn't stop a release is the half of a gate people get wrong."
+> "Ordinary budget misses remain warnings. A first-frame, TTI, or interaction
+> p95 more than twice its target blocks; a lower overrun does not. Low confidence
+> gets a note for a human, and the baseline stays outside release grading because
+> it's the controlled failure case. What doesn't stop a release is half the gate."
 
 ## 1:22 – 1:30 — What it is and isn't
 

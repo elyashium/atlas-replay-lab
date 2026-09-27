@@ -79,7 +79,7 @@ const app = {
   finished: false,
 };
 let recordedInteractionCount = 0;
-let checkpointPending = false;
+let pendingCheckpointCount = 0;
 
 // A runner may need to preserve what the recorder has already seen when an
 // intentionally overloaded baseline stops responding to scripted input. Keep
@@ -98,7 +98,12 @@ if (ATLAS.emulated) {
     enumerable: false,
   });
   Object.defineProperty(globalThis, "__atlasCheckpointPending", {
-    get: () => checkpointPending,
+    get: () => pendingCheckpointCount > 0,
+    configurable: false,
+    enumerable: false,
+  });
+  Object.defineProperty(globalThis, "__atlasRunnerState", {
+    get: () => app.state,
     configurable: false,
     enumerable: false,
   });
@@ -642,14 +647,14 @@ async function finishCheckout() {
  */
 async function checkpointAtFixedPhase(id, state) {
   const shouldAnimate = app.path !== "static-safe" && !app.capability?.reducedMotionPreferred;
-  checkpointPending = true;
+  pendingCheckpointCount++;
   if (shouldAnimate) app.scene?.stopAnimating();
   app.scene?.renderFrame(CHECKPOINT_PHASE);
   try {
     await app.recorder?.checkpoint(id, state);
   } finally {
     if (shouldAnimate && !app.finished) app.scene?.startAnimating(CHECKPOINT_PHASE);
-    checkpointPending = false;
+    pendingCheckpointCount = Math.max(0, pendingCheckpointCount - 1);
   }
 }
 

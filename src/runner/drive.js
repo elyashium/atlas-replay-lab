@@ -78,8 +78,8 @@ export async function waitForPage(session, expression, opts = {}) {
 export function waitForState(session, state, timeoutMs) {
   return waitForPage(
     session,
-    `document.getElementById("stage") && document.getElementById("stage").dataset.state === ${JSON.stringify(state)}`,
-    { timeoutMs, label: `state "${state}"` },
+    `document.getElementById("stage") && document.getElementById("stage").dataset.state === ${JSON.stringify(state)} && !globalThis.__atlasCheckpointPending`,
+    { timeoutMs, label: `settled state "${state}"` },
   );
 }
 
@@ -108,7 +108,7 @@ export function waitForInteraction(session, count, timeoutMs = 30_000) {
     session,
     `globalThis.__atlasInteractionCount >= ${count} && !globalThis.__atlasCheckpointPending`,
     {
-    timeoutMs,
+      timeoutMs,
       label: `recorded interaction ${count} and checkpoint capture`,
     },
   );

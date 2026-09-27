@@ -39,6 +39,7 @@ import {
 } from "./questions.js";
 import { validateStateOrdering } from "../manifest/validate.js";
 import { evaluateComfort } from "../gate/comfort.js";
+import { SEVERE_TIMING_BUDGET_MULTIPLIER, severeTimingBudgetBreaches } from "./budget-policy.js";
 
 /**
  * Hand-written matchers for the incidents this repo shipped with.
@@ -431,6 +432,14 @@ export class RuleBasedDecisionEngine {
     if (m.transferBytes > b.maxTransferBytes) breaches.push(`transfer ${m.transferBytes}>${b.maxTransferBytes}B`);
     if (m.jsHeapUsedMB !== null && m.jsHeapUsedMB > b.maxJsHeapMB) breaches.push(`heap ${Math.round(m.jsHeapUsedMB)}>${b.maxJsHeapMB}MB`);
     if (breaches.length) rationale.push(`budget breaches: ${breaches.join(", ")}.`);
+    const severeTimingBreaches = severeTimingBudgetBreaches(m, b, p95Limit);
+    if (severeTimingBreaches.length) {
+      rationale.push(
+        `severe timing budget breach (>${SEVERE_TIMING_BUDGET_MULTIPLIER}x): ${severeTimingBreaches
+          .map((v) => `${v.metric} ${Math.round(v.actual)}>${Math.round(v.budget * SEVERE_TIMING_BUDGET_MULTIPLIER)}`)
+          .join(", ")}.`,
+      );
+    }
 
     const errorEvents = trace.events.filter((e) => e.kind === "error");
     // A trace that ends mid-flow with no error of its own is a dead harness,
@@ -457,7 +466,7 @@ export class RuleBasedDecisionEngine {
       (m.firstFrameMs === null && m.timeToInteractiveMs === null && !m.reachedEndState && errorEvents.length === 0);
 
     // ── outcome (choice) ───────────────────────────────────────────────────
-    const hardFail = pBusiness < 0.5 || pVisual < 0.1 || !ordering.ok;
+    const hardFail = pBusiness < 0.5 || pVisual < 0.1 || !ordering.ok || severeTimingBreaches.length > 0;
     const softFail = breaches.length > 0 || pInteraction < 0.5 || pVisual < 0.5;
     /** @type {Record<string, number>} */
     const outcomeScores = {

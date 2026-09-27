@@ -34,6 +34,8 @@
  *     move when a model revision ships. Comfort disasters (sustained low fps,
  *     broken XR fallback) already drag the score down through caps; the floor
  *     is what turns that drag into a decision.
+ *  9. A critical profile with first-frame, TTI, or p95 interaction more than
+ *     twice its target is a severe timing regression and blocks.
  *
  * The score rule reads the trace file behind each run (`scoreTrace` over the
  * manifest the trace was captured against, selected by recorded id). A run
@@ -41,12 +43,10 @@
  * already blocks a critical profile with no trace, and scoring a file that is
  * not there would double-count the same absence.
  *
- * Budget breaches are **warnings, not blocks**, with one exception: a breach on
- * a critical profile whose verdict is already worse than `pass` is folded into
- * that verdict rather than double-counted. The reasoning is that the budgets
- * are targets for the *high* tier, and a low-tier device being slower than the
- * high-tier budget is the ladder working correctly. What must not happen is the
- * experience failing outright, and that is what rules 2–4 catch.
+ * Ordinary budget breaches are warnings. Timing breaches on a critical profile
+ * beyond twice the declared first-frame, TTI, or p95 interaction budget block.
+ * A low-tier device can miss the high-tier target without blocking; a result
+ * more than 2x over the target is large enough to require a hold.
  *
  * ## Why the rule lives here and not inside the judge
  *
@@ -68,6 +68,7 @@ import { manifestFor, manifestById } from "../manifest/select.js";
 import { scoreTrace } from "./atlas-score.js";
 import { PROFILES } from "../runner/profiles.js";
 import { SEVERITY_LEVELS } from "../decision/questions.js";
+import { SEVERE_TIMING_BUDGET_MULTIPLIER, severeTimingBudgetBreaches } from "../decision/budget-policy.js";
 import { MATRIX_DIR } from "../runner/run-matrix.js";
 import { REPLAY_DIR } from "../runner/run-replay.js";
 import { readJson, writeJson, fromRoot, ROOT } from "../util/fsx.js";
@@ -294,8 +295,8 @@ export async function runGate(opts = {}) {
       }
     }
 
-    /* ── budgets: warnings by design, see the header ────────────────────── */
-    if (run.metrics) findings.push(...budgetFindings(run, manifest));
+    /* ── timing budgets: ordinary warnings, severe overruns block ───────── */
+    if (run.metrics) findings.push(...budgetFindings(run, manifest, critical));
 
     /* ── rule 8: the Atlas score floor ─────────────────────────────────── */
     // Needs the trace file, not just the run row: the score is computed from
@@ -463,7 +464,8 @@ async function loadTrace(tracePath) {
 }
 
 /**
- * Budget comparisons, emitted as warnings.
+ * Budget comparisons. First-frame, TTI, and interaction overruns above 2x
+ * their declared target block; smaller breaches and other metrics warn.
  *
  * The budgets in the manifest are the high-tier targets. A low-CPU device on
  * 3G being served the low tier and still missing the high-tier first-frame
@@ -473,30 +475,44 @@ async function loadTrace(tracePath) {
  *
  * @param {any} run
  * @param {ExperienceManifest} manifest
+ * @param {boolean} critical
  * @returns {Finding[]}
  */
-function budgetFindings(run, manifest) {
+function budgetFindings(run, manifest, critical) {
   const b = manifest.budgets;
   const m = run.metrics;
+  const p95Budget = Math.min(b.p95InteractionMs, manifest.invariants.interaction.p95TapResponseMs);
+  const severeMetrics = new Set(
+    severeTimingBudgetBreaches(m, b, p95Budget).map((breach) => breach.metric),
+  );
   /** @type {Finding[]} */
   const out = [];
 
-  /** @param {string} name @param {number | null} actual @param {number} budget @param {string} unit */
-  const over = (name, actual, budget, unit) => {
+  /** @param {string} name @param {number | null} actual @param {number} budget @param {string} unit @param {boolean} [timing] */
+  const over = (name, actual, budget, unit, timing = false) => {
     if (actual === null || actual === undefined) return;
     if (actual <= budget) return;
+    const severe = critical && timing && severeMetrics.has(name);
     out.push({
-      severity: "warn",
-      rule: "budget",
+      severity: severe ? "block" : "warn",
+      rule: severe ? "9-severe-budget" : "budget",
       runId: run.runId,
-      message: `${name} ${fmt(actual)}${unit} over the ${fmt(budget)}${unit} budget (tier "${run.servedTier}")`,
-      evidence: { metric: name, actual, budget, servedTier: run.servedTier },
+      message: severe
+        ? `${name} ${fmt(actual)}${unit} exceeds ${SEVERE_TIMING_BUDGET_MULTIPLIER}x the ${fmt(budget)}${unit} budget (tier "${run.servedTier}")`
+        : `${name} ${fmt(actual)}${unit} over the ${fmt(budget)}${unit} budget (tier "${run.servedTier}")`,
+      evidence: {
+        metric: name,
+        actual,
+        budget,
+        severeThreshold: timing ? budget * SEVERE_TIMING_BUDGET_MULTIPLIER : null,
+        servedTier: run.servedTier,
+      },
     });
   };
 
-  over("firstFrameMs", m.firstFrameMs, b.firstFrameMs, "ms");
-  over("timeToInteractiveMs", m.timeToInteractiveMs, b.timeToInteractiveMs, "ms");
-  over("p95InteractionMs", m.p95InteractionMs, b.p95InteractionMs, "ms");
+  over("firstFrameMs", m.firstFrameMs, b.firstFrameMs, "ms", true);
+  over("timeToInteractiveMs", m.timeToInteractiveMs, b.timeToInteractiveMs, "ms", true);
+  over("p95InteractionMs", m.p95InteractionMs, p95Budget, "ms", true);
   over("transferBytes", m.transferBytes, b.maxTransferBytes, "B");
   over("jsHeapUsedMB", m.jsHeapUsedMB, b.maxJsHeapMB, "MB");
   if (m.droppedFrameRatio !== null && m.droppedFrameRatio > b.maxDroppedFrameRatio) {

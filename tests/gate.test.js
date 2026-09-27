@@ -341,19 +341,19 @@ test("a confident decision produces no finding at all", async (t) => {
   assert.equal(byRule(report, "6-decision-confidence").length, 0);
 });
 
-/* ── budgets: warn, never block ───────────────────────────────────────────── */
+/* ── budgets: ordinary overruns warn; severe timing overruns block ────────── */
 
-test("a run over every single budget still ships", async (t) => {
-  // Stated plainly because it is the most counter-intuitive part of the rule:
-  // the budgets are high-tier targets, and a low-CPU device on 3G missing them
-  // while still completing checkout is the ladder working, not a regression.
+test("ordinary overruns across budgets warn but do not block", async (t) => {
+  // A low-tier device may miss a high-tier target. Small misses remain visible
+  // as warnings; the separate severe threshold is reserved for large timing
+  // regressions.
   const runs = allPassing();
   runs[2] = passingRun(runs[2].profileId, {
     servedTier: "low",
     metrics: {
-      firstFrameMs: 4200,
-      timeToInteractiveMs: 9000,
-      p95InteractionMs: 640,
+      firstFrameMs: 1800,
+      timeToInteractiveMs: 4000,
+      p95InteractionMs: 160,
       transferBytes: 5_000_000,
       jsHeapUsedMB: 400,
       droppedFrameRatio: 0.55,
@@ -372,6 +372,26 @@ test("a run over every single budget still ships", async (t) => {
   }
   assert.ok(budget.some((/** @type {any} */ f) => /droppedFrameRatio/.test(f.message)));
   assert.ok(budget.some((/** @type {any} */ f) => /asset request/.test(f.message)));
+});
+
+test("timing overruns above twice the declared budget block", async (t) => {
+  const budgets = orbitalManifest.budgets;
+  const cases = [
+    ["firstFrameMs", budgets.firstFrameMs],
+    ["timeToInteractiveMs", budgets.timeToInteractiveMs],
+    ["p95InteractionMs", Math.min(budgets.p95InteractionMs, orbitalManifest.invariants.interaction.p95TapResponseMs)],
+  ];
+  for (const [metric, budget] of cases) {
+    const runs = allPassing();
+    runs[0] = passingRun(runs[0].profileId, {
+      metrics: { [metric]: budget * 2 + 1 },
+    });
+    const { report, shipped } = await gate(t, runs);
+    assert.equal(shipped, false, `${metric} > 2x budget must block`);
+    const finding = report.findings.find((/** @type {any} */ f) => f.rule === "9-severe-budget");
+    assert.equal(finding?.evidence?.metric, metric);
+    assert.equal(finding?.severity, "block");
+  }
 });
 
 test("a metric exactly on budget is not a breach", async (t) => {

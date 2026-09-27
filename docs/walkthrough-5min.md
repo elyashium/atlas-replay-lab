@@ -190,13 +190,14 @@ tooling. Open with the problem.
 
 > "It blocks on: a critical profile with no coverage, a failed run, a severity at
 > or above major, a business invariant that didn't hold, an inconclusive run, a
-> replay that didn't reproduce. It warns on budget breaches, page errors, and a
-> low-confidence decision. And it deliberately excludes the baseline from grading —
-> the baseline is *supposed* to fail; it's the control."
+> replay that didn't reproduce. Ordinary budget breaches, page errors, and a
+> low-confidence decision warn. Timing breaches over twice their declared target
+> block. The baseline stays outside release grading as the control failure run."
 
 > "The half people get wrong is what doesn't block. `tests/gate.test.js` tests both
-> halves — including a run that breaches every budget and still ships, and a metric
-> exactly on budget not counting as a breach. A release rule that's never been shown
+> halves — including an ordinary budget overrun that still ships, a severe timing
+> overrun that blocks, and a metric exactly on budget not counting as a breach. A
+> release rule that's never been shown
 > to block anything is a slogan; one that blocks on everything gets switched off."
 
 ## 4:20 – 4:45 — Zero dependencies, and why

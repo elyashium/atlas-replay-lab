@@ -268,6 +268,26 @@ test("the rule engine matches the expected outcome on every uncontested scenario
   assert.deepEqual(misses, [], misses.join("\n"));
 });
 
+test("severe timing overruns fail while smaller overruns remain degraded", async () => {
+  const cleanScenario = TRACE_SCENARIOS.find((s) => s.id === "pass-high-desktop");
+  assert.ok(cleanScenario);
+
+  const severe = buildScenarioTrace(cleanScenario, manifest);
+  severe.metrics.firstFrameMs = manifest.budgets.firstFrameMs * 2 + 1;
+  severe.metrics.timeToInteractiveMs = manifest.budgets.timeToInteractiveMs * 2 + 1;
+  const severeVerdict = await rules.judgeTrace(severe, ctx);
+  assert.equal(severeVerdict.outcome.value, "fail");
+  assert.match(severeVerdict.rationale.join(" "), /severe timing budget breach/);
+
+  const modest = buildScenarioTrace(cleanScenario, manifest);
+  modest.metrics.firstFrameMs = manifest.budgets.firstFrameMs * 1.5;
+  modest.metrics.timeToInteractiveMs = manifest.budgets.timeToInteractiveMs * 1.5;
+  modest.metrics.p95InteractionMs = manifest.invariants.interaction.p95TapResponseMs * 1.1;
+  const modestVerdict = await rules.judgeTrace(modest, ctx);
+  assert.notEqual(modestVerdict.outcome.value, "fail");
+  assert.ok(modestVerdict.releaseBlocking.score < 3);
+});
+
 test("the three invariants are judged independently, not as one blob", async () => {
   // The scenario that proves it: checkout succeeds while the visuals are broken.
   // If the invariants were collapsed into a single score, this trace would come
