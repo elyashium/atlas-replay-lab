@@ -1,5 +1,3 @@
-BEGIN;
-
 CREATE TABLE organizations (
   id uuid PRIMARY KEY,
   name text NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
@@ -118,5 +116,3 @@ CREATE TABLE audit_events (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX audit_org_idx ON audit_events(organization_id, created_at DESC);
-
-COMMIT;

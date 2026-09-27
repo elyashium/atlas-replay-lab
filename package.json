@@ -24,7 +24,7 @@
     "report": "node bin/atlas.js report",
     "serve": "node bin/atlas.js serve",
     "doctor": "node bin/atlas.js doctor",
-    "test": "node --test"
+    "test": "node scripts/test-core.js"
   },
   "dependencies": {},
   "devDependencies": {}

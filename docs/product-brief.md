@@ -76,14 +76,24 @@ replayable when the recorded input fidelity supports it.
 
 ### Phase 2 — hosted control plane
 
-Build a web UI and API around the versioned engine: organization and project
-access, target onboarding, queued isolated Chrome workers, sequential profiles
-per worker, run state in Postgres, immutable artifacts in object storage, and
-private shareable reports. Provide cancellation, retry/idempotency, quotas,
-timeouts, audit, and enforced retention. Hosted launch is blocked until SSRF
-and DNS rebinding defenses, redirect and subresource controls, upload limits,
-worker/network isolation, per-tenant access tests, and end-to-end deletion are
-demonstrated.
+**Status: local control-plane foundation implemented; hosted execution is not
+enabled.** The separate `apps/control-plane` package has a same-origin web UI
+and JSON API for account/organization creation, project records, DNS TXT
+ownership challenges for HTTPS targets, and tenant-scoped run records in
+Postgres. Target contracts are validated by the existing CLI contract module
+and snapshotted into run records. A requested run remains `queued`; the API
+states that no browser execution has happened and does not produce a verdict.
+See [`evidence/phase2-control-plane-2026-09-27.md`](evidence/phase2-control-plane-2026-09-27.md).
+
+Still required before hosted execution or launch: isolated ephemeral Chrome
+workers with sequential profiles, DNS-rebinding-resistant egress enforcement
+for navigation/redirects/subresources, upload validation and limits, immutable
+object storage, retries/cancellation/idempotency, quotas/timeouts, private and
+revocable client report sharing, end-to-end tenant isolation tests, enforced
+retention and audit review, backups/deletion tests, and a real Postgres-backed
+onboarding-to-report test. The current DNS lookup is only an onboarding check;
+it is not an SSRF defense for a browser worker. Do not deploy this slice as a
+public arbitrary-URL service.
 
 ### Phase 3 — release integration
 

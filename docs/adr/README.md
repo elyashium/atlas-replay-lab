@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Six decisions that shaped this repository, in the order they were made. Each one
+Decisions that shaped this repository, in the order they were made. Each one
 records what was actually chosen, what it cost, and what would have to change for
 the decision to be revisited.
 
@@ -12,6 +12,7 @@ the decision to be revisited.
 | [0004](0004-determinism-model.md) | Determinism comes from a seeded RNG and quantised offsets, not a faked clock | Accepted |
 | [0005](0005-decision-engine-interface.md) | The decision layer is an interface; the rule engine is the default and a guard has the last word | Accepted |
 | [0006](0006-jev-typed-answers-only.md) | Jev answers in a fixed vocabulary; there is no rationale string | Accepted |
+| [0007](0007-phase2-control-plane-boundary.md) | The hosted control plane is a separate package around the versioned local engine | Accepted for local Phase 2 slice |
 
 These are decision records, not documentation. Where they disagree with the code,
 the code is right and the record is stale — say so in a pull request rather than

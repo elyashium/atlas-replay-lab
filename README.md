@@ -214,7 +214,12 @@ measurements, commands, and limits; do not infer a hosted workflow from it.
 | `node bin/atlas.js fixtures` | Write the illustrative Jev fixtures and `examples/traces/` |
 | `node bin/atlas.js assets` | Generate the tier assets (`all` does this on demand) |
 | `node bin/atlas.js serve` | Serve the experience locally and drive it by hand |
-| `npm test` | `node --test` — no network, no browser, no key |
+| `npm test` | Runs the dependency-free CLI unit suite; no network, browser, or key |
+
+The separate Phase 2 web control-plane foundation is documented in
+[the Phase 2 evidence record](docs/evidence/phase2-control-plane-2026-09-27.md).
+It needs its own dependencies and local PostgreSQL; it is not a hosted service,
+and its queued records do not represent browser test results.
 
 `node bin/atlas.js <command> --help` for flags.
 
