@@ -248,16 +248,16 @@ export async function applyProfile(session, profile, opts) {
   if (profile.cameraPermission === "denied") {
     await session.sendBrowser("Browser.setPermission", {
       origin: opts.origin,
-      permission: { name: "videoCapture" },
+      permission: { name: "camera" },
       setting: "denied",
       browserContextId: session.browserContextId,
-    }).catch(() => {});
+    });
   } else {
     await session.sendBrowser("Browser.grantPermissions", {
       origin: opts.origin,
       permissions: ["videoCapture"],
       browserContextId: session.browserContextId,
-    }).catch(() => {});
+    });
   }
 
   await session.send("Page.addScriptToEvaluateOnNewDocument", { source: opts.injectedScript });

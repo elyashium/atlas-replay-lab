@@ -59,7 +59,7 @@ body {
 }
 
 #layer {
-  /* The product layer is composited over the camera/anchor, never opaque. */
+  /* The product layer is composited over the camera or CSS scene, never opaque. */
   background: transparent;
   pointer-events: none;
 }

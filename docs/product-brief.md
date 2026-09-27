@@ -40,8 +40,10 @@ identify the exact run, engine, browser, profile, artifacts, and evidence scope.
 Missing or low-confidence evidence cannot be described as a pass.
 
 The latest local Phase 0 evidence is recorded in
-[`evidence/phase0-2026-09-26.md`](evidence/phase0-2026-09-26.md). That run ended
-HOLD and does not establish a clean baseline-failure/adaptive-pass/replay story.
+[`evidence/phase0-2026-09-27.md`](evidence/phase0-2026-09-27.md). It records a
+local Orbital baseline failure, adaptive degraded-but-acceptable result, exact
+visual replay, and a SHIP decision over the configured emulated profiles. It
+does not establish real-device performance or a hosted customer workflow.
 
 ## Ordered build plan
 

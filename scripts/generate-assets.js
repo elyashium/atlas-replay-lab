@@ -181,10 +181,8 @@ function renderGeometry(seed, targetBytes) {
 }
 
 /**
- * The static anchor (stands in for a camera feed on the interactive-2d path)
- * and the static-safe poster. Neither belongs to a tier, so both are kept
- * small deliberately — the static-safe path exists for devices that cannot
- * afford anything.
+ * The static-safe poster is outside the tier ladder: it exists for devices
+ * that cannot afford anything interactive.
  *
  * @param {{ width: number; height: number; seed: number; targetBytes: number; dark: number }} opts
  */
