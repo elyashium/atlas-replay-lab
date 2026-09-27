@@ -143,7 +143,7 @@ const COMMANDS = {
 
   matrix: {
     summary: "run the capability matrix in Chrome over CDP — on Orbital, on any URL, or on an uploaded model",
-    usage: "atlas matrix [--url <href> | --glb <file>] [--seed <n>] [--profile <id>]... [--no-baseline] [--out <dir>]",
+    usage: "atlas matrix [--target <contract.json> | --url <href> | --glb <file>] [--seed <n>] [--profile <id>]... [--no-baseline] [--out <dir>]",
     detail:
       "Profiles run sequentially, never in parallel: CPU throttling is a whole-browser\n" +
       "setting and two throttled renderers on one machine contend, which would make\n" +
@@ -155,6 +155,11 @@ const COMMANDS = {
       "baseline half because there is no Atlas router in that loop. The two xr-* profiles\n" +
       "join the default set there; their WebXR is Atlas's own synthetic device, and every\n" +
       "trace from them says so.\n" +
+      "\nWith --target <contract.json>, Atlas runs a declared owned-staging journey and\n" +
+      "customer policy. The local operator attests authorization; Atlas does not\n" +
+      "independently verify ownership. Screenshot capture is off unless consent and\n" +
+      "redaction selectors are configured. This local CLI is not a hosted SSRF\n" +
+      "boundary; reports describe Chromium emulation, not real handset performance.\n" +
       "\n" +
       "With --glb the target is Atlas's own model viewer over your upload: moderated\n" +
       "(magic, size and triangle caps), staged under the output dir, served locally.\n" +
@@ -165,6 +170,7 @@ const COMMANDS = {
       "profile that keeps failing is quarantined as an error row rather than aborting\n" +
       "the matrix, and the gate reads the absence as absence.",
     flags: {
+      target: { type: "string", describe: "versioned owned-staging journey and policy JSON contract" },
       url: {
         type: "string",
         describe: "run against this http(s) URL instead of the bundled experience",
@@ -185,6 +191,7 @@ const COMMANDS = {
       const result = await runMatrix({
         url: args.flags.url,
         glb: args.flags.glb,
+        targetContract: args.flags.target,
         seed: args.flags.seed,
         profileIds: args.flags.profile,
         // `undefined` rather than `true` when the switch is absent, so that

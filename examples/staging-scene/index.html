@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Atlas owned staging scene</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.45 system-ui, sans-serif; background: #111923; color: #e9f0f4; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+    main { width: min(760px, calc(100% - 32px)); }
+    canvas { width: 100%; height: min(50vh, 360px); display: block; border-radius: 14px; background: radial-gradient(circle at 50% 45%, #30546b, #172532 70%); }
+    button { margin-top: 18px; border: 0; border-radius: 8px; padding: 12px 18px; color: #082128; background: #77ddc1; font: inherit; cursor: pointer; }
+    [data-atlas-session-ready], [data-atlas-static-fallback] { margin-top: 12px; padding: 10px; border-left: 3px solid #77ddc1; background: #1d2d38; }
+    [hidden] { display: none !important; }
+    .small { color: #b5c7cf; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="small">Controlled owned-staging fixture · browser WebGL check</p>
+    <h1 data-atlas-scene-ready>Product preview</h1>
+    <canvas id="scene" aria-label="Interactive product preview"></canvas>
+    <div data-atlas-static-fallback hidden>Interactive graphics are unavailable. Product details remain available in this safe fallback.</div>
+    <button data-atlas-start type="button">Open product preview</button>
+    <div data-atlas-session-ready hidden>Product preview is ready.</div>
+    <p data-atlas-private hidden>Example redaction target; this is not personal data.</p>
+  </main>
+  <script>
+    const canvas = document.querySelector("#scene");
+    let gl = null;
+    try { gl = canvas.getContext("webgl") || canvas.getContext("webgl2"); } catch {}
+    if (!gl) document.querySelector("[data-atlas-static-fallback]").hidden = false;
+    if (gl) { gl.clearColor(0.16, 0.38, 0.48, 1); gl.clear(gl.COLOR_BUFFER_BIT); }
+    document.querySelector("[data-atlas-start]").addEventListener("click", () => {
+      document.querySelector("[data-atlas-session-ready]").hidden = false;
+    });
+  </script>
+</body>
+</html>

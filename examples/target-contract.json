@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "owned-staging-scene",
+  "name": "Owned WebAR staging scene",
+  "environment": "staging",
+  "authorization": {
+    "authorized": true,
+    "note": "Local operator attests this is an authorized staging target"
+  },
+  "target": {
+    "url": "http://127.0.0.1:4173/",
+    "allowedOrigins": ["http://127.0.0.1:4173"]
+  },
+  "journey": {
+    "steps": [
+      { "type": "waitForVisible", "selector": "[data-atlas-scene-ready]", "timeoutMs": 15000 },
+      { "type": "click", "selector": "[data-atlas-start]" },
+      { "type": "waitForVisible", "selector": "[data-atlas-session-ready]", "timeoutMs": 10000 }
+    ],
+    "success": { "selector": "[data-atlas-session-ready]" },
+    "fallback": {
+      "selector": "[data-atlas-static-fallback]",
+      "requiredOn": ["webgl-unavailable"]
+    }
+  },
+    "profiles": ["high-wifi", "low-cpu-3g", "webgl-unavailable"],
+  "policy": {
+    "version": "1",
+    "criticalProfiles": ["high-wifi", "low-cpu-3g"],
+    "minimumScore": 50
+  },
+  "screenshots": {
+    "consent": true,
+    "redactSelectors": ["[data-atlas-private]"]
+  }
+}

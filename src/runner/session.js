@@ -87,6 +87,9 @@ const BINDING = "__atlasBinding";
  *   harvest?: (session: CdpSession) => Promise<unknown>;
  *   partialHarvest?: (session: CdpSession) => Promise<unknown>;
  *   doneOptional?: boolean;
+ *   captureScreenshots?: boolean;
+ *   screenshotRedactSelectors?: string[];
+ *   redactPageErrorDetails?: boolean;
  * }} opts
  * @returns {Promise<SessionResult>}
  */
@@ -128,7 +131,7 @@ export async function runSession(opts) {
         return;
       }
       if (msg?.type !== "checkpoint" || typeof msg.id !== "string") return;
-      captureChain = captureChain.then(() => captureCheckpoint(session, msg.id, opts.screenshotDir, screenshots));
+      captureChain = captureChain.then(() => captureCheckpoint(session, msg.id, opts.screenshotDir, screenshots, opts));
     });
 
     // Page-side errors are collected as evidence, not swallowed. A trace whose
@@ -136,17 +139,17 @@ export async function runSession(opts) {
     session.on("Runtime.exceptionThrown", (params) => {
       const d = params?.exceptionDetails;
       const text = d?.exception?.description ?? d?.text ?? "unknown exception";
-      pageErrors.push(`exception: ${String(text).split("\n")[0].slice(0, 300)}`);
+      pageErrors.push(opts.redactPageErrorDetails ? "target page exception captured; details withheld by target privacy mode" : `exception: ${String(text).split("\n")[0].slice(0, 300)}`);
     });
     session.on("Log.entryAdded", (params) => {
       const entry = params?.entry;
       if (entry?.level === "error") {
-        pageErrors.push(`log: ${String(entry.text ?? "").slice(0, 300)}`);
+        pageErrors.push(opts.redactPageErrorDetails ? "target console error captured; details withheld by target privacy mode" : `log: ${String(entry.text ?? "").slice(0, 300)}`);
       }
     });
     session.on("Network.loadingFailed", (params) => {
       if (params?.errorText) {
-        pageErrors.push(`network: ${String(params.errorText).slice(0, 120)} (${params.type ?? "?"})`);
+        pageErrors.push(opts.redactPageErrorDetails ? "target network error captured; details withheld by target privacy mode" : `network: ${String(params.errorText).slice(0, 120)} (${params.type ?? "?"})`);
       }
     });
 
@@ -288,8 +291,24 @@ export async function runSession(opts) {
  * @param {string} dir
  * @param {Record<string, string>} out
  */
-async function captureCheckpoint(session, id, dir, out) {
+async function captureCheckpoint(session, id, dir, out, opts = {}) {
   try {
+    if (opts.captureScreenshots === false) return;
+    const selectors = opts.screenshotRedactSelectors ?? [];
+    if (selectors.length) {
+      await session.evaluate(`(() => {
+        globalThis.__atlasRedactedStyles = [];
+        for (const selector of ${JSON.stringify(selectors)}) {
+          let nodes = [];
+          try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
+          for (const node of nodes) {
+            globalThis.__atlasRedactedStyles.push([node, node.getAttribute('style')]);
+            node.style.setProperty('filter', 'blur(18px)', 'important');
+            node.style.setProperty('text-shadow', '0 0 12px currentColor', 'important');
+          }
+        }
+      })()`);
+    }
     const png = await session.screenshot();
     const file = path.join(dir, `${id}.png`);
     await writeFileEnsured(file, png);
@@ -298,6 +317,7 @@ async function captureCheckpoint(session, id, dir, out) {
   } catch (err) {
     log.warn(`checkpoint ${id} capture failed: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
+    await session.evaluate(`(() => { for (const [node, style] of globalThis.__atlasRedactedStyles ?? []) { if (style === null) node.removeAttribute('style'); else node.setAttribute('style', style); } delete globalThis.__atlasRedactedStyles; })()`).catch(() => {});
     // Acknowledge even on failure. A missing screenshot is a reported gap; a
     // page hung for five seconds waiting on an acknowledgement that will never
     // come would corrupt every timing after it.

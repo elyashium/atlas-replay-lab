@@ -68,6 +68,7 @@ import { createHash } from "node:crypto";
 
 import { orbitalManifest } from "../manifest/atlas-orbital.manifest.js";
 import { genericManifest } from "../manifest/generic.manifest.js";
+import { createTargetManifest } from "../manifest/target.manifest.js";
 import { validateManifest } from "../manifest/validate.js";
 import { selectEngine } from "../decision/index.js";
 import { moderateGlb } from "../viewer/parse-glb.js";
@@ -80,7 +81,10 @@ import { driveGeneric } from "./drive-generic.js";
 import { buildXrStubScript, xrStubNote, POSE_SCRIPT_ID } from "./xr-stub.js";
 import { applyDeliveryClassification } from "./classify-delivery.js";
 import { causalHash } from "../trace/normalize.js";
-import { fromRoot, ensureDir, emptyDir, writeJson, writeFileEnsured } from "../util/fsx.js";
+import { fromRoot, ensureDir, emptyDir, writeJson, writeFileEnsured, readJson } from "../util/fsx.js";
+import { validateTargetContract, safeTargetUrl } from "../targets/contract.js";
+import { driveTarget } from "./drive-target.js";
+import { scoreTrace } from "../gate/atlas-score.js";
 import { logger, banner } from "../util/log.js";
 
 
@@ -253,6 +257,7 @@ export async function stageUpload(bytes, fileName, outDir, env) {
  *   How `servedTier`/`servedPath` were arrived at. `null` on an Orbital run,
  *   where they were not arrived at but *chosen* — the decision is in `decision`.
  * @property {Record<string, string>} screenshots
+ * @property {number | null} [targetScore]
  * @property {string[]} pageErrors
  * @property {string | null} error
  * @property {number} wallMs
@@ -268,6 +273,7 @@ export async function stageUpload(bytes, fileName, outDir, env) {
  *   env?: NodeJS.ProcessEnv;
  *   url?: string;
  *   glb?: string;
+ *   targetContract?: string;
  *   retry?: number;
  * }} [opts]
  */
@@ -279,10 +285,20 @@ export async function runMatrix(opts = {}) {
 
   // Parsed before anything is launched: a typo in the flag should cost a
   // second, not a browser start and six throttled runs.
-  if (opts.url && opts.glb) {
-    throw new Error("`--url` and `--glb` are mutually exclusive: one run, one target.");
+  if ([opts.url, opts.glb, opts.targetContract].filter(Boolean).length > 1) {
+    throw new Error("`--url`, `--glb` and `--target` are mutually exclusive: one run, one target.");
   }
-  const target = opts.url ? parseTargetUrl(opts.url) : null;
+  /** @type {any | null} */
+  let targetContract = null;
+  if (opts.targetContract) {
+    let raw;
+    try { raw = await readJson(path.resolve(opts.targetContract)); }
+    catch { throw new Error(`--target contract not found or invalid JSON: ${opts.targetContract}`); }
+    const checked = validateTargetContract(raw);
+    if (!checked.ok) throw new Error(`target contract is invalid:\n  ${checked.issues.join("\n  ")}`);
+    targetContract = checked.contract;
+  }
+  const target = targetContract ? parseTargetUrl(targetContract.target.url) : opts.url ? parseTargetUrl(opts.url) : null;
   // The upload is read now (fail fast on a missing file) and moderated later,
   // after `emptyDir`, so staging never lands in a directory about to be wiped.
   /** @type {Buffer | null} */
@@ -296,7 +312,7 @@ export async function runMatrix(opts = {}) {
     }
   }
   const generic = target !== null || glbBytes !== null;
-  const manifest = generic ? genericManifest : orbitalManifest;
+  const manifest = targetContract ? createTargetManifest() : generic ? genericManifest : orbitalManifest;
 
   banner(
     generic
@@ -330,7 +346,9 @@ export async function runMatrix(opts = {}) {
   const genericProbe = generic ? await readFile(GENERIC_PROBE_PATH, "utf8") : null;
 
   const defaultProfiles = generic ? GENERIC_PROFILES : PROFILES;
-  const profiles = opts.profileIds?.length ? opts.profileIds.map(profileById) : defaultProfiles;
+  const requestedProfiles = opts.profileIds?.length ? opts.profileIds : targetContract?.profiles;
+  const profiles = requestedProfiles?.length ? requestedProfiles.map(profileById) : defaultProfiles;
+  if (targetContract) for (const id of targetContract.profiles) profileById(id);
 
 
   const selection = await selectEngine({ env: opts.env ?? process.env, allowFixture: true });
@@ -445,6 +463,9 @@ export async function runMatrix(opts = {}) {
         forceTier: step.forcedTier,
         screenshotDir: path.join(runDir, "screenshots"),
         target: targetHref ?? undefined,
+        captureScreenshots: targetContract ? targetContract.screenshots.consent : undefined,
+        screenshotRedactSelectors: targetContract?.screenshots.redactSelectors,
+        redactPageErrorDetails: Boolean(targetContract),
         extraScripts: extraScripts.length ? extraScripts : undefined,
         // A third-party HTTPS page cannot POST to our loopback control plane
         // (CORS, and mixed content), so its payload is read back over CDP.
@@ -477,7 +498,9 @@ export async function runMatrix(opts = {}) {
         // "done" buys nothing.
         doneOptional: generic,
         drive: async (session) => {
-          driveResult = generic
+          driveResult = targetContract
+            ? await driveTarget(session, { ...targetContract, __profileId: step.profile.id }, { env: opts.env ?? process.env, mobile: step.profile.viewport.mobile })
+            : generic
             ? await driveGeneric(session, {
                 mobile: step.profile.viewport.mobile,
                 seed,
@@ -554,6 +577,7 @@ export async function runMatrix(opts = {}) {
         servedTier: result.trace?.servedTier ?? null,
         servedPath: result.trace?.servedPath ?? null,
         metrics: result.trace?.metrics ?? null,
+        targetScore: targetContract && result.trace ? scoreTrace(result.trace, manifest).score : null,
         decision: result.trace?.decision ?? null,
         verdict,
         drive: driveResult,
@@ -602,7 +626,9 @@ export async function runMatrix(opts = {}) {
     seed,
     reproduce: generic
       ? target
-        ? `node bin/atlas.js matrix --url ${target.href}`
+        ? targetContract
+          ? `node bin/atlas.js matrix --target ${opts.targetContract}`
+          : `node bin/atlas.js matrix --url ${target.href}`
         : `node bin/atlas.js matrix --glb <file> (upload hash ${upload?.hash ?? "?"})`
       : "node bin/atlas.js matrix",
     // Null on an Orbital run rather than absent, so a consumer can tell "this
@@ -611,9 +637,25 @@ export async function runMatrix(opts = {}) {
     target: generic
       ? target
         ? {
-            url: target.href,
+            url: targetContract ? safeTargetUrl(target) : target.href,
             origin: target.origin,
-            mode: "generic",
+            mode: targetContract ? "owned-staging-contract" : "generic",
+            contract: targetContract ? {
+              schemaVersion: targetContract.schemaVersion,
+              id: targetContract.id,
+              name: targetContract.name,
+              environment: targetContract.environment,
+              authorization: "explicitly authorized by local operator; not independently verified",
+              allowedOrigins: targetContract.target.allowedOrigins,
+              journey: targetContract.journey,
+              profiles: targetContract.profiles,
+              policy: targetContract.policy,
+              screenshotConsent: targetContract.screenshots.consent,
+              redactionSelectors: targetContract.screenshots.redactSelectors,
+              screenshotScope: targetContract.screenshots.consent
+                ? "configured selectors blurred before capture; review before sharing"
+                : "disabled by default",
+            } : null,
             // Stated in the report itself, not only in the prose, because this
             // is the single most misreadable number in a `--url` run: a reader
             // who assumes Atlas *chose* these tiers would conclude the router
@@ -651,6 +693,7 @@ export async function runMatrix(opts = {}) {
             ],
           }
       : null,
+    targetDecision: targetContract ? targetPolicyDecision(targetContract, runs) : null,
     // Null unless --glb staged an upload: the content hash, moderation stats,
     // and warnings, so a report reader can reproduce the run from the file.
     upload: upload
@@ -703,6 +746,35 @@ export async function runMatrix(opts = {}) {
   log.info(`report: ${rel(reportPath)}`);
 
   return { report, reportPath, selection };
+}
+
+/** Target-specific hard gate. Missing evidence cannot turn into SHIP. */
+export function targetPolicyDecision(contract, runs) {
+  const required = contract.policy.criticalProfiles;
+  const evidence = required.map((profileId) => {
+    const run = runs.find((candidate) => candidate.profileId === profileId);
+    return {
+      profileId,
+      runId: run?.runId ?? null,
+      journey: run?.drive?.journeyOutcome ?? null,
+      score: run?.targetScore ?? null,
+      error: run?.error ?? null,
+    };
+  });
+  const missing = evidence.filter((item) => !item.runId || item.error || item.journey === null || item.score === null);
+  const failed = evidence.filter((item) => item.journey === "fail" || (item.score !== null && item.score < contract.policy.minimumScore));
+  const verdict = failed.length ? "HOLD" : missing.length ? "INCONCLUSIVE" : "SHIP";
+  return {
+    verdict,
+    policyVersion: contract.policy.version ?? "1",
+    basis: "customer-declared success/fallback journey and Atlas score floor; Chromium emulation only",
+    requiredProfiles: required,
+    evidence,
+    reasons: [
+      ...failed.map((item) => `${item.profileId}: journey failed or score is below ${contract.policy.minimumScore}`),
+      ...missing.map((item) => `${item.profileId}: evidence is missing or inconclusive`),
+    ],
+  };
 }
 
 /* ── summary ─────────────────────────────────────────────────────────── */
