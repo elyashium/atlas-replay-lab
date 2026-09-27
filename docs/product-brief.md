@@ -26,12 +26,16 @@ or guarded decision contracts.
 ## Current evidence and limits
 
 Implemented CLI components include the Orbital controlled demonstration,
-`matrix --url`, static preflight, `.glb` viewer harness, trace judging, and a
-release gate. These pieces do not yet provide a customer-owned target contract
-or an end-to-end hosted experience. The current generic URL probe observes a
-page; it does not know that page's business outcome or repair it. The `.glb`
-lane measures Atlas's viewer around an asset, not the experience in its eventual
-host application.
+`matrix --url`, static preflight, `.glb` viewer harness, trace judging, a
+release gate, and the first local `matrix --target` contract lane. The target
+lane runs declared selector journeys, profile-specific fallback checks, and a
+versioned score policy against authorized development/staging URLs. It is not
+a hosted experience or an independently verified ownership flow. The generic
+URL probe still observes pages without knowing their business outcome or
+repairing them. The `.glb` lane measures Atlas's viewer around an asset, not the
+experience in its eventual host application. See
+[`evidence/phase1-2026-09-27.md`](evidence/phase1-2026-09-27.md) for the
+controlled failure/fix run and its limits.
 
 Chrome/CDP profiles are emulations. They do not establish performance on actual
 Android or iPhone hardware, Safari, real radios, GPU/thermal conditions, or
@@ -57,6 +61,10 @@ emulation limits. Phase 0 is not complete until the claimed outcome and replay
 are supported by the run.
 
 ### Phase 1 — owned staging experience contract
+
+**Status: local contract runner and policy gate implemented; real outside-team
+acceptance is still unverified.** Controlled failure/fix evidence is recorded
+in [`evidence/phase1-2026-09-27.md`](evidence/phase1-2026-09-27.md).
 
 Make a versioned target contract configurable without editing Atlas source:
 verified or explicitly authorized origin, allowed redirects/origins, journey

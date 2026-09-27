@@ -9,7 +9,8 @@
   },
   "target": {
     "url": "http://127.0.0.1:4173/",
-    "allowedOrigins": ["http://127.0.0.1:4173"]
+    "allowedOrigins": ["http://127.0.0.1:4173"],
+    "buildId": "fixture-healthy-v1"
   },
   "journey": {
     "steps": [
@@ -23,10 +24,12 @@
       "requiredOn": ["webgl-unavailable"]
     }
   },
-    "profiles": ["high-wifi", "low-cpu-3g", "webgl-unavailable"],
+  "profiles": ["high-wifi", "low-cpu-3g", "webgl-unavailable"],
+  "budgets": { "journeyTimeoutMs": 45000, "stepTimeoutMs": 12000 },
+  "mediaConsent": false,
   "policy": {
     "version": "1",
-    "criticalProfiles": ["high-wifi", "low-cpu-3g"],
+    "criticalProfiles": ["high-wifi", "low-cpu-3g", "webgl-unavailable"],
     "minimumScore": 50
   },
   "screenshots": {

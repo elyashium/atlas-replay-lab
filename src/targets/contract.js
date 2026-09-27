@@ -17,6 +17,7 @@ export function validateTargetContract(value) {
   if (c.schemaVersion !== TARGET_CONTRACT_VERSION) issues.push(`schemaVersion must be ${TARGET_CONTRACT_VERSION}`);
   if (!/^[a-z0-9][a-z0-9._-]{1,63}$/i.test(c.id ?? "")) issues.push("id must be 2-64 letters, digits, dot, underscore or dash");
   if (typeof c.name !== "string" || !c.name.trim()) issues.push("name is required");
+  if (!["development", "staging"].includes(c.environment)) issues.push("environment must be development or staging");
   if (c.authorization?.authorized !== true) issues.push("explicit staging authorization is required (authorization.authorized: true)");
   let target;
   try {
@@ -40,6 +41,7 @@ export function validateTargetContract(value) {
     }
     if (target && !origins.has(target.origin)) issues.push("target.url origin must appear in target.allowedOrigins");
   }
+  if (c.target?.buildId !== undefined && (typeof c.target.buildId !== "string" || !/^[a-z0-9._-]{1,128}$/i.test(c.target.buildId))) issues.push("target.buildId must be a short commit/deployment identifier using letters, digits, dot, underscore or dash");
   if (!Array.isArray(c.journey?.steps) || c.journey.steps.length === 0) issues.push("journey.steps must contain at least one meaningful step");
   else c.journey.steps.forEach((step, i) => {
     if (!step || !STEP_TYPES.has(step.type)) issues.push(`journey.steps[${i}].type must be one of ${[...STEP_TYPES].join(", ")}`);
@@ -47,13 +49,23 @@ export function validateTargetContract(value) {
     if (step.type === "fill" && !/^ATLAS_[A-Z0-9_]+$/.test(step.valueFromEnv ?? "")) issues.push(`journey.steps[${i}].valueFromEnv must name an ATLAS_* environment variable`);
     if (step.timeoutMs !== undefined && (!Number.isInteger(step.timeoutMs) || step.timeoutMs < 100 || step.timeoutMs > 120000)) issues.push(`journey.steps[${i}].timeoutMs must be 100..120000`);
   });
+  if (!Number.isInteger(c.budgets?.journeyTimeoutMs) || c.budgets.journeyTimeoutMs < 1000 || c.budgets.journeyTimeoutMs > 600000) issues.push("budgets.journeyTimeoutMs must be 1000..600000");
+  if (!Number.isInteger(c.budgets?.stepTimeoutMs) || c.budgets.stepTimeoutMs < 100 || c.budgets.stepTimeoutMs > 120000) issues.push("budgets.stepTimeoutMs must be 100..120000");
   for (const name of ["success", "fallback"]) {
     if (typeof c.journey?.[name]?.selector !== "string" || !c.journey[name].selector.trim()) issues.push(`journey.${name}.selector is required`);
   }
   if (!Array.isArray(c.profiles) || !c.profiles.length || c.profiles.some((id) => typeof id !== "string")) issues.push("profiles must list one or more profile ids");
+  if (typeof c.policy?.version !== "string" || !c.policy.version.trim() || c.policy.version.length > 64) issues.push("policy.version is required and must be at most 64 characters");
   if (!Array.isArray(c.policy?.criticalProfiles) || !c.policy.criticalProfiles.length) issues.push("policy.criticalProfiles must list at least one required profile");
   else if (Array.isArray(c.profiles) && c.policy.criticalProfiles.some((id) => !c.profiles.includes(id))) issues.push("every critical profile must also appear in profiles");
+  if (Array.isArray(c.journey?.fallback?.requiredOn) && Array.isArray(c.policy?.criticalProfiles)) {
+    for (const id of c.journey.fallback.requiredOn) {
+      if (typeof id !== "string" || !c.profiles?.includes(id)) issues.push(`fallback profile ${id} must appear in profiles`);
+      if (!c.policy.criticalProfiles.includes(id)) issues.push(`fallback profile ${id} must be critical so missing fallback evidence cannot ship`);
+    }
+  }
   if (!Number.isFinite(c.policy?.minimumScore) || c.policy.minimumScore < 0 || c.policy.minimumScore > 100) issues.push("policy.minimumScore must be 0..100");
+  if (typeof c.mediaConsent !== "boolean") issues.push("mediaConsent must explicitly allow or deny page camera/microphone APIs");
   if (typeof c.screenshots?.consent !== "boolean") issues.push("screenshots.consent must be explicitly true or false");
   if (c.screenshots?.consent === true && (!Array.isArray(c.screenshots?.redactSelectors) || !c.screenshots.redactSelectors.length)) issues.push("screenshots.redactSelectors must include at least one selector when screenshot consent is enabled");
   if (issues.length) return { ok: false, issues };

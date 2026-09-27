@@ -1,5 +1,10 @@
 # Atlas release QA roadmap
 
+Phase 1's initial local `--target` contract runner is implemented and measured
+against a controlled staging fixture. A real unaffiliated staging target,
+automatic cross-report comparison, and customer-input replay remain unverified
+or planned; see [`evidence/phase1-2026-09-27.md`](evidence/phase1-2026-09-27.md).
+
 This roadmap replaces the old visitor showcase plan. Atlas is for Web3D, WebAR,
 and interactive commerce teams that need evidence for a release decision. It is
 not a generic XR builder. See [`product-brief.md`](product-brief.md) for the

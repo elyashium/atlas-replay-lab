@@ -296,18 +296,21 @@ async function captureCheckpoint(session, id, dir, out, opts = {}) {
     if (opts.captureScreenshots === false) return;
     const selectors = opts.screenshotRedactSelectors ?? [];
     if (selectors.length) {
-      await session.evaluate(`(() => {
+      const redacted = await session.evaluate(`(() => {
         globalThis.__atlasRedactedStyles = [];
         for (const selector of ${JSON.stringify(selectors)}) {
-          let nodes = [];
-          try { nodes = [...document.querySelectorAll(selector)]; } catch { continue; }
+          let nodes;
+          try { nodes = [...document.querySelectorAll(selector)]; } catch { return false; }
+          if (!nodes.length) return false;
           for (const node of nodes) {
             globalThis.__atlasRedactedStyles.push([node, node.getAttribute('style')]);
             node.style.setProperty('filter', 'blur(18px)', 'important');
             node.style.setProperty('text-shadow', '0 0 12px currentColor', 'important');
           }
         }
+        return true;
       })()`);
+      if (redacted !== true) throw new Error("a screenshot redaction selector is invalid or matched no element; screenshot withheld");
     }
     const png = await session.screenshot();
     const file = path.join(dir, `${id}.png`);

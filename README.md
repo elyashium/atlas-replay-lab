@@ -203,6 +203,7 @@ measurements, commands, and limits; do not infer a hosted workflow from it.
 | `node bin/atlas.js doctor` | Check Node, the browser, the manifest, assets, engines. Start here. |
 | `node bin/atlas.js all` | Everything: matrix → replay (Orbital only) → gate → judge → compare → report. Exits 1 on HOLD. `--url` adds preflight, skips replay. |
 | `node bin/atlas.js matrix` | The capability matrix: Orbital, `--url <href>` for a third-party page, `--glb <file>` for an uploaded model in the viewer |
+| `node bin/atlas.js matrix --target <contract.json>` | Run a versioned, selector-driven journey against an explicitly authorized development/staging target; report target-policy SHIP/HOLD/INCONCLUSIVE |
 | `node bin/atlas.js replay` | Re-run a captured trace and prove it reproduces |
 | `node bin/atlas.js gate` | Apply the release rule to what was captured |
 | `node bin/atlas.js compare` | §4.4 — both engines over the same fixtures |
@@ -213,9 +214,21 @@ measurements, commands, and limits; do not infer a hosted workflow from it.
 | `node bin/atlas.js fixtures` | Write the illustrative Jev fixtures and `examples/traces/` |
 | `node bin/atlas.js assets` | Generate the tier assets (`all` does this on demand) |
 | `node bin/atlas.js serve` | Serve the experience locally and drive it by hand |
-| `npm test` | `node --test tests/` — no network, no browser, no key |
+| `npm test` | `node --test` — no network, no browser, no key |
 
 `node bin/atlas.js <command> --help` for flags.
+
+### Owned staging journeys
+
+`--url` remains generic observation. To test what a staging experience means
+for your team, start with the [target contract guide](docs/target-contract.md)
+and [example JSON](examples/target-contract.json). The local operator attests
+authorization; the local CLI checks top-level navigation origins but does not
+block browser subresource egress. Credentials are referenced through
+`ATLAS_*` environment variables. Screenshots stay disabled unless consent and
+redaction selectors are explicit. The built-in loopback scene is a controlled
+contract exercise, not evidence from a customer app. A target report's gate
+only covers its declared journey and Chromium emulation.
 
 ### Environment
 

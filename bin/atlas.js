@@ -287,18 +287,22 @@ const COMMANDS = {
 
   report: {
     summary: "render artifacts/report.html from whatever is on disk",
-    usage: "atlas report [--out <file>]",
+    usage: "atlas report [--matrix <file>] [--gate <file>] [--out <file>]",
     detail:
       "Reads the matrix, replay, gate and comparison reports and renders one\n" +
       "self-contained HTML page. Missing sections are stated as missing rather\n" +
       "than omitted, so the page cannot imply a stage ran when it did not.",
     flags: {
+      matrix: { type: "string", describe: "matrix report path (default artifacts/matrix/report.json)" },
+      gate: { type: "string", describe: "gate report path (default artifacts/gate/report.json)" },
       out: { type: "string", describe: "output file (default artifacts/report.html)" },
     },
     async run(args) {
       const { renderReport } = await import("../src/report/html-report.js");
       const { file } = await renderReport({
         outFile: args.flags.out ? path.resolve(args.flags.out) : undefined,
+        matrixReportPath: args.flags.matrix ? path.resolve(args.flags.matrix) : undefined,
+        gateReportPath: args.flags.gate ? path.resolve(args.flags.gate) : undefined,
         quiet,
       });
       log.info(`open ${rel(file)}`);

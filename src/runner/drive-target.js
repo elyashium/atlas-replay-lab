@@ -4,14 +4,15 @@ import { sleep, waitForPage } from "./drive.js";
 export async function driveTarget(session, contract, { env = process.env, mobile = false } = {}) {
   const steps = [];
   const started = Date.now();
-  const stepTimeoutMs = 12_000;
+  const deadline = started + contract.budgets.journeyTimeoutMs;
   try {
     await waitForPage(session, 'typeof globalThis.__atlasGeneric === "object"', { timeoutMs: 15_000, label: "target recorder" });
     await session.evaluate('globalThis.__atlasGeneric.checkpoint("cp-first-frame", "first-frame")', { awaitPromise: true, timeoutMs: 20_000 }).catch(() => {});
     await session.evaluate('globalThis.__atlasGeneric.mark("interactive"); globalThis.__atlasGeneric.checkpoint("cp-interactive", "interactive")', { awaitPromise: true, timeoutMs: 20_000 }).catch(() => {});
     for (let i = 0; i < contract.journey.steps.length; i++) {
       const step = contract.journey.steps[i];
-      const timeoutMs = step.timeoutMs ?? stepTimeoutMs;
+      const timeoutMs = Math.min(step.timeoutMs ?? contract.budgets.stepTimeoutMs, remaining(deadline));
+      if (timeoutMs <= 0) throw new Error("target journey exceeded its total time budget");
       await assertAllowedOrigin(session, contract);
       if (step.type === "waitForVisible" || step.type === "waitForHidden") {
         const visible = step.type === "waitForVisible";
@@ -46,12 +47,14 @@ export async function driveTarget(session, contract, { env = process.env, mobile
       try { origin = new URL(currentUrl).origin; } catch {}
       if (origin && !contract.target.allowedOrigins.includes(origin)) throw new Error(`navigation escaped allowed origins to ${origin}`);
     }
-    const success = await pollSelector(session, contract.journey.success.selector, true, stepTimeoutMs);
+    const success = await pollSelector(session, contract.journey.success.selector, true, remaining(deadline));
+    await assertAllowedOrigin(session, contract);
     steps.push({ type: "success", selector: contract.journey.success.selector, outcome: success ? "pass" : "fail" });
     if (!success) throw new Error(`declared success condition is absent: ${contract.journey.success.selector}`);
     for (const profileId of contract.journey.fallback.requiredOn ?? []) {
       if (profileId !== contract.__profileId) continue;
-      const fallback = await pollSelector(session, contract.journey.fallback.selector, true, stepTimeoutMs);
+      const fallback = await pollSelector(session, contract.journey.fallback.selector, true, remaining(deadline));
+      await assertAllowedOrigin(session, contract);
       steps.push({ type: "fallback", selector: contract.journey.fallback.selector, outcome: fallback ? "pass" : "fail" });
       if (!fallback) throw new Error(`required safe fallback is absent: ${contract.journey.fallback.selector}`);
     }
@@ -88,3 +91,5 @@ async function readSurface(session) {
   const surface = await session.evaluate("globalThis.__atlasGeneric.surface()").catch(() => null);
   return surface && typeof surface === "object" ? surface : null;
 }
+
+function remaining(deadline) { return Math.max(0, deadline - Date.now()); }

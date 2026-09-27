@@ -319,7 +319,9 @@ export async function runMatrix(opts = {}) {
       ? `Atlas Replay Lab — capability matrix against ${target ? target.origin + target.pathname : `upload ${opts.glb}`}`
       : "Atlas Replay Lab — capability matrix",
   );
-  if (generic) {
+  if (targetContract) {
+    log.info("owned staging contract: the declared selector journey and target policy determine SHIP/HOLD/INCONCLUSIVE; generic delivery metrics remain observational.");
+  } else if (generic) {
     log.info(
       "generic mode: no tier router is in the loop. servedTier/servedPath are " +
         "measurements of what this app delivered, not decisions Atlas made.",
@@ -456,7 +458,9 @@ export async function runMatrix(opts = {}) {
         connection: browser.connection,
         server,
         manifest,
-        profile: step.profile,
+        profile: targetContract && !targetContract.mediaConsent
+          ? { ...step.profile, cameraPermission: "denied" }
+          : step.profile,
         seed,
         traceId,
         runKind: step.runKind,
@@ -640,6 +644,7 @@ export async function runMatrix(opts = {}) {
             url: targetContract ? safeTargetUrl(target) : target.href,
             origin: target.origin,
             mode: targetContract ? "owned-staging-contract" : "generic",
+            contractHash: targetContract ? createHash("sha256").update(JSON.stringify(targetContract)).digest("hex") : null,
             contract: targetContract ? {
               schemaVersion: targetContract.schemaVersion,
               id: targetContract.id,
@@ -647,9 +652,13 @@ export async function runMatrix(opts = {}) {
               environment: targetContract.environment,
               authorization: "explicitly authorized by local operator; not independently verified",
               allowedOrigins: targetContract.target.allowedOrigins,
+              buildId: targetContract.target.buildId ?? null,
+              originEnforcement: "top-level document navigation only; local CLI does not constrain subresource egress",
               journey: targetContract.journey,
+              budgets: targetContract.budgets,
               profiles: targetContract.profiles,
               policy: targetContract.policy,
+              mediaConsent: targetContract.mediaConsent,
               screenshotConsent: targetContract.screenshots.consent,
               redactionSelectors: targetContract.screenshots.redactSelectors,
               screenshotScope: targetContract.screenshots.consent
@@ -732,9 +741,13 @@ export async function runMatrix(opts = {}) {
       kind: selection.engine.kind,
       status: selection.status,
     },
+    runnerBuildId: (opts.env ?? process.env).ATLAS_BUILD_ID ?? (opts.env ?? process.env).GITHUB_SHA ?? null,
     budgets: manifest.budgets,
     runs,
-    summary: summarise(runs, manifest, generic),
+    summary: {
+      ...summarise(runs, manifest, generic),
+      ...(targetContract ? { failureStory: { unavailable: "Owned staging contracts are gated by their declared journey and policy; this report does not compare separate target builds automatically." } } : {}),
+    },
     serverStats: server.stats,
   };
 

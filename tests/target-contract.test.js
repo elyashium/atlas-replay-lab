@@ -18,7 +18,9 @@ const contract = () => ({
     fallback: { selector: "[data-static-fallback]", requiredOn: ["webgl-unavailable"] },
   },
   profiles: ["high-wifi", "low-cpu-3g", "webgl-unavailable"],
-  policy: { version: "2026-09-01", criticalProfiles: ["high-wifi", "low-cpu-3g"], minimumScore: 50 },
+  budgets: { journeyTimeoutMs: 45000, stepTimeoutMs: 12000 },
+  mediaConsent: false,
+  policy: { version: "2026-09-01", criticalProfiles: ["high-wifi", "low-cpu-3g", "webgl-unavailable"], minimumScore: 50 },
   screenshots: { consent: true, redactSelectors: ["[data-private]"] },
 });
 
@@ -50,6 +52,7 @@ test("target policy fails closed for failed and missing critical journey evidenc
   const good = [
     { profileId: "high-wifi", runId: "a", drive: { journeyOutcome: "pass" }, targetScore: 82 },
     { profileId: "low-cpu-3g", runId: "b", drive: { journeyOutcome: "pass" }, targetScore: 66 },
+    { profileId: "webgl-unavailable", runId: "c", drive: { journeyOutcome: "pass" }, targetScore: 61 },
   ];
   assert.equal(targetPolicyDecision(c, good).verdict, "SHIP");
   assert.equal(targetPolicyDecision(c, [{ ...good[0], drive: { journeyOutcome: "fail" } }, good[1]]).verdict, "HOLD");

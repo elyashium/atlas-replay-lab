@@ -77,7 +77,7 @@ const DISCLAIMERS = [
 ];
 
 /**
- * @param {{ outFile?: string; artifactsDir?: string; quiet?: boolean }} [opts]
+ * @param {{ outFile?: string; artifactsDir?: string; matrixReportPath?: string; gateReportPath?: string; quiet?: boolean }} [opts]
  */
 export async function renderReport(opts = {}) {
   const outFile = opts.outFile ?? fromRoot("artifacts", "report.html");
@@ -85,8 +85,8 @@ export async function renderReport(opts = {}) {
   const artifactsDir = opts.artifactsDir ?? fromRoot("artifacts");
 
   const sources = {
-    matrix: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), MATRIX_DIR), "report.json")),
-    gate: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), GATE_DIR), "report.json")),
+    matrix: await load(opts.matrixReportPath ? path.resolve(opts.matrixReportPath) : path.join(artifactsDir, path.relative(fromRoot("artifacts"), MATRIX_DIR), "report.json")),
+    gate: await load(opts.gateReportPath ? path.resolve(opts.gateReportPath) : path.join(artifactsDir, path.relative(fromRoot("artifacts"), GATE_DIR), "report.json")),
     compare: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), COMPARE_DIR), "engine-comparison.json")),
     judge: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), JUDGE_DIR), "judge-report.json")),
     preflight: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), PREFLIGHT_DIR), "report.json")),
@@ -97,14 +97,17 @@ export async function renderReport(opts = {}) {
   await writeFileEnsured(outFile, html);
 
   if (!opts.quiet) {
-    const present = [
-      sources.matrix ? "matrix" : null,
-      sources.replays.length ? `replay×${sources.replays.length}` : null,
-      sources.gate ? "gate" : null,
-      sources.compare ? "compare" : null,
-      sources.judge ? `judge×${sources.judge.data.counts?.judged ?? "?"}` : null,
-      sources.preflight ? "preflight" : null,
-    ].filter(Boolean);
+    const targetRun = sources.matrix?.data?.target?.mode === "owned-staging-contract";
+    const present = targetRun
+      ? [sources.matrix ? "target matrix" : null, sources.gate ? "target gate" : null].filter(Boolean)
+      : [
+          sources.matrix ? "matrix" : null,
+          sources.replays.length ? `replay×${sources.replays.length}` : null,
+          sources.gate ? "gate" : null,
+          sources.compare ? "compare" : null,
+          sources.judge ? `judge×${sources.judge.data.counts?.judged ?? "?"}` : null,
+          sources.preflight ? "preflight" : null,
+        ].filter(Boolean);
     log.info(
       present.length
         ? `rendered from: ${present.join(", ")}`
@@ -165,19 +168,11 @@ function renderHtml(s, outDir) {
   };
 
   const generatedAt = new Date();
-  const body = [
-    header(s, generatedAt),
-    disclaimers(),
-    gateSection(s.gate),
-    preflightSection(s.preflight),
-    failureStory(s.matrix, href),
-    matrixSection(s.matrix, href),
-    replaySection(s.replays, href),
-    compareSection(s.compare),
-    judgeSection(s.judge),
-    predictionSection(s.preflight, s.matrix, s.gate),
-    provenance(s, generatedAt),
-  ].join("\n");
+  const targetRun = s.matrix?.data?.target?.mode === "owned-staging-contract";
+  const body = (targetRun
+    ? [header(s, generatedAt), targetDisclaimers(), gateSection(s.gate), targetJourneySection(s.matrix, href), failureStory(s.matrix, href), matrixSection(s.matrix, href), provenance(s, generatedAt)]
+    : [header(s, generatedAt), disclaimers(), gateSection(s.gate), preflightSection(s.preflight), failureStory(s.matrix, href), matrixSection(s.matrix, href), replaySection(s.replays, href), compareSection(s.compare), judgeSection(s.judge), predictionSection(s.preflight, s.matrix, s.gate), provenance(s, generatedAt)]
+  ).join("\n");
 
   return `<!doctype html>
 <html lang="en">
@@ -202,14 +197,15 @@ ${body}
  */
 function header(s, generatedAt) {
   const m = s.matrix?.data;
+  const targetRun = m?.target?.mode === "owned-staging-contract";
   return `
 <section class="hero">
-  <p class="eyebrow">Proof of work · independent demo</p>
+  <p class="eyebrow">${targetRun ? "Authorized staging check · declared journey" : "Proof of work · independent demo"}</p>
   <h1>Atlas Replay Lab</h1>
   <p class="lede">
-    An adaptive WebAR-shaped experience that degrades on purpose, a capability-aware tier ladder,
-    a privacy-safe flight recorder, deterministic replay, and a decision layer with two
-    interchangeable engines behind one interface.
+    ${targetRun
+      ? `Release evidence for ${esc(m.target.contract.name)}. Atlas ran the configured selectors and policy on this authorized staging URL.`
+      : "An adaptive WebAR-shaped experience that degrades on purpose, a capability-aware tier ladder, a privacy-safe flight recorder, deterministic replay, and a decision layer with two interchangeable engines behind one interface."}
   </p>
   <div class="facts">
     ${fact("generated", generatedAt.toISOString())}
@@ -231,6 +227,15 @@ function disclaimers() {
 </section>`;
 }
 
+function targetDisclaimers() {
+  const items = [
+    ["Chromium emulation", "Profiles shape viewport, CPU and network conditions in desktop Chromium. They do not establish real Android/iPhone, Safari, radio, camera, GPU or thermal behavior."],
+    ["Authorized staging scope", "The local operator attested target authorization. Atlas checked top-level navigations against the contract; the local runner does not restrict subresource egress."],
+    ["Screenshot privacy", "Capture requires explicit consent and configured blur selectors. CSS redaction is not comprehensive; inspect every image before sharing. Hosted isolation and retention controls are not part of this CLI."],
+  ];
+  return `<section><h2>Evidence scope</h2><div class="disclaimers">${items.map(([title, body]) => `<div class="disclaimer"><h3>${esc(title)}</h3><p>${esc(body)}</p></div>`).join("")}</div></section>`;
+}
+
 /** @param {any} gate */
 function gateSection(gate) {
   if (!gate) {
@@ -244,14 +249,14 @@ function gateSection(gate) {
 <section>
   <h2>Release decision</h2>
   <div class="verdict ${g.shipped ? "ship" : "hold"}">
-    <span class="verdict-word">${g.shipped ? "SHIP" : "HOLD"}</span>
+    <span class="verdict-word">${esc(g.targetDecision?.verdict ?? (g.shipped ? "SHIP" : "HOLD"))}</span>
     <span class="verdict-counts">
       ${g.counts.blocks} blocking · ${g.counts.warnings} warning · ${g.counts.info} informational
       across ${g.counts.graded} graded run${g.counts.graded === 1 ? "" : "s"}
     </span>
   </div>
   <p class="rule">${esc(g.rule.summary)}</p>
-  <p class="note">${esc(g.rule.baselineExcluded)}</p>
+  <p class="note">${esc(g.targetDecision ? "Target gate evaluates the configured customer journey, required fallback profiles and target score floor. No router baseline or customer-input replay is claimed." : g.rule.baselineExcluded)}</p>
   ${
     g.findings.length
       ? `<table>
@@ -285,9 +290,43 @@ function gateSection(gate) {
  * @param {any} matrix
  * @param {(p: string | null) => string | null} href
  */
+function targetJourneySection(matrix, href) {
+  if (!matrix || matrix.data.target?.mode !== "owned-staging-contract") return "";
+  const m = matrix.data;
+  const contract = m.target.contract;
+  const decision = m.targetDecision;
+  const rows = m.runs.map((r) => {
+    const journey = r.drive?.journeyOutcome ?? "inconclusive";
+    const shots = Object.entries(r.screenshots ?? {}).map(([id, file]) => `<a href="${esc(href(file) ?? "")}">${esc(id)}</a>`).join(" · ");
+    const steps = (r.drive?.steps ?? []).map((step) => `${esc(step.type)}: ${esc(step.selector ?? step.reason ?? "")} — ${esc(step.outcome)}`).join("<br>");
+    return `<tr>
+      <td class="mono">${esc(r.profileId)}<div class="small dim">${esc(r.label)}</div></td>
+      <td><span class="pill ${journey === "pass" ? "ok" : journey === "fail" ? "block" : "warn"}">${esc(journey)}</span><div class="small">${steps || esc(r.drive?.error ?? "No journey evidence")}</div></td>
+      <td class="num">${r.targetScore ?? "—"}</td><td class="num">${ms(r.metrics?.firstFrameMs)}</td><td class="num">${ms(r.metrics?.p95InteractionMs)}</td>
+      <td>${shots || `<span class="dim">screenshots withheld/not captured</span>`}</td>
+      <td>${r.tracePath ? `<a href="${esc(href(r.tracePath) ?? "")}">trace</a>` : `<span class="dim">none</span>`}</td>
+    </tr>`;
+  });
+  return `<section>
+  <h2>Owned staging journey</h2>
+  <div class="verdict ${decision?.verdict === "SHIP" ? "ship" : "hold"}">
+    <span class="verdict-word">${esc(decision?.verdict ?? "INCONCLUSIVE")}</span>
+    <span class="verdict-counts">policy ${esc(decision?.policyVersion ?? "?")} · required ${esc((decision?.requiredProfiles ?? []).join(", "))}</span>
+  </div>
+  <p class="rule">${esc(contract.name)} · ${esc(contract.id)} · ${esc(contract.environment)} · target ${esc(m.target.url)} · app build ${esc(contract.buildId ?? "not supplied")} · Atlas build ${esc(m.runnerBuildId ?? "not supplied")}</p>
+  <p class="note">Authorization was attested by the local operator, not independently verified. Page media consent: ${contract.mediaConsent ? "yes" : "no"}; camera/microphone APIs are denied unless opted in. Screenshot consent: ${contract.screenshotConsent ? "yes" : "no"}. Configured redaction selectors are blurred before capture; inspect images before sharing.</p>
+  <div class="target-table-wrap"><table><thead><tr><th>profile</th><th>declared journey evidence</th><th>score</th><th>first frame</th><th>p95 input</th><th>screenshots</th><th>trace</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>
+  <p class="note">Chromium/CDP emulation only. Top-level navigation origins are checked; subresource egress is not constrained by this local runner. Selector journeys are repeatable, not captured customer-input replay.</p>
+  <p class="source">Contract schema ${contract.schemaVersion} · budgets ${contract.budgets?.journeyTimeoutMs ?? "?"}ms total / ${contract.budgets?.stepTimeoutMs ?? "?"}ms per step · source <code>${esc(rel(matrix.path))}</code></p>
+</section>`;
+}
+
 function failureStory(matrix, href) {
   if (!matrix) {
     return notRun("The failure story", "node bin/atlas.js matrix", "No matrix has been captured, so there is no before and after to compare.");
+  }
+  if (matrix.data.target?.mode === "owned-staging-contract") {
+    return `<section><h2>Before/after comparison</h2><p class="note">This report covers one target build. Compare separate reports with the same contract and profile to attribute a change to the customer app; this run does not claim a replayable captured customer-input stream.</p></section>`;
   }
   const story = matrix.data.summary.failureStory;
   if (story?.unavailable) {
@@ -395,6 +434,7 @@ function matrixSection(matrix, href) {
   }
   const m = matrix.data;
   const budgets = m.budgets;
+  const targetRun = m.target?.mode === "owned-staging-contract";
 
   const rows = m.runs.map((/** @type {any} */ r) => {
     const met = r.metrics;
@@ -419,15 +459,15 @@ function matrixSection(matrix, href) {
 <section>
   <h2>Capability matrix</h2>
   <p class="lede">
-    ${m.runs.length} runs — the six profiles plus the bypassed baseline — executed sequentially,
-    never in parallel, because CPU throttling is a whole-browser setting and two throttled
-    renderers on one machine contend for the same cores.
+    ${targetRun
+      ? `${m.runs.length} target profile runs executed sequentially against the same declared staging contract.`
+      : `${m.runs.length} runs — the six profiles plus the bypassed baseline — executed sequentially, never in parallel, because CPU throttling is a whole-browser setting and two throttled renderers on one machine contend for the same cores.`}
   </p>
   <table class="matrix">
     <thead><tr>
       <th>run</th><th>served</th><th>verdict</th>
       <th class="num">first frame</th><th class="num">TTI</th><th class="num">p95 tap</th>
-      <th class="num">transfer</th><th class="num">checkout</th><th class="num">non-blank</th><th></th>
+      <th class="num">transfer</th><th class="num">${targetRun ? "target session complete" : "checkout"}</th><th class="num">non-blank</th><th></th>
     </tr></thead>
     <tbody>${rows.join("\n")}</tbody>
   </table>
@@ -850,6 +890,10 @@ function judgeSection(judge) {
  */
 function provenance(s, generatedAt) {
   const env = s.matrix?.data?.environment;
+  const targetRun = s.matrix?.data?.target?.mode === "owned-staging-contract";
+  const reproduce = targetRun
+    ? `node examples/start-staging-scene.js\nnode bin/atlas.js matrix --target examples/target-contract.json\nnode bin/atlas.js gate`
+    : "git clone <repo> && cd atlas-replay-lab\nnode bin/atlas.js doctor\nnode bin/atlas.js all";
   return `
 <section>
   <h2>Provenance</h2>
@@ -870,21 +914,18 @@ function provenance(s, generatedAt) {
   </table>
 
   <h3>Reproduce the whole thing</h3>
-  <pre><code>git clone &lt;repo&gt; &amp;&amp; cd atlas-replay-lab
-node bin/atlas.js doctor
-node bin/atlas.js all</code></pre>
+  <pre><code>${esc(reproduce)}</code></pre>
   <p class="note">
-    No dependencies to install, no API key, no network access beyond localhost. Chrome (or
-    Chromium, or Edge) must be installed; set <code>ATLAS_CHROME</code> if detection fails.
+    ${targetRun
+      ? "This report includes an authorized target's observed artifacts. The staging URL may involve network access beyond localhost; verify permission and review screenshots before sharing. The local CLI does not provide hosted SSRF protection."
+      : "No dependencies to install, no API key, no network access beyond localhost. Chrome (or Chromium, or Edge) must be installed; set ATLAS_CHROME if detection fails."}
   </p>
 </section>
 
 <footer>
-  <p>
-    Atlas Replay Lab — an independent demo. Not affiliated with, endorsed by, or integrated with
-    Flam or TypeSafe AI. Every vendor figure quoted here is attributed to its vendor and has not
-    been independently verified by this project.
-  </p>
+  <p>${targetRun
+    ? "Atlas Replay Lab · local staging QA evidence. No third-party integration or affiliation is represented."
+    : "Atlas Replay Lab · independent evidence demo. Vendor claims, when present, are attributed and have not been independently verified."}</p>
 </footer>`;
 }
 
@@ -1079,6 +1120,8 @@ tr.sev-block td { background: rgba(255,107,107,0.04); }
 .shots figure { margin: 0; }
 .shots figcaption { font-size: 11px; color: var(--dim); margin-bottom: 6px; font-family: ui-monospace, monospace; }
 .shots img { width: 100%; border: 1px solid var(--line); border-radius: 4px; background: #000; display: block; }
+.target-table-wrap { max-width: 100%; overflow-x: auto; }
+.target-table-wrap table { min-width: 820px; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; margin-bottom: 16px; }
@@ -1097,6 +1140,8 @@ summary { cursor: pointer; color: var(--accent); font-size: 13px; }
 footer { border-top: 1px solid var(--line); padding-top: 18px; color: var(--dim); font-size: 12px; max-width: 86ch; }
 
 @media (max-width: 760px) {
+  main { padding: 28px 16px 60px; }
+  .verdict { flex-wrap: wrap; gap: 8px 14px; }
   .story { grid-template-columns: 1fr; }
   .story-arrow { justify-content: center; transform: rotate(90deg); }
 }

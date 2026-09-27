@@ -127,6 +127,33 @@ export async function runGate(opts = {}) {
   }
 
   const matrix = await readJson(matrixPath);
+  if (matrix.targetDecision) {
+    const decision = matrix.targetDecision;
+    const findings = [
+      ...decision.evidence.filter((item) => item.journey === "fail" || (item.score !== null && item.score < (matrix.target?.contract?.policy?.minimumScore ?? 0))).map((item) => ({
+        severity: "block", rule: "target-journey", runId: item.runId ?? item.profileId,
+        message: `${item.profileId}: declared staging journey failed or Atlas score is below policy`, evidence: item,
+      })),
+      ...decision.evidence.filter((item) => !item.runId || item.error || item.journey === null || item.score === null).map((item) => ({
+        severity: "block", rule: "target-evidence", runId: item.runId ?? item.profileId,
+        message: `${item.profileId}: required target evidence is missing or inconclusive`, evidence: item,
+      })),
+    ];
+    const shipped = decision.verdict === "SHIP" && findings.length === 0;
+    const report = {
+      kind: "atlas.release-gate", schemaVersion: 1, generatedAtIso: new Date().toISOString(),
+      reproduce: "node bin/atlas.js gate", decision: decision.verdict.toLowerCase(), shipped,
+      rule: { summary: "Target policy requires every critical profile journey to pass and meet its configured Atlas score floor.", policyVersion: decision.policyVersion, basis: decision.basis, target: matrix.target?.contract?.id ?? null, criticalProfiles: decision.requiredProfiles },
+      source: { matrixReport: rel(matrixPath), replayReport: null, matrixStartedAtIso: matrix.startedAtIso ?? null, engine: matrix.engine ?? null, manifestHash: matrix.manifest?.contentHash ?? null },
+      counts: { graded: decision.evidence.length, blocks: findings.length, warnings: 0, info: 0 }, findings,
+      targetDecision: decision,
+    };
+    const outDir = opts.outDir ?? GATE_DIR;
+    const reportPath = path.join(outDir, "report.json");
+    await writeJson(reportPath, report);
+    if (!opts.quiet) printGate(report, reportPath);
+    return { report, reportPath, shipped, findings };
+  }
   const replay = await loadReplay(opts.replayReportPath);
 
   // The bar comes from the manifest the matrix ran against, selected by
