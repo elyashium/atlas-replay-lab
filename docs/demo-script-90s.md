@@ -21,13 +21,13 @@ that anyone's existing tooling is missing it. Open with the failure.
 > "This is one WebAR-style experience under a throttled Android profile — four
 > slow cores, 1.1 megabits, 380 millisecond round trip. The quality ladder is
 > bypassed here, so it's serving the high tier to a device that can't carry it.
-> First frame lands at ‹point at `firstFrameMs`›, and the frame it lands is
-> blank. Checkout is never reached."
+> First frame lands at ‹point at `firstFrameMs`›. It reaches checkout, but only
+> after ‹point at `timeToInteractiveMs`›, with ‹point at `droppedFrameRatio`›
+> dropped frames. This is the deliberately forced-high failure case."
 
-*Point at `firstFrameNonBlank: false` specifically.*
+*Point at the baseline verdict and captured timings specifically.*
 
-> "That last part is the one a timing dashboard misses. A fast blank frame looks
-> like a win."
+> "The failure is measurable and replayable; it isn't inferred from a score."
 
 ## 0:12 – 0:30 — The same device, one difference
 
@@ -38,8 +38,9 @@ that anyone's existing tooling is missing it. Open with the failure.
 
 *Point at `servedTier`, then at the metrics.*
 
-> "It routed down, resolved a fallback path, and now ‹read the after numbers off
-> the report›. Checkout completes."
+> "It routed to low and the camera-free 2D path, then reached checkout. Read the
+> first-frame, TTI, interaction, and dropped-frame values from this run. It's
+> degraded-but-acceptable, not a perfect pass."
 
 ## 0:30 – 0:48 — The ladder is data, not conditionals
 

@@ -187,15 +187,14 @@ which this is not a substitute for.
 
 ## Current local proof status
 
-The Orbital matrix and release report are useful local evidence, but the latest
-measured run does **not** establish a clean baseline-failure/adaptive-pass
-story: the baseline and adaptive profile were both labeled
-`degraded-but-acceptable`, replay screenshots exceeded tolerance, and the gate
-returned HOLD. The no-WebGL profile failed its first-frame visual invariant.
-See [the Phase 0 evidence record](docs/evidence/phase0-2026-09-26.md) for
-per-profile measurements and limitations. Treat `artifacts/report.html` as the
-source for a particular local run; do not describe Phase 0 as complete until a
-fresh run supports the claim.
+The latest local run produced a failing forced-high baseline, a
+degraded-but-acceptable adaptive low-CPU result, pixel-identical baseline and
+adaptive replay checkpoints, and a SHIP gate. The camera-denied and no-WebGL
+profiles also passed with their intended 2D fallback. These are local Chromium
+emulations, not handset tests. The generated report still needs desktop/mobile
+visual review, and no screen recording has been captured. See [the Phase 0
+evidence record](docs/evidence/phase0-2026-09-27.md) for per-profile
+measurements, commands, and limits; do not infer a hosted workflow from it.
 
 ## Commands
 

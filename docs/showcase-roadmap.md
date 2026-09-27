@@ -3,7 +3,7 @@
 This roadmap replaces the old visitor showcase plan. Atlas is for Web3D, WebAR,
 and interactive commerce teams that need evidence for a release decision. It is
 not a generic XR builder. See [`product-brief.md`](product-brief.md) for the
-product direction and [Phase 0 evidence](evidence/phase0-2026-09-26.md) for the
+product direction and [Phase 0 evidence](evidence/phase0-2026-09-27.md) for the
 latest measured local run.
 
 ## Existing CLI foundation
@@ -26,12 +26,14 @@ for the product, not a complete customer workflow.
 
 ## Phase 0 — trustworthy local proof
 
-**Current status: incomplete.** Portable test discovery and local fixes are in
-place, and the latest environment passed the unit suite and `doctor`. The full
-Orbital run produced HOLD: its adaptive profile missed declared timing budgets,
-the WebGL-unavailable lane failed its visual invariant, and replay screenshots
-did not reproduce within tolerance. See the evidence note for metrics and exact
-limits. No clean before/after recording is claimed.
+**Current status: local proof measured; phase evidence still incomplete.** The
+latest environment passed 260/260 unit tests and `doctor`. The seven-profile
+Orbital run produced SHIP under the severe-only timing policy: the forced-high
+baseline failed, the adaptive low-CPU run was degraded-but-acceptable, the
+camera-denied and WebGL-unavailable fallbacks passed, and both replay runs
+matched all checkpoints pixel-for-pixel. The report's desktop/mobile layout has
+not been visually reviewed and no short screen recording is claimed. See the
+evidence note for exact metrics and emulation limits.
 
 Exit only when a fresh baseline exposes a meaningful declared-budget failure,
 the adaptive result meets the stated policy, captured journeys replay within
