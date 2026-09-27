@@ -17,17 +17,19 @@ flowchart LR
 
 `apps/control-plane` is a separate package using Fastify and PostgreSQL. It has
 a responsive same-origin browser UI; password account creation and login;
-organization membership and owner setup; project creation; a JSON editor for
-the existing versioned target contract; an HTTPS staging target onboarding
-record with a DNS TXT ownership challenge; and organization-scoped project,
-target, and run status API routes. A target must pass the DNS challenge before
+organization membership and owner setup; project creation; a guided editor for
+the existing versioned target contract (with an advanced JSON view); an
+explicit staging authorization attestation; critical emulation profile
+selection; screenshot consent defaulted off with redaction selectors; an HTTPS
+staging target onboarding record with a DNS TXT ownership challenge; and
+organization-scoped project, target, and run status API routes. A target must pass the DNS challenge before
 the API will create a queued run record. Each run stores a snapshot of the
 validated contract, selected policy version, requestor, and a 30-day expiry
 timestamp. A required idempotency key maps request retries back to the same run
 row. The server purges expired sessions, share-link records, and non-running
-run rows hourly; that code has unit coverage but was not exercised against
-PostgreSQL. The run stays `queued` and has no verdict because no worker is
-connected.
+run rows hourly. The integration test exercised deletion of expired run and
+artifact metadata rows against PostgreSQL. The run stays `queued` and has no
+verdict because no worker is connected.
 
 The API enforces organization membership in each read/write path, scopes SQL by
 organization ID, hashes opaque session tokens in Postgres, uses an HttpOnly,
@@ -80,10 +82,12 @@ database, or this setup to the public internet.
 - `node bin/atlas.js doctor`: **passed**; Node 20.18.0 and Chrome 154.0.8037.57
   were found and CDP connected.
 - `npm run preview:screenshots` (in `apps/control-plane`): **passed** through
-  the existing CDP harness. At desktop 1440×1100, document width was 1440 px;
-  at emulated mobile 390×844 CSS px (DPR 2), document width was 390 px, with no
-  horizontal overflow. Both captures were visually inspected. Artifacts are
-  ignored under `artifacts/control-plane-{desktop,mobile}.png`.
+  the existing CDP harness after creating and cleaning up a disposable local
+  account/project. Captures show the guided target form at desktop 1440×1100
+  and emulated mobile 390×844 CSS px (DPR 2); document widths matched their
+  viewports, with no horizontal overflow. Both captures were visually
+  inspected. Artifacts are ignored under
+  `artifacts/control-plane-wizard-{desktop,mobile}.png`.
 - `npm run migrate` (in `apps/control-plane`): **passed** against the local
   PostgreSQL 17 container and applied `001_initial`. The real integration test
   proves the tested query paths, not a comprehensive tenant-isolation audit or

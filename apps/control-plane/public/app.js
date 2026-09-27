@@ -20,7 +20,7 @@ async function api(path, options = {}) {
   const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
   if (response.status === 204) return null;
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error ?? `Request failed (${response.status})`);
+  if (!response.ok) throw new Error([payload.error ?? `Request failed (${response.status})`, ...(payload.issues ?? [])].join(" · "));
   return payload;
 }
 
@@ -177,33 +177,76 @@ function renderTarget(target) {
 
 function renderTargetForm() {
   const form = document.createElement("form"); form.className = "target-form";
-  const label = document.createElement("label"); label.textContent = "Versioned target contract (JSON)";
-  const textarea = document.createElement("textarea"); textarea.name = "contract"; textarea.spellcheck = false; textarea.setAttribute("aria-label", label.textContent);
-  textarea.value = JSON.stringify(contractTemplate(), null, 2); label.append(textarea);
-  const note = document.createElement("small"); note.textContent = "Use the contract from your app's test environment; query tokens and credentials are rejected.";
+  form.innerHTML = `
+    <p class="section-title">DEFINE THE RELEASE CHECK</p>
+    <label>Experience name<input name="targetName" value="Owned Web3D staging" maxlength="120" required></label>
+    <label>Owned staging URL<input name="targetUrl" type="url" value="https://staging.example.com/" autocomplete="url" required><small>HTTPS only. No credentials, query tokens, or fragments.</small></label>
+    <label>Build or deployment ID<input name="buildId" value="replace-with-deployment-id" maxlength="128" required></label>
+    <label>Success selector<input name="successSelector" value="[data-experience-ready]" required><small>Visible evidence that the declared experience is ready.</small></label>
+    <label>Safe fallback selector<input name="fallbackSelector" value="[data-static-fallback]" required><small>Checked on the selected WebGL-unavailable profile.</small></label>
+    <label class="check-option"><input type="checkbox" name="authorizationConsent" required> I own this staging target or have permission to test it</label>
+    <fieldset class="profile-options"><legend>Critical emulation profiles</legend>
+      <label><input type="checkbox" name="profiles" value="high-wifi" checked> Desktop-class / Wi-Fi</label>
+      <label><input type="checkbox" name="profiles" value="low-cpu-3g" checked> Low-CPU / constrained 3G</label>
+      <label><input type="checkbox" name="profiles" value="webgl-unavailable" checked> WebGL unavailable / fallback</label>
+    </fieldset>
+    <label class="check-option"><input type="checkbox" name="screenshotConsent"> Allow page screenshots for this target</label>
+    <label>Selectors to redact in screenshots<input name="redactSelectors" value="[data-private]" placeholder="[data-private], #email"><small>Required if screenshot capture is enabled. Review still applies.</small></label>
+    <details class="advanced-contract"><summary>Advanced · edit the versioned target contract</summary><label>Contract JSON<textarea name="contract" spellcheck="false" aria-label="Advanced target contract JSON"></textarea></label></details>
+  `;
+  const textarea = form.elements.contract;
+  let advancedEdited = false;
+  const buildContract = () => {
+    const values = new FormData(form);
+    const targetUrl = new URL(String(values.get("targetUrl")));
+    const profiles = values.getAll("profiles").map(String);
+    const name = String(values.get("targetName")).trim();
+    const slug = `studio-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 54) || "staging"}`;
+    const screenshots = values.get("screenshotConsent") === "on";
+    const redactSelectors = String(values.get("redactSelectors") ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+    return {
+      schemaVersion: 1,
+      id: slug,
+      name,
+      environment: "staging",
+      authorization: { authorized: values.get("authorizationConsent") === "on", note: "I confirm that I am authorized to test this staging hostname" },
+      target: { url: targetUrl.href, allowedOrigins: [targetUrl.origin], buildId: String(values.get("buildId")).trim() },
+      journey: {
+        steps: [{ type: "waitForVisible", selector: String(values.get("successSelector")).trim(), timeoutMs: 15000 }],
+        success: { selector: String(values.get("successSelector")).trim() },
+        fallback: { selector: String(values.get("fallbackSelector")).trim(), requiredOn: profiles.includes("webgl-unavailable") ? ["webgl-unavailable"] : [] },
+      },
+      profiles,
+      budgets: { journeyTimeoutMs: 45000, stepTimeoutMs: 12000 },
+      mediaConsent: false,
+      policy: { version: "1", criticalProfiles: profiles, minimumScore: 50 },
+      screenshots: { consent: screenshots, redactSelectors: screenshots ? redactSelectors : [] },
+    };
+  };
+  const refreshContract = () => {
+    if (advancedEdited) return;
+    try { textarea.value = JSON.stringify(buildContract(), null, 2); } catch { /* keep editing incomplete fields */ }
+  };
+  form.addEventListener("input", (event) => {
+    if (event.target === textarea) advancedEdited = true;
+    else { advancedEdited = false; refreshContract(); }
+  });
+  form.addEventListener("change", (event) => {
+    if (event.target !== textarea) { advancedEdited = false; refreshContract(); }
+  });
+  refreshContract();
   const submit = document.createElement("button"); submit.className = "primary"; submit.type = "submit"; submit.textContent = "Register target";
-  form.append(label, note, submit);
+  const helper = document.createElement("small"); helper.textContent = "Domain ownership is checked through a DNS TXT challenge. This confirms control of the hostname; it does not mean a browser run has happened.";
+  form.append(helper, submit);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
-      const contract = JSON.parse(textarea.value);
+      const contract = advancedEdited ? JSON.parse(textarea.value) : buildContract();
       await api(`/v1/projects/${selectedProject}/targets`, { method: "POST", body: JSON.stringify({ contract }) });
       await loadProject(selectedProject);
     } catch (error) { window.alert(error instanceof SyntaxError ? "Contract must be valid JSON." : error.message); }
   });
   projectDetail.append(form);
-}
-
-function contractTemplate() {
-  return {
-    schemaVersion: 1, id: "studio-staging", name: "Owned Web3D staging", environment: "staging",
-    authorization: { authorized: true, note: "I am authorized to test this staging hostname" },
-    target: { url: "https://staging.example.com/", allowedOrigins: ["https://staging.example.com"], buildId: "replace-with-deployment-id" },
-    journey: { steps: [{ type: "waitForVisible", selector: "[data-experience-ready]", timeoutMs: 15000 }], success: { selector: "[data-experience-ready]" }, fallback: { selector: "[data-static-fallback]", requiredOn: ["webgl-unavailable"] } },
-    profiles: ["high-wifi", "low-cpu-3g", "webgl-unavailable"], budgets: { journeyTimeoutMs: 45000, stepTimeoutMs: 12000 }, mediaConsent: false,
-    policy: { version: "1", criticalProfiles: ["high-wifi", "low-cpu-3g", "webgl-unavailable"], minimumScore: 50 },
-    screenshots: { consent: false, redactSelectors: [] },
-  };
 }
 
 api("/v1/me").then(({ organizations: list }) => {

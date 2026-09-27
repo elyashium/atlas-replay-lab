@@ -48,6 +48,19 @@ small { font-weight: 400; color: var(--muted); }
 .status-dot { flex: 0 0 8px; height: 8px; background: var(--amber); border-radius: 50%; margin-top: 4px; }
 .section-title { margin: 28px 0 12px; font: 500 10px ui-monospace,monospace; letter-spacing: .12em; color: var(--muted); text-transform: uppercase; }
 .target-form { display: grid; gap: 12px; }
+.target-form > .section-title { margin: 14px 0 2px; }
+.target-form label { min-width: 0; }
+.target-form label > small { font-size: 11px; line-height: 1.45; }
+.profile-options { min-width: 0; margin: 2px 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 11px; }
+.profile-options legend { padding: 0 5px; font-size: 11px; font-weight: 700; color: #354442; }
+.profile-options label, .check-option { display: flex; align-items: flex-start; gap: 9px; font-size: 12px; line-height: 1.45; font-weight: 600; }
+.profile-options input[type="checkbox"], .check-option input[type="checkbox"] { flex: 0 0 16px; width: 16px; height: 16px; margin: 1px 0 0; accent-color: var(--green); }
+.check-option { padding: 11px 12px; background: #f8faf8; border: 1px solid var(--line); border-radius: 8px; }
+.advanced-contract { min-width: 0; border-top: 1px solid var(--line); padding-top: 12px; }
+.advanced-contract summary { width: fit-content; cursor: pointer; color: var(--green); font-size: 12px; font-weight: 700; }
+.advanced-contract label { margin-top: 12px; }
+.target-form > small { line-height: 1.5; }
+.target-form > .primary { justify-self: start; min-height: 40px; }
 .target-form textarea { font: 12px/1.5 ui-monospace,monospace; min-height: 230px; resize: vertical; }
 .target-card, .run-card { border-top: 1px solid var(--line); padding: 13px 0; font-size: 12px; }
 .target-card strong, .run-card strong { font-size: 13px; }
