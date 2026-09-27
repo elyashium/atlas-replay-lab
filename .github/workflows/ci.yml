@@ -20,8 +20,25 @@ jobs:
       - run: npm test
 
   control-plane:
-    # Separate dependency boundary; no browser worker or external service is started.
+    # Separate dependency boundary; PostgreSQL is local to CI and no browser worker is started.
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: atlas
+          POSTGRES_USER: atlas
+          POSTGRES_PASSWORD: ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U atlas -d atlas"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://atlas:ci-only@localhost:5432/atlas
+      ATLAS_APP_ORIGIN: http://127.0.0.1:3000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,4 +47,5 @@ jobs:
           cache: npm
           cache-dependency-path: apps/control-plane/package-lock.json
       - run: npm ci --prefix apps/control-plane
+      - run: npm run migrate --prefix apps/control-plane
       - run: npm test --prefix apps/control-plane

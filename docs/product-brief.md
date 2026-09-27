@@ -83,15 +83,19 @@ ownership challenges for HTTPS targets, and tenant-scoped run records in
 Postgres. Target contracts are validated by the existing CLI contract module
 and snapshotted into run records. A requested run remains `queued`; the API
 states that no browser execution has happened and does not produce a verdict.
+API retries use an idempotency key, and the server purges expired Postgres run
+and session metadata; blob/backups deletion is not yet connected. A local
+Postgres integration test covers one cross-organization access path and this
+metadata purge, not a full security audit.
 See [`evidence/phase2-control-plane-2026-09-27.md`](evidence/phase2-control-plane-2026-09-27.md).
 
 Still required before hosted execution or launch: isolated ephemeral Chrome
 workers with sequential profiles, DNS-rebinding-resistant egress enforcement
 for navigation/redirects/subresources, upload validation and limits, immutable
-object storage, retries/cancellation/idempotency, quotas/timeouts, private and
+object storage, worker retries/cancellation, quotas/timeouts, private and
 revocable client report sharing, end-to-end tenant isolation tests, enforced
-retention and audit review, backups/deletion tests, and a real Postgres-backed
-onboarding-to-report test. The current DNS lookup is only an onboarding check;
+retention of object data/backups and audit review, backups/deletion tests, and a
+Postgres-backed onboarding-to-report test. The current DNS lookup is only an onboarding check;
 it is not an SSRF defense for a browser worker. Do not deploy this slice as a
 public arbitrary-URL service.
 

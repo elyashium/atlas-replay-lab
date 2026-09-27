@@ -1,0 +1,12 @@
+-- Destructive rollback for an empty/local development database only.
+DROP TABLE IF EXISTS audit_events CASCADE;
+DROP TABLE IF EXISTS share_links CASCADE;
+DROP TABLE IF EXISTS artifacts CASCADE;
+DROP TABLE IF EXISTS runs CASCADE;
+DROP TABLE IF EXISTS targets CASCADE;
+DROP TABLE IF EXISTS projects CASCADE;
+DROP TABLE IF EXISTS sessions CASCADE;
+DROP TABLE IF EXISTS memberships CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS organizations CASCADE;
+DROP TABLE IF EXISTS schema_migrations CASCADE;

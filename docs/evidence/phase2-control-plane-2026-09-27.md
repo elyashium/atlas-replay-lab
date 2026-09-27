@@ -1,4 +1,17 @@
-# Phase 2 local control-plane slice — 2026-09-27
+# Phase 2 local control-plane slice — 2026-09-27–28
+
+## Current architecture boundary
+
+```mermaid
+flowchart LR
+  User[Studio user] --> UI[Same-origin web UI]
+  UI --> API[Fastify API and session auth]
+  API --> DB[(PostgreSQL: orgs, targets, queued runs, audit)]
+  API --> DNS[DNS ownership challenge]
+  DB -. queued rows only .-> Worker[Isolated Chrome worker: not implemented]
+  Worker -. future .-> Objects[(Private object storage: not implemented)]
+  Objects -. future .-> Report[Private evidence report: not implemented]
+```
 
 ## What exists
 
@@ -56,10 +69,14 @@ database, or this setup to the public internet.
 
 - `npm test` (repository root): **264/264 CLI tests passed**, using the
   dependency-free `scripts/test-core.js` runner. Node 20.18.0, Windows x64.
-- `npm test` (in `apps/control-plane`): **11/11 control-plane unit/API tests
-  passed**, including cookie/password helpers, target URL restrictions,
-  same-origin write protection, membership denial, organization-scoped project
-  reads, and database-unavailable health behavior.
+- `npm test` (in `apps/control-plane` with local `DATABASE_URL`): **13/13
+  tests passed**, including one real Postgres flow across account/org/project,
+  mocked DNS ownership verification, idempotent queued records, cross-org read
+  denial, and retention deletion of run/artifact metadata. Other tests cover
+  password/cookie helpers, same-origin writes, project scoping, and health.
+- `npm ci --offline` (in `apps/control-plane`): **passed**, installed the locked
+  dependency tree and reported **0 known vulnerabilities** from the local npm
+  advisory cache.
 - `node bin/atlas.js doctor`: **passed**; Node 20.18.0 and Chrome 154.0.8037.57
   were found and CDP connected.
 - `npm run preview:screenshots` (in `apps/control-plane`): **passed** through
@@ -67,11 +84,11 @@ database, or this setup to the public internet.
   at emulated mobile 390×844 CSS px (DPR 2), document width was 390 px, with no
   horizontal overflow. Both captures were visually inspected. Artifacts are
   ignored under `artifacts/control-plane-{desktop,mobile}.png`.
-- `npm run migrate` was attempted with the local compose connection string and
-  failed with `ECONNREFUSED 127.0.0.1:5432`. Docker is installed but its Linux
-  engine daemon is unavailable in this environment. Registration-to-target-to-
-  run flow was therefore not run against PostgreSQL. Tests use an injected fake
-  query interface; they do not prove database isolation or migration validity.
+- `npm run migrate` (in `apps/control-plane`): **passed** against the local
+  PostgreSQL 17 container and applied `001_initial`. The real integration test
+  proves the tested query paths, not a comprehensive tenant-isolation audit or
+  the hosted network boundary. DNS answers/TXT were stubbed to avoid contacting
+  or running an outside studio target.
 - No queue consumer/browser worker, report renderer, artifact object store,
   client-share flow, real run metrics, or release verdict was exercised.
 
@@ -82,13 +99,13 @@ rebinding, redirect pivots, private subresources, metadata services, or unsafe
 downloads. There is no worker network namespace or outbound allowlist. Browser
 execution is deliberately absent. There is no S3-compatible storage, artifact
 content-serving endpoint, job retry/cancellation, quotas, distributed
-rate limiting, tested PostgreSQL retention/deletion, backup deletion proof, expiring
+rate limiting, backup/blob deletion proof, expiring
 revocable report links, MFA/recovery, deployment hardening, or end-to-end
 second-tenant attack test. The current session/password implementation has no
 email verification or recovery and should receive a security review before
-hosting. The scheduled purge only covers PostgreSQL session, share-link, and
-non-running run rows; it does not purge blobs or backups and has not been
-validated against a live database.
+hosting. The scheduled purge covers PostgreSQL session, share-link, and
+non-running run rows, and the integration test exercised the row/metadata
+deletion path. There are no blobs or backups connected to purge yet.
 
 This is a local development control-plane foundation; it is not a hosted MVP
 and not production ready.
