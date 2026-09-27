@@ -65,6 +65,7 @@ CREATE TABLE runs (
   contract_version text NOT NULL,
   contract_snapshot jsonb NOT NULL,
   requested_by uuid NOT NULL REFERENCES users(id),
+  idempotency_key text NOT NULL CHECK (length(idempotency_key) BETWEEN 8 AND 128),
   created_at timestamptz NOT NULL DEFAULT now(),
   started_at timestamptz,
   finished_at timestamptz,
@@ -75,6 +76,7 @@ CREATE TABLE runs (
     REFERENCES targets(organization_id, id) ON DELETE CASCADE,
   UNIQUE (organization_id, id)
 );
+CREATE UNIQUE INDEX runs_idempotency_idx ON runs(organization_id, idempotency_key);
 CREATE INDEX runs_queue_idx ON runs(status, created_at) WHERE status = 'queued';
 CREATE INDEX runs_retention_idx ON runs(retention_expires_at);
 CREATE INDEX runs_project_idx ON runs(organization_id, project_id, created_at DESC);

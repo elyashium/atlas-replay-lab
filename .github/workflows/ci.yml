@@ -18,3 +18,16 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm test
+
+  control-plane:
+    # Separate dependency boundary; no browser worker or external service is started.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/control-plane/package-lock.json
+      - run: npm ci --prefix apps/control-plane
+      - run: npm test --prefix apps/control-plane

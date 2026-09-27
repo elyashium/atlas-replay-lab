@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Single entry point: `node bin/atlas.js`. Zero dependencies by design (ADR-0002: hand-rolled CLI args, CDP over hand-written WebSocket) — do not add any. ESM (`"type": "module"`), Node ≥ 18.17, no install/build step, no lint. CI (`.github/workflows/ci.yml`) runs unit suites only — no network, browser, or key.
+CLI entry point: `node bin/atlas.js`. The CLI/core package remains zero-dependency by design (ADR-0002: hand-rolled CLI args, CDP over hand-written WebSocket); do not add control-plane dependencies to the root package. The separate Phase 2 app at `apps/control-plane` has its own Fastify/PostgreSQL dependencies and commands. ESM (`"type": "module"`), CLI Node ≥ 18.17; control plane Node ≥ 20. CI runs unit suites only — no target browser worker, network, or key.
 
 ## First commands
 
@@ -15,9 +15,10 @@ Single entry point: `node bin/atlas.js`. Zero dependencies by design (ADR-0002: 
 
 ## Tests
 
-- `npm test` = `node --test tests/`. No network, no browser, no key.
+- `npm test` runs `scripts/test-core.js`, which explicitly launches the root `tests/*.test.js` suite. No network, browser, control-plane dependencies, or key.
 - Focused: `node --test tests/<name>.test.js` (`manifest`, `decision`, `gate`, `trace`, `image`, `ws`, `generic`, `judge`, `preflight`, `jev-transport`, `viewer`, `matrix`, `report`).
 - `decision.test.js` builds fixtures in memory — never requires running `atlas fixtures` first.
+- Control plane: from the repo root, install with `npm install --prefix apps/control-plane`; run `npm test --prefix apps/control-plane`. PostgreSQL-backed local setup is in `docs/evidence/phase2-control-plane-2026-09-27.md`. Do not expose it publicly or enable browser workers; queue entries are not runs.
 ## Browser runs (matrix / replay / serve)
 
 - Requires installed Chrome or Edge; override with `ATLAS_CHROME=<exe path>`. Debug visibly with `ATLAS_HEADFUL=1`.

@@ -154,8 +154,16 @@ function renderTarget(target) {
   if (target.verified) {
     const run = document.createElement("button"); run.type = "button"; run.className = "primary"; run.textContent = "Queue run record";
     run.addEventListener("click", async () => {
-      try { await api(`/v1/targets/${target.id}/runs`, { method: "POST", body: "{}" }); await loadProject(selectedProject); }
-      catch (error) { window.alert(error.message); }
+      const keyName = `atlas.run-idem.${target.id}`;
+      const idempotencyKey = sessionStorage.getItem(keyName) ?? crypto.randomUUID();
+      sessionStorage.setItem(keyName, idempotencyKey);
+      run.disabled = true;
+      try {
+        await api(`/v1/targets/${target.id}/runs`, { method: "POST", headers: { "idempotency-key": idempotencyKey }, body: "{}" });
+        sessionStorage.removeItem(keyName);
+        await loadProject(selectedProject);
+      } catch (error) { window.alert(error.message); }
+      finally { run.disabled = false; }
     }); card.append(run);
   } else {
     const verify = document.createElement("button"); verify.type = "button"; verify.className = "text-button"; verify.textContent = "Check DNS verification";

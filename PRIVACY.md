@@ -95,21 +95,32 @@ that ends up carrying a form value into a log.
 
 `retentionDays: 30`, declared in the manifest.
 
-Honest scope: this repository writes traces to `artifacts/` on the machine that
-ran it and has no retention mechanism, because it has no server, no database and
-no deployment. The number is the declared contract that a real deployment would
-have to implement and that the manifest would be checked against. It is stated
-here rather than omitted so that the gap is visible — a declared retention with
-no enforcement is a spec, and calling it anything else would be a claim this repo
-cannot support.
+Honest scope: the CLI writes traces to local `artifacts/`. The Phase 2 local
+control-plane foundation has a PostgreSQL schema for accounts, organizations,
+projects, target contracts, queued run records, artifact metadata, and audit
+events. Its server runs an hourly purge for expired sessions, expired/revoked
+share-link rows, and run rows after their 30-day `retention_expires_at`; run
+artifact metadata cascades with the run row. There is no object-store adapter
+yet, so blob, backup, and end-to-end deletion are not implemented or verified.
+Do not expose the current app publicly.
+
+The control-plane app stores account email, organization/project names, target
+URLs and contracts, session token hashes, and run/audit metadata in Postgres.
+It does not currently execute browser runs or store screenshots/traces in an
+object store. The prototype's request serializer omits client IP and query
+strings; this has not been tested against a deployed proxy or database log
+configuration. No production data has been processed.
 
 ## Third-party egress
 
 `thirdPartyTraceEgress: "off-by-default"`.
 
-With no configuration, nothing leaves the machine. Every engine call is local,
-because the default engine is `RuleBasedDecisionEngine` and it makes no network
-calls of any kind.
+For the CLI and engine, with no configuration, nothing leaves the machine.
+Every engine call is local because the default engine is
+`RuleBasedDecisionEngine` and makes no network calls. The local control plane
+serves its UI/API and connects to its configured PostgreSQL database; target
+onboarding performs DNS lookups. It has no browser worker, and therefore does
+not fetch the registered target page yet.
 
 When a model **is** configured (`TYPESAFE_API_KEY`), what crosses the boundary is
 deliberately not the trace:

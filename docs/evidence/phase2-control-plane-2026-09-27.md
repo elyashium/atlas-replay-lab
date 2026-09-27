@@ -10,7 +10,10 @@ record with a DNS TXT ownership challenge; and organization-scoped project,
 target, and run status API routes. A target must pass the DNS challenge before
 the API will create a queued run record. Each run stores a snapshot of the
 validated contract, selected policy version, requestor, and a 30-day expiry
-timestamp. The record stays `queued` and has no verdict because no worker is
+timestamp. A required idempotency key maps request retries back to the same run
+row. The server purges expired sessions, share-link records, and non-running
+run rows hourly; that code has unit coverage but was not exercised against
+PostgreSQL. The run stays `queued` and has no verdict because no worker is
 connected.
 
 The API enforces organization membership in each read/write path, scopes SQL by
@@ -53,16 +56,22 @@ database, or this setup to the public internet.
 
 - `npm test` (repository root): **264/264 CLI tests passed**, using the
   dependency-free `scripts/test-core.js` runner. Node 20.18.0, Windows x64.
-- `npm test` (in `apps/control-plane`): **9/9 control-plane unit/API tests
+- `npm test` (in `apps/control-plane`): **11/11 control-plane unit/API tests
   passed**, including cookie/password helpers, target URL restrictions,
   same-origin write protection, membership denial, organization-scoped project
   reads, and database-unavailable health behavior.
 - `node bin/atlas.js doctor`: **passed**; Node 20.18.0 and Chrome 154.0.8037.57
   were found and CDP connected.
-- Actual PostgreSQL migration, registration-to-target-to-run flow, and visual
-  browser review were **not run**. Docker is installed but its Linux engine
-  daemon is unavailable in this environment. The tests use an injected fake
-  query interface; they do not prove PostgreSQL isolation or migration validity.
+- `npm run preview:screenshots` (in `apps/control-plane`): **passed** through
+  the existing CDP harness. At desktop 1440×1100, document width was 1440 px;
+  at emulated mobile 390×844 CSS px (DPR 2), document width was 390 px, with no
+  horizontal overflow. Both captures were visually inspected. Artifacts are
+  ignored under `artifacts/control-plane-{desktop,mobile}.png`.
+- `npm run migrate` was attempted with the local compose connection string and
+  failed with `ECONNREFUSED 127.0.0.1:5432`. Docker is installed but its Linux
+  engine daemon is unavailable in this environment. Registration-to-target-to-
+  run flow was therefore not run against PostgreSQL. Tests use an injected fake
+  query interface; they do not prove database isolation or migration validity.
 - No queue consumer/browser worker, report renderer, artifact object store,
   client-share flow, real run metrics, or release verdict was exercised.
 
@@ -72,12 +81,14 @@ The DNS lookup is a one-time onboarding check, not protection from DNS
 rebinding, redirect pivots, private subresources, metadata services, or unsafe
 downloads. There is no worker network namespace or outbound allowlist. Browser
 execution is deliberately absent. There is no S3-compatible storage, artifact
-content-serving endpoint, retry/cancel/idempotency behavior, quotas, distributed
-rate limiting, enforced retention/deletion, backup deletion proof, expiring
+content-serving endpoint, job retry/cancellation, quotas, distributed
+rate limiting, tested PostgreSQL retention/deletion, backup deletion proof, expiring
 revocable report links, MFA/recovery, deployment hardening, or end-to-end
 second-tenant attack test. The current session/password implementation has no
 email verification or recovery and should receive a security review before
-hosting. The `retention_expires_at` value is metadata, not an enforced purge.
+hosting. The scheduled purge only covers PostgreSQL session, share-link, and
+non-running run rows; it does not purge blobs or backups and has not been
+validated against a live database.
 
 This is a local development control-plane foundation; it is not a hosted MVP
 and not production ready.

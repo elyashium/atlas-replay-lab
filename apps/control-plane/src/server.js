@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { lookup, resolveTxt } from "node:dns/promises";
 import { validateTargetContract } from "../../../src/targets/contract.js";
 import { createPool, inTransaction } from "./db.js";
+import { startRetentionMaintenance } from "./maintenance.js";
 import { clearSessionCookie, hashPassword, hashToken, newId, newSecret, parseCookies, parseOwnedTargetUrl, sessionCookie, verifyPassword, isPublicAddress } from "./security.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -17,15 +18,29 @@ export function buildApp({
   appOrigin = process.env.ATLAS_APP_ORIGIN ?? "http://127.0.0.1:3000",
   secureCookies = process.env.NODE_ENV === "production",
   logger = false,
+  closePool = true,
   dns = { lookup, resolveTxt },
 } = {}) {
-  const app = Fastify({ logger, bodyLimit: 256 * 1024, trustProxy: false });
+  const app = Fastify({
+    logger: logger ? {
+      level: "info",
+      serializers: {
+        req: (request) => ({ method: request.method, url: request.url.split("?", 1)[0] }),
+        res: (response) => ({ statusCode: response.statusCode }),
+      },
+    } : false,
+    bodyLimit: 256 * 1024,
+    trustProxy: false,
+  });
 
   app.addHook("onRequest", async (_request, reply) => {
     reply.header("x-content-type-options", "nosniff");
     reply.header("x-frame-options", "DENY");
     reply.header("referrer-policy", "no-referrer");
     reply.header("permissions-policy", "camera=(), microphone=(), geolocation=()");
+    reply.header("cross-origin-opener-policy", "same-origin");
+    reply.header("cross-origin-resource-policy", "same-origin");
+    reply.header("cache-control", "no-store");
     reply.header("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'");
   });
 
@@ -203,12 +218,21 @@ export function buildApp({
     const target = found.rows[0];
     if (!target) return reply.code(404).send({ error: "target not found" });
     if (!target.verified_at) return reply.code(409).send({ error: "verify target ownership before queueing a run" });
+    const idempotencyKey = request.headers["idempotency-key"];
+    if (typeof idempotencyKey !== "string" || idempotencyKey.length < 8 || idempotencyKey.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)) {
+      return reply.code(400).send({ error: "idempotency-key header (8 to 128 safe characters) is required" });
+    }
     const id = newId();
-    await inTransaction(pool, async (client) => {
-      await client.query("INSERT INTO runs(id,organization_id,project_id,target_id,status,contract_version,contract_snapshot,requested_by,retention_expires_at) VALUES($1,$2,$3,$4,'queued',$5,$6,$7,now()+interval '30 days')", [id, orgId, target.project_id, targetId, String(target.contract.schemaVersion), target.contract, user.id]);
+    const queued = await inTransaction(pool, async (client) => {
+      const inserted = await client.query("INSERT INTO runs(id,organization_id,project_id,target_id,status,contract_version,contract_snapshot,requested_by,idempotency_key,retention_expires_at) VALUES($1,$2,$3,$4,'queued',$5,$6,$7,$8,now()+interval '30 days') ON CONFLICT (organization_id,idempotency_key) DO NOTHING RETURNING id,status,verdict", [id, orgId, target.project_id, targetId, String(target.contract.schemaVersion), target.contract, user.id, idempotencyKey]);
+      if (!inserted.rowCount) {
+        const existing = await client.query("SELECT id,status,verdict FROM runs WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
+        return { run: existing.rows[0], created: false };
+      }
       await audit(client, orgId, user.id, "run.queued", "run", id, { targetId });
+      return { run: inserted.rows[0], created: true };
     });
-    return reply.code(202).send({ run: { id, status: "queued", verdict: null, message: "Run accepted. Browser execution is not enabled in this deployment." } });
+    return reply.code(queued.created ? 202 : 200).send({ run: { ...queued.run, message: "Run accepted. Browser execution is not enabled in this deployment." } });
   });
 
   app.get("/v1/runs/:runId", async (request, reply) => {
@@ -221,7 +245,7 @@ export function buildApp({
     return { run: found.rows[0], artifacts: artifacts.rows, evidenceStatus: "not-run" };
   });
 
-  app.addHook("onClose", async () => { await pool.end(); });
+  if (closePool) app.addHook("onClose", async () => { await pool.end(); });
   return app;
 }
 
@@ -259,7 +283,7 @@ const OPENAPI = {
     "/v1/projects": { get: { summary: "List projects in selected organization", responses: { "200": { description: "Project list" } } }, post: { summary: "Create project", responses: { "201": { description: "Created" } } } },
     "/v1/projects/{projectId}/targets": { post: { summary: "Register an HTTPS target and DNS ownership challenge", responses: { "201": { description: "Created" } } } },
     "/v1/targets/{targetId}/verify": { post: { summary: "Verify DNS TXT ownership", responses: { "200": { description: "Verified" } } } },
-    "/v1/targets/{targetId}/runs": { post: { summary: "Queue a run record", responses: { "202": { description: "Queued; execution disabled" } } } },
+    "/v1/targets/{targetId}/runs": { post: { summary: "Queue a run record (Idempotency-Key required)", responses: { "202": { description: "Queued; execution disabled" }, "200": { description: "Existing idempotent run" } } } },
     "/v1/runs/{runId}": { get: { summary: "Get private run status and artifact metadata", responses: { "200": { description: "Run detail" } } } },
   },
 };
@@ -267,7 +291,11 @@ const OPENAPI = {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const secureCookies = process.env.NODE_ENV === "production";
   if (secureCookies && !process.env.ATLAS_APP_ORIGIN?.startsWith("https://")) throw new Error("production requires ATLAS_APP_ORIGIN with https://");
-  const app = buildApp({ secureCookies, logger: true });
+  const pool = createPool();
+  const app = buildApp({ pool, secureCookies, logger: true, closePool: false });
   const port = Number(process.env.PORT ?? 3000);
+  const stopMaintenance = startRetentionMaintenance(pool, app.log);
+  app.addHook("onClose", stopMaintenance);
+  app.addHook("onClose", async () => { await pool.end(); });
   await app.listen({ port, host: process.env.HOST ?? "127.0.0.1" });
 }
