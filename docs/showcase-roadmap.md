@@ -11,6 +11,9 @@ not a generic XR builder. See [`product-brief.md`](product-brief.md) for the
 product direction and [Phase 0 evidence](evidence/phase0-2026-09-27.md) for the
 latest measured local run.
 
+For implementation-ready status, code pointers, acceptance gates, and the next
+agent's work plan for every phase, see [`handoffs/README.md`](handoffs/README.md).
+
 ## Existing CLI foundation
 
 The repository contains an offline CLI and controlled Orbital experience,
