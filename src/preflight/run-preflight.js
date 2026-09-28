@@ -39,6 +39,7 @@ import { genericManifest } from "../manifest/generic.manifest.js";
 import { selectEngine } from "../decision/index.js";
 import { estimateCostUsd } from "../decision/jev-transport.js";
 import { sha256 } from "../util/hash.js";
+import { isPublicAddress } from "../net/destination-policy.js";
 import { writeJson, fromRoot } from "../util/fsx.js";
 import { logger, banner } from "../util/log.js";
 
@@ -192,30 +193,28 @@ function isIpLiteral(host) {
   return /^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(":");
 }
 
-/** @param {string} ip */
+/**
+ * Whether an address is anything other than public.
+ *
+ * Delegates to the shared classifier in `src/net/destination-policy.js`. It used
+ * to be a local prefix check, and the local check had a real hole: it treated
+ * anything that was not `::1`, `fc…`, `fd…`, `fe80:` or `ff…` as public, so
+ * `::ffff:127.0.0.1` and `::ffff:a9fe:a9fe` — loopback and cloud metadata
+ * written as IPv4-mapped IPv6 — passed it. Two implementations of an SSRF check
+ * is one implementation plus one liability, because the weaker one is the one
+ * that gets used.
+ *
+ * Note what this function still does *not* fix, because it is called from
+ * `checkTarget` with a single resolved address: a hostname with two A records,
+ * one public and one loopback, is judged on whichever one the resolver returned
+ * first. `checkDestination` in the shared module requires every resolved address
+ * to pass; this call site predates it and checks one. That gap is recorded as
+ * row 1.11 in `docs/threat-model-worker-egress.md`.
+ *
+ * @param {string} ip
+ */
 export function isPrivateIp(ip) {
-  if (ip.includes(":")) {
-    const lower = ip.toLowerCase();
-    return (
-      lower === "::1" ||
-      lower === "::" ||
-      lower.startsWith("fc") ||
-      lower.startsWith("fd") ||
-      lower.startsWith("fe80:") ||
-      lower.startsWith("ff")
-    );
-  }
-  const p = ip.split(".").map(Number);
-  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
-  return (
-    p[0] === 10 ||
-    p[0] === 127 ||
-    p[0] === 0 ||
-    (p[0] === 172 && p[1] >= 16 && p[1] <= 31) ||
-    (p[0] === 192 && p[1] === 168) ||
-    (p[0] === 169 && p[1] === 254) ||
-    p[0] >= 224
-  );
+  return !isPublicAddress(ip);
 }
 
 /** @param {URL} url */

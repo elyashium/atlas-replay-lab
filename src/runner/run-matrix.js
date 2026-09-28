@@ -80,6 +80,7 @@ import { driveHappyPath } from "./drive.js";
 import { driveGeneric } from "./drive-generic.js";
 import { buildXrStubScript, xrStubNote, POSE_SCRIPT_ID } from "./xr-stub.js";
 import { applyDeliveryClassification } from "./classify-delivery.js";
+import { provenanceFor, provenanceSummary } from "./provenance.js";
 import { causalHash } from "../trace/normalize.js";
 import { fromRoot, ensureDir, emptyDir, writeJson, writeFileEnsured, readJson } from "../util/fsx.js";
 import { validateTargetContract, safeTargetUrl } from "../targets/contract.js";
@@ -170,6 +171,7 @@ export function harnessErrorRow(step, runId, traceId, message, attempts, stepSta
     runKind: step.runKind,
     forcedTier: step.forcedTier,
     traceId,
+    provenance: provenanceFor(step.profile),
     tracePath: null,
     determinismHash: null,
     causalHash: null,
@@ -244,6 +246,9 @@ export async function stageUpload(bytes, fileName, outDir, env) {
  * @property {"baseline" | "adaptive"} runKind
  * @property {string | null} forcedTier
  * @property {string} traceId
+ * @property {import("./provenance.js").Provenance} provenance
+ *   Which lane produced this row's numbers. Always `emulation` or
+ *   `synthetic-xr` today; the `device` lane is unimplemented.
  * @property {string | null} tracePath
  * @property {string | null} determinismHash
  * @property {string | null} causalHash
@@ -575,6 +580,9 @@ export async function runMatrix(opts = {}) {
         runKind: step.runKind,
         forcedTier: step.forcedTier,
         traceId,
+        // Stamped per row, not once per report, because the lane is a property
+        // of the measurement. A row copied out of this array keeps it.
+        provenance: provenanceFor(step.profile),
         tracePath: tracePath ? rel(tracePath) : null,
         determinismHash: result.trace?.determinismHash ?? null,
         causalHash: result.trace ? causalHash(result.trace) : null,
@@ -730,6 +738,15 @@ export async function runMatrix(opts = {}) {
       "browser and are real; deviceMemory, hardwareConcurrency, navigator.connection and GPU tier " +
       "are injected hints. These results say nothing about thermal behaviour, real GPU drivers or " +
       "actual handset performance — that needs a physical device lab.",
+    // The machine-readable form of the sentence above. The prose stays because
+    // the HTML report renders it; this block is what a consumer can check
+    // without parsing English, and what `assertDeviceClaim` reads.
+    provenance: {
+      lanes: [...new Set(runs.map((r) => r.provenance?.lane).filter(Boolean))],
+      summary: provenanceSummary(runs.map((r) => r.provenance).filter(Boolean)),
+      physicalDeviceRuns: runs.filter((r) => r.provenance?.physicalDevice).length,
+      deviceLane: "not implemented — see docs/device-matrix.md",
+    },
     manifest: {
       id: manifest.id,
       version: manifest.version,

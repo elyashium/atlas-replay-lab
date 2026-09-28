@@ -285,6 +285,37 @@ const COMMANDS = {
     },
   },
 
+  diff: {
+    summary: "compare two matrix reports and say whether the comparison is valid",
+    usage: "atlas diff --before <report.json> --after <report.json> [--out <dir>]",
+    detail:
+      "The Phase 1 before/after: capture a failure, the app owner changes their app,\n" +
+      "rerun with the same contract, compare. Reports comparability first — if the\n" +
+      "manifest, contract, engine, Atlas build, browser or headless mode moved between\n" +
+      "the two runs, no delta is attributable to the application and every one is\n" +
+      "marked confounded. Causal and determinism hashes separate a behaviour change\n" +
+      "from a pure timing change. Nothing is re-run, re-scored, or diagnosed.\n" +
+      "Exits 1 when any profile regressed, 0 otherwise.",
+    flags: {
+      before: { type: "string", describe: "path to the earlier matrix report.json" },
+      after: { type: "string", describe: "path to the later matrix report.json" },
+      out: { type: "string", describe: "output directory (default artifacts/diff)" },
+    },
+    async run(args) {
+      if (!args.flags.before || !args.flags.after) {
+        throw new UsageError("diff needs --before <report.json> and --after <report.json>");
+      }
+      const { runDiff } = await import("../src/report/diff.js");
+      const { diff } = await runDiff({
+        before: path.resolve(args.flags.before),
+        after: path.resolve(args.flags.after),
+        outDir: args.flags.out ? path.resolve(args.flags.out) : undefined,
+        quiet,
+      });
+      return diff.counts.regressed > 0 ? 1 : 0;
+    },
+  },
+
   report: {
     summary: "render artifacts/report.html from whatever is on disk",
     usage: "atlas report [--matrix <file>] [--gate <file>] [--out <file>]",

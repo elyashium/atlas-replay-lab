@@ -69,6 +69,16 @@ import { scoreTrace } from "./atlas-score.js";
 import { PROFILES } from "../runner/profiles.js";
 import { SEVERITY_LEVELS } from "../decision/questions.js";
 import { SEVERE_TIMING_BUDGET_MULTIPLIER, severeTimingBudgetBreaches } from "../decision/budget-policy.js";
+// `export … from` re-exports without binding locally, so the values this file
+// actually reads are imported too.
+import {
+  BLOCKING_SEVERITY_INDEX,
+  DECISION_CONFIDENCE_FLOOR,
+  SCORE_FLOOR,
+  comfortReference,
+  policyStamp,
+  resolvePolicy,
+} from "./policy.js";
 import { MATRIX_DIR } from "../runner/run-matrix.js";
 import { REPLAY_DIR } from "../runner/run-replay.js";
 import { readJson, writeJson, fromRoot, ROOT } from "../util/fsx.js";
@@ -79,25 +89,18 @@ const log = logger("gate");
 export const GATE_DIR = fromRoot("artifacts", "gate");
 
 /**
- * `releaseBlocking` index at which a finding blocks. 3 = "major".
- * Named rather than inlined because it is the single number most likely to be
- * argued about, and it should be arguable in one place.
+ * The thresholds now live in `./policy.js`, versioned and content-hashed, so a
+ * stored verdict can name the bar it was graded against (Phase 3 item 1). They
+ * are re-exported here because this is where callers and tests have always
+ * imported them from, and moving a number should not break an import.
  */
-export const BLOCKING_SEVERITY_INDEX = SEVERITY_LEVELS.indexOf("major");
-
-/**
- * Below this, a decision goes to a human instead of shipping. Matches the
- * guard's own floor so the gate and the runtime agree on what "unsure" means.
- */
-export const DECISION_CONFIDENCE_FLOOR = 0.55;
-
-/**
- * Below this Atlas score, a run does not ship. Named for the same reason as
- * the severity index above: the floor is the policy, and policy should be
- * arguable in one place. Mirrors the judge's `below50` tally bucket so the
- * two reports count the same thing.
- */
-export const SCORE_FLOOR = 50;
+export {
+  BLOCKING_SEVERITY_INDEX,
+  DECISION_CONFIDENCE_FLOOR,
+  SCORE_FLOOR,
+  RELEASE_POLICY,
+  RELEASE_POLICY_VERSION,
+} from "./policy.js";
 
 /**
  * @typedef {object} Finding
@@ -129,10 +132,17 @@ export async function runGate(opts = {}) {
   const matrix = await readJson(matrixPath);
   if (matrix.targetDecision) {
     const decision = matrix.targetDecision;
+    const contract = matrix.target?.contract ?? null;
+    // The contract's own floor may only tighten Atlas's. This branch used to
+    // read `minimumScore ?? 0`, so any contract reaching the gate without
+    // having passed `validateTargetContract` — which does require the field —
+    // graded every run against a floor of zero.
+    const resolved = resolvePolicy(contract?.policy);
+    const scoreFloor = resolved.effectiveScoreFloor;
     const findings = [
-      ...decision.evidence.filter((item) => item.journey === "fail" || (item.score !== null && item.score < (matrix.target?.contract?.policy?.minimumScore ?? 0))).map((item) => ({
+      ...decision.evidence.filter((item) => item.journey === "fail" || (item.score !== null && item.score < scoreFloor)).map((item) => ({
         severity: "block", rule: "target-journey", runId: item.runId ?? item.profileId,
-        message: `${item.profileId}: declared staging journey failed or Atlas score is below policy`, evidence: item,
+        message: `${item.profileId}: declared staging journey failed or Atlas score is below the ${scoreFloor} floor`, evidence: item,
       })),
       ...decision.evidence.filter((item) => !item.runId || item.error || item.journey === null || item.score === null).map((item) => ({
         severity: "block", rule: "target-evidence", runId: item.runId ?? item.profileId,
@@ -143,7 +153,24 @@ export async function runGate(opts = {}) {
     const report = {
       kind: "atlas.release-gate", schemaVersion: 1, generatedAtIso: new Date().toISOString(),
       reproduce: "node bin/atlas.js gate", decision: decision.verdict.toLowerCase(), shipped,
-      rule: { summary: "Target policy requires every critical profile journey to pass and meet its configured Atlas score floor.", policyVersion: decision.policyVersion, basis: decision.basis, target: matrix.target?.contract?.id ?? null, criticalProfiles: decision.requiredProfiles },
+      rule: {
+        summary: "Target policy requires every critical profile journey to pass and meet its configured Atlas score floor.",
+        policyVersion: decision.policyVersion, basis: decision.basis,
+        target: contract?.id ?? null, criticalProfiles: decision.requiredProfiles,
+        policy: policyStamp(), scoreFloor, contractPolicyVersion: resolved.contractPolicyVersion,
+        tightened: resolved.tightened,
+      },
+      // Phase 3 item 1's second half: the target contract travels with the
+      // verdict, so a stored `ship` names the bits it was about.
+      targetBinding: contract
+        ? {
+            contractId: contract.id ?? null,
+            contractSchemaVersion: contract.schemaVersion ?? null,
+            buildId: contract.target?.buildId ?? null,
+            url: contract.target?.url ?? null,
+            allowedOrigins: contract.target?.allowedOrigins ?? null,
+          }
+        : null,
       source: { matrixReport: rel(matrixPath), replayReport: null, matrixStartedAtIso: matrix.startedAtIso ?? null, engine: matrix.engine ?? null, manifestHash: matrix.manifest?.contentHash ?? null },
       counts: { graded: decision.evidence.length, blocks: findings.length, warnings: 0, info: 0 }, findings,
       targetDecision: decision,
@@ -414,6 +441,11 @@ export async function runGate(opts = {}) {
       blockingSeverityLevel: SEVERITY_LEVELS[BLOCKING_SEVERITY_INDEX],
       decisionConfidenceFloor: DECISION_CONFIDENCE_FLOOR,
       scoreFloor: SCORE_FLOOR,
+      // Phase 3 item 1: the exact bar travels with the verdict. Without this a
+      // stored `ship` from before a threshold moved is indistinguishable from
+      // one after it, and the archive stops being evidence.
+      policy: policyStamp(),
+      comfort: comfortReference(manifest),
       manifest: {
         id: manifest.id,
         version: manifest.version,
