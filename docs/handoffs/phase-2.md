@@ -271,3 +271,16 @@ tests/egress-proxy.test.js` **7/7**; root `npm test` **396/396**;
 control-plane tests with loopback PostgreSQL **35/35**; changed scripts passed
 `node --check`, and `git diff --check` passed. The Docker verifier is still a
 manual local check and no external staging target was involved.
+
+### WebRTC probe follow-up (2026-09-30)
+
+Chromium sent five UDP packets to a test trap attached to the same internal job
+network and gathered zero server-reflexive candidates. This demonstrates local
+segment UDP reachability; it does not establish external STUN/TURN behavior.
+Do not claim UDP egress is blocked based on the Chromium flag or this result.
+External UDP needs a host/runtime default-deny rule and an adversarial test on
+the selected deployment network. The updated Docker verifier passed and again
+completed the bounded synthetic Atlas job (1/1 high-wifi, explicit SHIP under
+the fixture's zero score floor). Control-plane tests without DATABASE_URL were
+32 passed, 0 failed, 3 skipped. Root tests and Postgres integration were not
+repeated in this follow-up.

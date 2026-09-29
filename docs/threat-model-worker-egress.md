@@ -146,11 +146,15 @@ The prototype has not completed gates 1 through 7. The local verifier now
 exercises one synthetic HTTPS origin, worker DNS failure, direct-socket failures
 to sampled public/private destinations, and Chromium-originated fetch, image,
 redirect, iframe, WebSocket, service-worker, unlisted-host and unlisted-IP
-requests that the proxy refuses. It does not test all
-redirect/subresource/alternate-egress cases, the full destination list,
-alternate proxies, downloads, WebRTC/STUN, resource-exhaustion handling,
-cancellation, artifact cleanup, or CI execution. Until 1 through 7 exist with
-passing tests, the operating rule is the one in
+requests that the proxy refuses. A WebRTC probe sent UDP packets to a trap on
+the same internal job network and gathered no server-reflexive candidate. This
+shows same-network UDP reachability; it does not test external STUN/TURN, and
+must not be described as blocked external UDP. The local deployment still needs
+host/runtime-enforced default-deny UDP egress and an environment-specific
+verification. It does not test all redirect/subresource/alternate-egress cases,
+the full destination list, alternate proxies, downloads, external WebRTC/STUN,
+resource-exhaustion handling, cancellation, artifact cleanup, or CI execution.
+Until 1 through 7 exist with passing tests, the operating rule is the one in
 `docs/handoffs/phase-1.md`: run only targets the operator has permission to run.
 
 ## What the shipped preflight is honestly for

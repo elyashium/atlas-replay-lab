@@ -592,3 +592,31 @@ Verification after this change:
 
 No verifier containers or labeled networks remained after the run. Manual Docker
 verification is not wired into CI.
+
+## 2026-09-30 continuation: WebRTC network probe
+
+The Chromium adversarial page now also creates an `RTCPeerConnection` configured
+with a STUN destination on the same isolated job network. In the run, Chromium
+sent **5 UDP packets** to the test trap and gathered **0 server-reflexive ICE
+candidates**. The test intentionally records this as same-network UDP
+reachability, not as blocked external STUN: the trap is attached to the same
+internal Docker network, and no public STUN/TURN server was contacted. This
+means Chromium's `disable_non_proxied_udp` flag is not sufficient evidence of
+UDP isolation. External UDP remains a deployment-specific launch gate requiring
+host/runtime policy and an adversarial test on the chosen hosting network.
+
+The updated worker image built successfully. The full manual boundary verifier
+then passed on Docker Desktop 29.6.2: DNS and direct TCP probes were blocked;
+6 forbidden browser requests failed; the proxy recorded 21 refusals; the
+WebRTC probe produced the 5-packet same-network observation above; and the
+bounded Atlas job completed **1/1** synthetic `high-wifi` profile with explicit
+`SHIP` and artifact collection. The SHIP uses the synthetic fixture's score
+floor of zero. Verifier containers/networks were removed after completion.
+This is one local experiment, not external or production network evidence.
+
+Verification: `node --check` passed for the three changed worker scripts;
+`npm test --prefix apps/control-plane` passed **32**, failed **0**, skipped **3**
+(the three Postgres integration tests skip without `DATABASE_URL`); Docker image
+build passed; `npm run verify:worker-boundary --prefix apps/control-plane`
+passed. Root `npm test`, a Postgres-backed integration run, and CI execution
+were not repeated in this continuation.

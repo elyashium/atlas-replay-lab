@@ -1,6 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { claimNextRun, heartbeatRun, recoverExpiredRuns } from "../src/local-worker.js";
+import { assertInternalJobNetwork, assertProxyNetworkAttachments, assertWorkerNetworkAttachments, claimNextRun, heartbeatRun, recoverExpiredRuns } from "../src/local-worker.js";
+
+test("worker topology requires an internal network and one isolated worker attachment", () => {
+  assert.doesNotThrow(() => assertInternalJobNetwork({ Internal: true }));
+  assert.throws(() => assertInternalJobNetwork({ Internal: false }), /not Docker-internal/);
+  assert.doesNotThrow(() => assertWorkerNetworkAttachments({ "atlas-job-1": {} }, "atlas-job-1"));
+  assert.throws(() => assertWorkerNetworkAttachments({ "atlas-job-1": {}, bridge: {} }, "atlas-job-1"), /unexpected Docker network attachment/);
+});
+
+test("egress proxy may bridge only the default and current job network", () => {
+  const safe = { bridge: {}, "atlas-job-1": { IPAddress: "172.18.0.2" } };
+  assert.doesNotThrow(() => assertProxyNetworkAttachments(safe, "atlas-job-1"));
+  assert.throws(() => assertProxyNetworkAttachments({ ...safe, database: {} }, "atlas-job-1"), /unexpected Docker network attachment/);
+  assert.throws(() => assertProxyNetworkAttachments({ bridge: {}, "atlas-job-1": { IPAddress: "invalid" } }, "atlas-job-1"), /no isolated job-network address/);
+});
 
 test("queue claims atomically with SKIP LOCKED and a bounded lease", async () => {
   let call;

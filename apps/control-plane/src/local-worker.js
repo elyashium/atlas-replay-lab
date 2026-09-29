@@ -44,6 +44,8 @@ export async function executeLocalRun(options) {
     await writeFile(contractFile, `${JSON.stringify(contract)}\n`, { flag: "wx", mode: 0o644 });
     await dockerCall(docker, ["network", "create", "--internal", "--label", "atlas.managed=true", "--label", `atlas.run=${run.id}`, network]);
     active.network = true;
+    const jobNetworkInfo = JSON.parse(await dockerCall(docker, ["network", "inspect", "--format", "{{json .}}", network]));
+    assertInternalJobNetwork(jobNetworkInfo);
 
     await dockerCall(docker, [
       "run", "--detach", "--rm", "--name", proxy, "--network", "bridge",
@@ -57,6 +59,7 @@ export async function executeLocalRun(options) {
     await dockerCall(docker, ["network", "connect", network, proxy]);
     await waitForLog(docker, proxy, /egress proxy ready on 3128/);
     const networks = JSON.parse(await dockerCall(docker, ["inspect", "--format", "{{json .NetworkSettings.Networks}}", proxy]));
+    assertProxyNetworkAttachments(networks, network);
     const proxyAddress = networks[network]?.IPAddress;
     if (!proxyAddress || !/^\d+(?:\.\d+){3}$/.test(proxyAddress)) throw new Error("worker proxy did not receive an isolated-network address");
 
@@ -72,6 +75,8 @@ export async function executeLocalRun(options) {
       "--entrypoint", "node", image, "apps/worker/scripts/job-supervisor.js", "/job/contract.json", "/output/run",
     ]);
     active.worker = true;
+    const workerNetworks = JSON.parse(await dockerCall(docker, ["inspect", "--format", "{{json .NetworkSettings.Networks}}", worker]));
+    assertWorkerNetworkAttachments(workerNetworks, network);
     await dockerCall(docker, ["start", worker]);
 
     let heartbeatBusy = false;
@@ -138,6 +143,31 @@ export async function executeLocalRun(options) {
     if (active.network) await cleanupDockerResource(docker, ["network", "rm", network], cleanupErrors);
     try { await rm(tempRoot, { recursive: true, force: true }); } catch (error) { cleanupErrors.push(error); }
     if (cleanupErrors.length && !primaryError) throw new AggregateError(cleanupErrors, "worker cleanup could not be verified");
+  }
+}
+
+/** Fail closed if Docker did not create the job segment as an internal network. */
+export function assertInternalJobNetwork(networkInfo) {
+  if (!networkInfo || networkInfo.Internal !== true) throw new Error("worker job network is not Docker-internal; refusing to start browser job");
+}
+
+/** The egress proxy is the only container attached to both the job and default bridge networks. */
+export function assertProxyNetworkAttachments(networks, jobNetwork) {
+  const attached = Object.keys(networks ?? {}).sort();
+  const expected = ["bridge", jobNetwork].sort();
+  if (attached.length !== expected.length || attached.some((name, index) => name !== expected[index])) {
+    throw new Error("egress proxy has an unexpected Docker network attachment");
+  }
+  if (!/^\d+(?:\.\d+){3}$/.test(networks?.[jobNetwork]?.IPAddress ?? "")) {
+    throw new Error("egress proxy has no isolated job-network address");
+  }
+}
+
+/** A browser worker must have exactly one network attachment: its internal job segment. */
+export function assertWorkerNetworkAttachments(networks, jobNetwork) {
+  const attached = Object.keys(networks ?? {});
+  if (attached.length !== 1 || attached[0] !== jobNetwork) {
+    throw new Error("browser worker has an unexpected Docker network attachment");
   }
 }
 

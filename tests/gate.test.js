@@ -519,6 +519,26 @@ test("a missing matrix report is an error that names the command to fix it", asy
   );
 });
 
+test("target release gate tightens a raw SHIP when an Atlas blocking rule fires", async (t) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "atlas-target-gate-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const matrixPath = path.join(dir, "matrix.json");
+  await writeFile(matrixPath, JSON.stringify({
+    target: { contract: { id: "owned-staging", policy: { version: "customer-1", minimumScore: 0, criticalProfiles: ["high-wifi"] } } },
+    targetDecision: {
+      verdict: "SHIP", policyVersion: "customer-1", basis: "customer-declared journey and score floor",
+      requiredProfiles: ["high-wifi"],
+      evidence: [{ profileId: "high-wifi", runId: "profile-1", error: null, journey: "pass", score: SCORE_FLOOR - 1 }],
+    },
+  }), "utf8");
+  const { report, shipped } = await runGate({ matrixReportPath: matrixPath, outDir: path.join(dir, "gate"), quiet: true });
+  assert.equal(report.targetDecision.verdict, "SHIP", "retain the declared target-policy result as separate evidence");
+  assert.equal(report.decision, "hold", "the effective release gate must include Atlas's blocking score floor");
+  assert.equal(report.shipped, false);
+  assert.equal(shipped, false);
+  assert.equal(report.findings.some((finding) => finding.severity === "block"), true);
+});
+
 test("an explicitly named replay report that does not exist is an error, not a silent skip", async (t) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "atlas-gate-"));
   t.after(() => rm(dir, { recursive: true, force: true }));

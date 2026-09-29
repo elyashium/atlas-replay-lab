@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
+import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { exportContainerArtifacts } from "../../control-plane/src/local-worker.js";
+import { assertInternalJobNetwork, assertProxyNetworkAttachments, assertWorkerNetworkAttachments, exportContainerArtifacts } from "../../control-plane/src/local-worker.js";
 
 const image = process.env.ATLAS_WORKER_IMAGE ?? "atlas-worker:local";
 const docker = process.env.DOCKER ?? "docker";
@@ -28,6 +29,8 @@ const capturedOutput = path.join(jobOutput, "captured");
 try {
   run("network", ["create", "--internal", "--label", "atlas.test=network-boundary", jobNetwork]);
   run("network", ["create", "--internal", "--subnet", "93.184.216.0/29", "--gateway", "93.184.216.1", "--label", "atlas.test=network-boundary", fixtureNetwork]);
+  assertInternalJobNetwork(JSON.parse(run("network", ["inspect", "--format", "{{json .}}", jobNetwork])));
+  assertInternalJobNetwork(JSON.parse(run("network", ["inspect", "--format", "{{json .}}", fixtureNetwork])));
 
   run("run", [
     "--detach", "--rm", "--name", targetName, "--network", fixtureNetwork, "--ip", fixtureAddress,
@@ -52,6 +55,8 @@ try {
   run("network", ["connect", fixtureNetwork, proxyName]);
   await waitForLogs(proxyName, /egress proxy ready on 3128/);
   const networks = JSON.parse(run("inspect", ["--format", "{{json .NetworkSettings.Networks}}", proxyName]));
+  assertProxyNetworkAttachments({ bridge: networks.bridge, [jobNetwork]: networks[jobNetwork] }, jobNetwork);
+  assert.deepEqual(Object.keys(networks).sort(), ["bridge", fixtureNetwork, jobNetwork].sort(), "verifier proxy may only bridge its job, default, and synthetic fixture networks");
   const proxyAddress = networks[jobNetwork]?.IPAddress;
   if (!proxyAddress || !/^\d+(?:\.\d+){3}$/.test(proxyAddress)) throw new Error("proxy has no numeric address on the isolated job network");
 
@@ -69,8 +74,9 @@ try {
   const refusedProxyTunnels = (proxyLogs.match(/ATLAS_PROXY_CONNECT_REFUSED/g) ?? []).length;
   if (refusedProxyTunnels < 5) throw new Error(`browser adversarial cases did not produce enough per-origin proxy denials (${refusedProxyTunnels})`);
   process.stdout.write(`PASS: per-origin proxy denied ${refusedProxyTunnels} browser egress attempts from fetch, redirect, image, WebSocket and service-worker probes\n`);
-  if (proxyLogs.includes("ATLAS_TEST_UDP_PROBE_RECEIVED")) throw new Error("browser sent a WebRTC/STUN UDP packet to the egress proxy test trap");
-  process.stdout.write("PASS: WebRTC/STUN probe produced no UDP packet at the worker-network test trap\n");
+  const udpProbePackets = (proxyLogs.match(/ATLAS_TEST_UDP_PROBE_RECEIVED/g) ?? []).length;
+  if (udpProbePackets < 1) throw new Error("WebRTC probe did not reach the isolated-network UDP trap; STUN behavior was not exercised");
+  process.stdout.write(`OBSERVED: WebRTC sent ${udpProbePackets} UDP packet(s) to a same-job-network trap; no server-reflexive candidate was gathered. This does not test external STUN reachability.\n`);
   process.stdout.write("PASS: isolated container could reach the synthetic HTTPS origin through the job proxy, while direct public/private sockets and worker DNS were blocked\n");
 
   const fixtureContract = {
@@ -99,6 +105,10 @@ try {
     "--entrypoint", "node", image, "apps/worker/scripts/job-supervisor.js", "/job/contract.json", "/output/run",
   ]);
   active.add(jobWorkerName);
+  for (const name of [jobWorkerName]) {
+    const workerNetworks = JSON.parse(run("inspect", ["--format", "{{json .NetworkSettings.Networks}}", name]));
+    assertWorkerNetworkAttachments(workerNetworks, jobNetwork);
+  }
   run("start", [jobWorkerName]);
   let jobExit;
   const jobDeadline = Date.now() + 120_000;
@@ -121,6 +131,8 @@ try {
     throw new Error("synthetic queue job did not produce a complete, explicit release result");
   }
   const gateReport = JSON.parse(await readFile(path.join(capturedOutput, "gate", "report.json"), "utf8"));
+  if (String(gateReport.decision).toUpperCase() !== jobResult.verdict) throw new Error("worker summary verdict did not match the deterministic gate report");
+  if (jobResult.verdict === "SHIP" && gateReport.findings.some((finding) => finding.severity === "block")) throw new Error("worker emitted SHIP despite a blocking gate finding");
   process.stdout.write(`PASS: actual Atlas target matrix, gate, findings, and report completed in the isolated worker (${jobResult.verdict}; ${jobResult.profiles.completed}/${jobResult.profiles.total} profile)\n`);
   process.stdout.write(`Synthetic fixture verdict evidence: ${JSON.stringify({ targetDecision: jobResult.targetDecision, gateFindings: gateReport.findings })}\n`);
 } finally {

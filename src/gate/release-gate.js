@@ -150,9 +150,18 @@ export async function runGate(opts = {}) {
       })),
     ];
     const shipped = decision.verdict === "SHIP" && findings.length === 0;
+    // The matrix's target-policy decision is only one input to the release
+    // gate. Atlas-owned invariants (including its non-lowerable score floor)
+    // can tighten that result, and a blocking finding must never coexist with
+    // an effective SHIP verdict in the report.
+    const effectiveDecision = shipped
+      ? "SHIP"
+      : decision.verdict === "INCONCLUSIVE"
+        ? "INCONCLUSIVE"
+        : "HOLD";
     const report = {
       kind: "atlas.release-gate", schemaVersion: 1, generatedAtIso: new Date().toISOString(),
-      reproduce: "node bin/atlas.js gate", decision: decision.verdict.toLowerCase(), shipped,
+      reproduce: "node bin/atlas.js gate", decision: effectiveDecision.toLowerCase(), shipped,
       rule: {
         summary: "Target policy requires every critical profile journey to pass and meet its configured Atlas score floor.",
         policyVersion: decision.policyVersion, basis: decision.basis,
