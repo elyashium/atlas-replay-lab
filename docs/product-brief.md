@@ -1,8 +1,8 @@
 # Atlas product brief
 
 **Status: product direction, not a claim about a shipped hosted service.**
-Updated 2026-09-26 to replace earlier speculative customer, pricing, and launch
-claims. The repository is currently a local evidence-producing CLI.
+Updated 2026-09-29 to describe the visual-QA expansion without implying that
+hosted execution, model accuracy, or customer demand has been established.
 
 ## Product
 
@@ -21,7 +21,17 @@ to:
 
 The CLI remains the offline engine. A hosted control plane should wrap the
 versioned engine rather than replace its manifest, trace, deterministic gate,
-or guarded decision contracts.
+or guarded decision contracts. Visual-model review is a separate, opt-in
+advisory channel. It may describe visible pixels and propose design follow-ups;
+the deterministic policy remains the only authority for release verdicts.
+
+Atlas should support two related scopes: (1) release QA for a full owned
+staging experience, with its user journey and fallback contract; and (2)
+component QA for an explicitly authorized component preview or supplied source
+artifact. Component QA should compare the rendered result against a user
+provided design reference and criteria, then connect findings to component
+source only when the user supplies that source. A URL alone cannot prove which
+component produced the pixels or whether a proposed source edit is correct.
 
 ## Current evidence and limits
 
@@ -36,6 +46,25 @@ repairing them. The `.glb` lane measures Atlas's viewer around an asset, not the
 experience in its eventual host application. See
 [`evidence/phase1-2026-09-27.md`](evidence/phase1-2026-09-27.md) for the
 controlled failure/fix run and its limits.
+
+An experimental local `visual-review` CLI command now sends up to three final
+profile screenshots from an owned-staging matrix, or one user-provided
+component PNG under `artifacts/`, to a configured Groq vision model. Component
+mode can include one approved same-size reference PNG and team-written visual
+criteria. Matrix screenshots require capture consent in the target contract;
+provider egress requires a separate per-command flag. Findings are validated,
+source-linked to the image hash, labeled as model suggestions, and shown
+separately in the HTML report; they have no gate effect. `visual-compare` adds
+deterministic pairwise PNG metrics and a heatmap, also without a gate effect.
+No Groq key or live visual-model evaluation has been supplied, so output
+quality is unmeasured. A separate `suggest-code-fix` command can send one
+explicitly approved source file and the analyzed findings to Groq and save a
+validated single-file patch proposal. It does not apply or test the patch.
+These commands do not support the hosted control plane, arbitrary server
+uploads, persistent design-reference management, sandboxed patch verification,
+or PR integration. See
+[`visual-qa-platform.md`](visual-qa-platform.md) and the
+[`local visual QA evidence`](evidence/local-visual-qa-2026-09-29.md).
 
 Chrome/CDP profiles are emulations. They do not establish performance on actual
 Android or iPhone hardware, Safari, real radios, GPU/thermal conditions, or
@@ -124,9 +153,17 @@ regional requirements. Do not present these as shipped until measured.
   access logging, and enforced retention.
 - Keep Jev optional semantic triage behind the fail-closed guard. Rules own
   hard invariants. Synthetic Jev fixtures are illustrative, not a benchmark.
+- Keep image-capable design critique separate from Jev's typed classifier.
+  Treat screenshot text as untrusted, send images to a provider only after
+  explicit consent, and label confidence as uncalibrated until evaluated.
+  Design-reference comparison, accessibility checks, and code-quality checks
+  require their own evidence and must not be inferred from a screenshot.
 - Never describe emulation as a handset, Safari, radio, GPU, camera, or native
   XR test. Browser experiences and native applications are separate scopes.
 - Customer demand, pricing, willingness to pay, paid pilots, compliance status,
   and production readiness are unknown until supported by real evidence.
-- Pricing, billing, compliance programs, native VR, and automatic remediation
-  are out of the current build scope.
+- Pricing, billing, compliance programs, native VR, automatic source edits,
+  and hosted model review are not currently shipped. Source corrections may be
+  proposed later in a sandbox, tested against the same target contract, and
+  presented as a human-reviewed patch; they must never be applied or deployed
+  silently.

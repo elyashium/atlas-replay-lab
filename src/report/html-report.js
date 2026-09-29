@@ -37,6 +37,7 @@ import { COMPARE_DIR } from "./engine-comparison.js";
 import { JUDGE_DIR } from "../judge/run-judge.js";
 import { FINDINGS_DIR } from "../diagnose/run-findings.js";
 import { PREFLIGHT_DIR } from "../preflight/run-preflight.js";
+import { VISUAL_REVIEW_DIR } from "../visual/run-review.js";
 import { readJson, writeFileEnsured, fromRoot, ROOT } from "../util/fsx.js";
 import { logger } from "../util/log.js";
 
@@ -91,6 +92,9 @@ export async function renderReport(opts = {}) {
     compare: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), COMPARE_DIR), "engine-comparison.json")),
     judge: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), JUDGE_DIR), "judge-report.json")),
     findings: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), FINDINGS_DIR), "findings.json")),
+    visualReview: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), VISUAL_REVIEW_DIR), "review.json")),
+    codeProposal: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), VISUAL_REVIEW_DIR), "code-proposal.json")),
+    visualCompare: await load(path.join(artifactsDir, "visual-compare", "report.json")),
     preflight: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), PREFLIGHT_DIR), "report.json")),
     replays: await loadReplays(path.join(artifactsDir, path.relative(fromRoot("artifacts"), REPLAY_DIR))),
   };
@@ -159,7 +163,7 @@ async function loadReplays(replayDir) {
 /* ── page ────────────────────────────────────────────────────────────────── */
 
 /**
- * @param {{ matrix: any; gate: any; compare: any; judge: any; findings: any; preflight: any; replays: any[] }} s
+ * @param {{ matrix: any; gate: any; compare: any; judge: any; findings: any; visualReview: any; visualCompare: any; codeProposal: any; preflight: any; replays: any[] }} s
  * @param {string} outDir
  */
 function renderHtml(s, outDir) {
@@ -173,8 +177,8 @@ function renderHtml(s, outDir) {
   const generatedAt = new Date();
   const targetRun = s.matrix?.data?.target?.mode === "owned-staging-contract";
   const body = (targetRun
-    ? [header(s, generatedAt), targetDisclaimers(), gateSection(s.gate), targetJourneySection(s.matrix, href), failureStory(s.matrix, href), matrixSection(s.matrix, href), findingsSection(s.findings, href), provenance(s, generatedAt)]
-    : [header(s, generatedAt), disclaimers(), gateSection(s.gate), preflightSection(s.preflight), failureStory(s.matrix, href), matrixSection(s.matrix, href), findingsSection(s.findings, href), replaySection(s.replays, href), compareSection(s.compare), judgeSection(s.judge), predictionSection(s.preflight, s.matrix, s.gate), provenance(s, generatedAt)]
+    ? [header(s, generatedAt), targetDisclaimers(), gateSection(s.gate), targetJourneySection(s.matrix, href), failureStory(s.matrix, href), matrixSection(s.matrix, href), visualCompareSection(s.visualCompare, href), visualReviewSection(s.visualReview, href), codeProposalSection(s.codeProposal), findingsSection(s.findings, href), provenance(s, generatedAt)]
+    : [header(s, generatedAt), disclaimers(), gateSection(s.gate), preflightSection(s.preflight), failureStory(s.matrix, href), matrixSection(s.matrix, href), visualCompareSection(s.visualCompare, href), visualReviewSection(s.visualReview, href), codeProposalSection(s.codeProposal), findingsSection(s.findings, href), replaySection(s.replays, href), compareSection(s.compare), judgeSection(s.judge), predictionSection(s.preflight, s.matrix, s.gate), provenance(s, generatedAt)]
   ).join("\n");
 
   return `<!doctype html>
@@ -956,6 +960,95 @@ function findingsSection(findings, href) {
 </section>`;
 }
 
+/** @param {any} comparison @param {(p: string | null) => string | null} href */
+function visualCompareSection(comparison, href) {
+  if (!comparison) return notRun("Visual baseline comparison", "node bin/atlas.js visual-compare --baseline <approved.png> --actual <current.png>", "No pairwise component screenshot comparison was run.");
+  const value = comparison.data;
+  const heatmap = href(value.heatmap ?? null);
+  const statusTone = value.status === "pass" ? "info" : value.status === "fail" ? "block" : "warn";
+  return `
+<section class="visual-compare">
+  <h2>Visual baseline comparison <span class="pill ${statusTone}">${esc(value.status)}</span></h2>
+  <p class="lede">Deterministic comparison of two PNG screenshots. A pass means only that this image pair met the recorded thresholds; it is not a design-quality or accessibility judgment and does not affect the release verdict.</p>
+  <div class="facts">
+    ${fact("pixel difference", `${Math.round((value.metrics?.pixelDiffRatio ?? 0) * 10000) / 100}%`)}
+    ${fact("perceptual score", value.metrics?.perceptualScore ?? "unavailable")}
+    ${fact("viewport", `${value.metrics?.actualWidth ?? "?"} by ${value.metrics?.actualHeight ?? "?"}`)}
+    ${fact("thresholds", `max diff ${value.thresholds?.maxDiffRatio ?? "?"}; min score ${value.thresholds?.minPerceptualScore ?? "?"}`)}
+  </div>
+  ${heatmap ? `<figure><img loading="lazy" src="${esc(heatmap)}" alt="red heatmap showing pixels that differ from the baseline"></figure>` : ""}
+  ${value.status === "inconclusive" ? `<p class="warning">The screenshots are not directly comparable. Check viewport dimensions and capture conditions.</p>` : ""}
+  <p class="note">Baseline ${esc(value.inputs?.baseline?.sha256?.slice(0, 16) ?? "unknown hash")} compared with current ${esc(value.inputs?.actual?.sha256?.slice(0, 16) ?? "unknown hash")}. The exact hashes and file paths are in the source JSON.</p>
+  <p class="source">Source: <code>${esc(rel(comparison.path))}</code> / verdict effect: none</p>
+</section>`;
+}
+
+/**
+ * @param {any} review
+ * @param {(p: string | null) => string | null} href
+ */
+function visualReviewSection(review, href) {
+  if (!review) {
+    return notRun(
+      "Optional AI visual review",
+      "node bin/atlas.js visual-review --consent-to-send-images",
+      "No AI visual review was requested. The release verdict is computed independently from this optional analysis.",
+    );
+  }
+  const value = review.data;
+  const cards = (value.screenshots ?? []).map((/** @type {any} */ screenshot) => {
+    const imageHref = href(screenshot.artifact ?? null);
+    const referenceHref = href(screenshot.referenceArtifact ?? null);
+    const issues = (screenshot.issues ?? []).map((/** @type {any} */ issue) => `
+      <li class="visual-issue">
+        <div class="card-head"><b>${esc(issue.category)}</b><span class="pill ${issue.kind === "objective" ? "warn" : "info"}">${esc(issue.kind)} Â· ${esc(issue.severity)}</span></div>
+        <p>${esc(issue.observation)}</p>
+        ${issue.recommendation ? `<p><b>Suggestion:</b> ${esc(issue.recommendation)}</p>` : ""}
+        <p class="small dim">Model confidence: ${esc(issue.confidence)} (self-reported, not calibrated)${issue.region ? ` Â· region ${issue.region.x},${issue.region.y} ${issue.region.width}Ã—${issue.region.height} / 1000` : ""}</p>
+      </li>`).join("");
+    return `
+      <article class="card">
+        <div class="card-head"><h3>${esc(screenshot.profileId)} / ${esc(screenshot.checkpointId)}</h3><span class="pill ${screenshot.status === "analyzed" ? "info" : "warn"}">${esc(screenshot.status)}</span></div>
+        ${referenceHref && imageHref ? `<div class="visual-pair"><figure><figcaption>Approved design reference</figcaption><img loading="lazy" src="${esc(referenceHref)}" alt="user-provided approved design reference"></figure><figure><figcaption>Current component</figcaption><img loading="lazy" src="${esc(imageHref)}" alt="current component screenshot reviewed by the visual model"></figure></div>` : imageHref ? `<figure><img loading="lazy" src="${esc(imageHref)}" alt="user-provided component screenshot reviewed by the visual model"></figure>` : ""}
+        ${screenshot.criteria ? `<p class="note"><b>Team criteria:</b> ${esc(screenshot.criteria)}</p>` : ""}
+        ${issues ? `<ul>${issues}</ul>` : `<p class="note">${screenshot.status === "analyzed" ? "The model returned no suggestions for this screenshot. That is not a visual pass." : "No review result is available for this screenshot; its status is inconclusive."}</p>`}
+        ${screenshot.error ? `<p class="warning">${esc(screenshot.error)}</p>` : ""}
+      </article>`;
+  }).join("\n");
+  const incomplete = value.status !== "complete";
+  const observedModel = value.screenshots?.find((/** @type {any} */ item) => item.returnedModel)?.returnedModel;
+  return `
+<section class="visual-review">
+  <h2>AI visual review <span class="pill info">advisory only</span></h2>
+  <p class="lede">${esc(observedModel ?? value.requestedModel ?? "Groq vision model")} reviewed ${value.summary?.analyzedScreenshots ?? 0} screenshot(s), returning ${value.summary?.advisoryIssues ?? 0} suggestion(s). This analysis does not affect the release verdict; model findings may be incorrect.</p>
+  ${incomplete ? `<p class="warning">Review status: ${esc(value.status)}. Missing analysis is inconclusive, not a pass.</p>` : ""}
+  ${value.consent?.providerEgress ? `<p class="note">Screenshots were sent to Groq after explicit provider-egress consent. Review the linked images before sharing this report.</p>` : ""}
+  ${cards || `<p class="note">No screenshot was analyzed. This is not a visual pass.</p>`}
+  <p class="source">Source: <code>${esc(rel(review.path))}</code> Â· verdict effect: none</p>
+</section>`;
+}
+
+/** @param {any} proposal */
+function codeProposalSection(proposal) {
+  if (!proposal) {
+    return notRun(
+      "Suggested component code patch",
+      "node bin/atlas.js suggest-code-fix --source artifacts/components/Component.jsx --consent-to-send-code",
+      "No code proposal was requested. Source code is never sent to a model by default.",
+    );
+  }
+  const value = proposal.data;
+  return `
+<section class="code-proposal">
+  <h2>Suggested component code patch <span class="pill info">human review</span></h2>
+  <p class="lede">${esc(value.summary ?? "No summary returned.")} This diff has not been applied or tested by Atlas and does not affect the release verdict.</p>
+  <p class="note">${esc(value.fileName ?? "source file")} / requested model ${esc(value.requestedModel ?? "unknown")} / returned model ${esc(value.returnedModel ?? "unknown")} / source SHA-256 prefix ${esc(value.sourceSha256?.slice(0, 16) ?? "unknown")}</p>
+  ${value.unifiedDiff ? `<pre class="patch"><code>${esc(value.unifiedDiff)}</code></pre>` : `<p class="note">No code change was proposed from the available evidence.</p>`}
+  <p class="warning">The source file and visual findings were sent to Groq after explicit source-code egress consent. Review for behavior, security, licensing, and target-contract regressions; run the actual component tests before use.</p>
+  <p class="source">Source: <code>${esc(rel(proposal.path))}</code> / applied: no / tests run: no / verdict effect: none</p>
+</section>`;
+}
+
 /**
  * @param {any} x
  * @param {(p: string | null) => string | null} href
@@ -1097,9 +1190,10 @@ function provenance(s, generatedAt) {  const env = s.matrix?.data?.environment;
 <section>
   <h2>Provenance</h2>
   <p class="lede">
-    Nothing on this page was typed in by a human. Every metric was read out of a trace JSON
-    written by the harness at capture time; this page is a rendering of those files and nothing
-    else. If a section is missing, it is because the stage did not run.
+    Release metrics and verdicts are rendered from the run artifacts captured by Atlas. Optional
+    visual criteria are user-provided; visual findings and code patches are model suggestions and
+    are labeled separately. This page renders the stored files rather than changing their values.
+    If a section is missing, it is because the stage did not run.
   </p>
   <table class="kv">
     <tr><td>page generated</td><td class="mono">${esc(generatedAt.toISOString())}</td></tr>
@@ -1319,8 +1413,13 @@ tr.sev-block td { background: rgba(255,107,107,0.04); }
 .shots figure { margin: 0; }
 .shots figcaption { font-size: 11px; color: var(--dim); margin-bottom: 6px; font-family: ui-monospace, monospace; }
 .shots img { width: 100%; border: 1px solid var(--line); border-radius: 4px; background: #000; display: block; }
+.visual-compare figure, .visual-review figure { margin: 12px 0; max-width: 100%; }
+.visual-compare figure img, .visual-review figure img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.visual-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.visual-pair figcaption { margin-bottom: 6px; color: var(--dim); font-size: 12px; }
 .target-table-wrap { max-width: 100%; overflow-x: auto; }
 .target-table-wrap table { min-width: 820px; }
+.matrix { display: block; max-width: 100%; overflow-x: auto; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; margin-bottom: 16px; }
@@ -1352,5 +1451,6 @@ footer { border-top: 1px solid var(--line); padding-top: 18px; color: var(--dim)
   .story { grid-template-columns: 1fr; }
   .story-arrow { justify-content: center; transform: rotate(90deg); }
   .lists { grid-template-columns: 1fr; gap: 14px; }
+  .visual-pair { grid-template-columns: 1fr; }
 }
 `;

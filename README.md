@@ -211,6 +211,8 @@ measurements, commands, and limits; do not infer a hosted workflow from it.
 | `node bin/atlas.js all` | Everything: matrix → replay (Orbital only) → gate → judge → compare → diagnose → report. Exits 1 on HOLD. `--url` adds preflight, skips replay. |
 | `node bin/atlas.js matrix` | The capability matrix: Orbital, `--url <href>` for a third-party page, `--glb <file>` for an uploaded model in the viewer |
 | `node bin/atlas.js matrix --target <contract.json>` | Run a versioned, selector-driven journey against an explicitly authorized development/staging target; report target-policy SHIP/HOLD/INCONCLUSIVE |
+| `node bin/atlas.js visual-compare --baseline <png> --actual <png>` | Compare approved/current component screenshots; write deterministic metrics and a heatmap (no release-gate effect) |
+| `node bin/atlas.js visual-review --image <png> --consent-to-send-images` | Send one PNG under `artifacts/` to the configured Groq vision model for advisory suggestions |
 | `node bin/atlas.js replay` | Re-run a captured trace and prove it reproduces |
 | `node bin/atlas.js gate` | Apply the release rule to what was captured |
 | `node bin/atlas.js diff --before <a> --after <b>` | Compare two matrix reports, and say first whether the comparison is valid |
@@ -232,6 +234,60 @@ and its queued records do not represent browser test results.
 
 `node bin/atlas.js <command> --help` for flags.
 
+### Component visual checks
+
+Place a baseline and current component screenshot under `artifacts/`, captured
+at the same browser size, component state, and test data. Compare them with:
+
+```powershell
+node bin/atlas.js visual-compare --baseline artifacts/components/baseline.png --actual artifacts/components/current.png
+node bin/atlas.js report
+```
+
+The JSON report records each image hash, pixel difference, coarse perceptual
+score, thresholds, and a red difference heatmap. Different image dimensions
+are inconclusive. Thresholds are pairwise comparison settings, not a design
+score, accessibility result, or release gate.
+
+For an optional model suggestion pass, provide a Groq key in the process
+environment and explicitly approve provider egress for that image:
+
+```powershell
+$env:GROQ_API_KEY = "<your key>"
+node bin/atlas.js visual-review --image artifacts/components/current.png --consent-to-send-images
+node bin/atlas.js report
+```
+
+This sends the image to Groq. Output is uncalibrated advice and does not affect
+SHIP/HOLD. The image must be within `artifacts/`; inspect it for personal data
+and secrets first. A single smoke request with synthetic images returned an
+inconclusive result because the model omitted an issue location. The adapter
+now keeps such issues unlocalized; review quality has not been evaluated.
+
+To compare against an approved visual reference, place a same-size PNG under
+`artifacts/` and supply the team criteria:
+
+```powershell
+node bin/atlas.js visual-review --image artifacts/components/current.png --reference artifacts/components/approved.png --criteria "Keep the primary action visually dominant and preserve the approved type scale." --consent-to-send-images
+```
+
+Both images and the criteria go to Groq. Findings are still suggestions, and
+reported image regions refer to the current component screenshot.
+
+To ask for a source correction proposal, place one UTF-8 component source file
+under `artifacts/` and separately approve source egress. Atlas refuses common
+credential-like strings, caps the source at 64 KiB, and only accepts a
+single-file diff:
+
+```powershell
+node bin/atlas.js suggest-code-fix --source artifacts/components/Button.jsx --consent-to-send-code
+node bin/atlas.js report
+```
+
+The source and visual findings are sent to Groq. Atlas only saves a patch
+proposal; it does not apply the diff, run it, run tests, or change the release
+verdict. Inspect it and verify it against the actual component before use.
+
 ### Owned staging journeys
 
 `--url` remains generic observation. To test what a staging experience means
@@ -252,13 +308,18 @@ only covers its declared journey and Chromium emulation.
 | `TYPESAFE_MODEL` | Model id (default `jev-latest`; pin e.g. `jev-1.13.0` once thresholds are tuned). |
 | `TYPESAFE_BASE_URL` | API base override (default `https://api.typesafe.ai`). |
 | `TYPESAFE_TIMEOUT_MS` | Live-call timeout (default 4000). |
+| `GROQ_API_KEY` | Enables optional screenshot review only when the CLI egress consent flag is also passed. |
+| `ATLAS_GROQ_VISION_MODEL` | Requested visual review model (default `qwen/qwen3.8-27b`; returned model ID is recorded). |
+| `ATLAS_GROQ_CODE_MODEL` | Requested patch proposal model (default `openai/gpt-oss-120b`; returned model ID is recorded). |
 | `ATLAS_JEV_FIXTURES=1` | Runs the Jev code path against hand-authored illustrative fixtures. |
 | `ATLAS_PREFLIGHT_ALLOW_PRIVATE=1` | Let `preflight` fetch private/loopback targets (local dev only). |
 | `ATLAS_CHROME` | Path to a Chromium-family browser, if detection fails. |
 | `ATLAS_HEADFUL=1` | Run the browser visibly. |
 
-No command silently needs a key. Their absence changes what runs; it never fails
-a command.
+Most CLI commands run without API keys. `jev-check` requires its explicit
+TypeSafe key; `visual-review` and `suggest-code-fix` require `GROQ_API_KEY` only
+when invoked, plus their separate image or source egress-consent flags. Atlas
+does not make a model call by default.
 
 ## Layout
 
@@ -296,6 +357,7 @@ docs/adr/               why things are the way they are
 | [ADR-0004](docs/adr/0004-determinism-model.md) | Seeded RNG and quantised offsets, not a faked clock |
 | [ADR-0005](docs/adr/0005-decision-engine-interface.md) | One interface, rule-based default, a guard with the last word |
 | [ADR-0006](docs/adr/0006-jev-typed-answers-only.md) | Typed answers only; there is no rationale string |
+| [ADR-0008](docs/adr/0008-optional-visual-and-code-models.md) | Optional Groq visual review and code proposals never decide or apply release changes |
 
 ## Scope
 

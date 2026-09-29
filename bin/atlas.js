@@ -356,6 +356,100 @@ const COMMANDS = {
     },
   },
 
+  "visual-review": {
+    summary: "optionally review consented owned-staging screenshots with Groq vision",
+    usage: "atlas visual-review [--matrix <file> | --image <png> [--reference <png> --criteria <text>]] --consent-to-send-images [--out <file>]",
+    detail:
+      "Reads final redacted screenshots from an owned-staging matrix, or one\n" +
+      "user-provided component PNG under artifacts/. A component may include\n" +
+      "an approved same-size --reference PNG and explicit --criteria. Each request\n" +
+      "sends at most two images to Groq using qwen/qwen3.8-27b (override with ATLAS_GROQ_VISION_MODEL).\n" +
+      "Matrix mode requires contract screenshot consent; --image requires this\n" +
+      "explicit confirmation that you may send the images and criteria to Groq.\n" +
+      "Findings are AI-generated suggestions, not calibrated facts, and\n" +
+      "never affect SHIP/HOLD/INCONCLUSIVE. Set GROQ_API_KEY before running.",
+    flags: {
+      matrix: { type: "string", describe: "owned-staging matrix report (default artifacts/matrix/report.json)" },
+      image: { type: "string", describe: "one user-provided component screenshot PNG stored under artifacts/" },
+      reference: { type: "string", describe: "approved design reference PNG under artifacts/ (requires --image and --criteria)" },
+      criteria: { type: "string", describe: "team-written visual criteria for comparing --reference and --image (max 1200 chars)" },
+      "consent-to-send-images": { type: "boolean", describe: "confirm approved images and any criteria may be sent to Groq for visual analysis" },
+      out: { type: "string", describe: "review JSON output (default artifacts/visual-review/review.json)" },
+    },
+    async run(args) {
+      const { runVisualReview } = await import("../src/visual/run-review.js");
+      await runVisualReview({
+        matrixReportPath: args.flags.matrix ? path.resolve(args.flags.matrix) : undefined,
+        imagePath: args.flags.image ? path.resolve(args.flags.image) : undefined,
+        referencePath: args.flags.reference ? path.resolve(args.flags.reference) : undefined,
+        criteria: args.flags.criteria,
+        outFile: args.flags.out ? path.resolve(args.flags.out) : undefined,
+        consentToSendImages: Boolean(args.flags["consent-to-send-images"]),
+        quiet,
+      });
+      return 0;
+    },
+  },
+
+  "visual-compare": {
+    summary: "compare two component screenshots against explicit visual thresholds",
+    usage: "atlas visual-compare --baseline <png> --actual <png> [--max-diff-ratio 0..1] [--min-perceptual-score 0..1]",
+    detail:
+      "Runs a deterministic PNG comparison and writes a JSON report plus a difference heatmap.\n" +
+      "This is pairwise screenshot evidence, not a design-quality, accessibility, or release verdict.\n" +
+      "Capture the same component state, viewport, browser and data in both images.\n" +
+      "Exit codes: 0 pass, 1 threshold fail, 2 incomparable screenshots.",
+    flags: {
+      baseline: { type: "string", required: true, describe: "approved baseline PNG" },
+      actual: { type: "string", required: true, describe: "current component screenshot PNG" },
+      "max-diff-ratio": { type: "number", describe: "maximum differing-pixel ratio (default 0.02)" },
+      "min-perceptual-score": { type: "number", describe: "minimum coarse perceptual score (default 0.98)" },
+      out: { type: "string", describe: "comparison JSON (default artifacts/visual-compare/report.json)" },
+      heatmap: { type: "string", describe: "difference PNG (default artifacts/visual-compare/diff-heatmap.png)" },
+    },
+    async run(args) {
+      const { compareVisualImages } = await import("../src/visual/compare-images.js");
+      const result = await compareVisualImages({
+        baseline: args.flags.baseline,
+        actual: args.flags.actual,
+        maxDiffRatio: args.flags["max-diff-ratio"],
+        minPerceptualScore: args.flags["min-perceptual-score"],
+        outFile: args.flags.out ? path.resolve(args.flags.out) : undefined,
+        heatmapFile: args.flags.heatmap ? path.resolve(args.flags.heatmap) : undefined,
+        quiet,
+      });
+      return result.status === "pass" ? 0 : result.status === "fail" ? 1 : 2;
+    },
+  },
+
+  "suggest-code-fix": {
+    summary: "propose a small component patch from visual QA findings",
+    usage: "atlas suggest-code-fix --source <file> [--review <json>] --consent-to-send-code [--task <text>]",
+    detail:
+      "Sends one UTF-8 source file under artifacts/ and analyzed visual findings to Groq for a single-file unified-diff proposal.\n" +
+      "Source egress requires a separate explicit consent flag. Credential-like text is refused.\n" +
+      "The diff is saved for human review; Atlas does not apply it or run tests. It never changes SHIP/HOLD.",
+    flags: {
+      source: { type: "string", required: true, describe: "one component source file under artifacts/ (maximum 64 KiB)" },
+      review: { type: "string", describe: "Atlas visual review JSON (default artifacts/visual-review/review.json)" },
+      "consent-to-send-code": { type: "boolean", describe: "confirm this source file and visual findings may be sent to Groq" },
+      task: { type: "string", describe: "bounded change request (maximum 1200 characters)" },
+      out: { type: "string", describe: "proposal JSON (default artifacts/visual-review/code-proposal.json)" },
+    },
+    async run(args) {
+      const { runCodeProposal } = await import("../src/visual/run-code-proposal.js");
+      await runCodeProposal({
+        sourcePath: path.resolve(args.flags.source),
+        reviewPath: args.flags.review ? path.resolve(args.flags.review) : undefined,
+        consentToSendCode: Boolean(args.flags["consent-to-send-code"]),
+        task: args.flags.task,
+        outFile: args.flags.out ? path.resolve(args.flags.out) : undefined,
+        quiet,
+      });
+      return 0;
+    },
+  },
+
   report: {
     summary: "render artifacts/report.html from whatever is on disk",
     usage: "atlas report [--matrix <file>] [--gate <file>] [--out <file>]",

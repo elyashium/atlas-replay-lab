@@ -109,6 +109,89 @@ test("render builds a page even with nothing on disk", async () => {
   assert.match(html, /Not run/);
 });
 
+test("visual review renders separately as advisory and escapes model text", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "atlas-report-"));
+  const artifactsDir = path.join(dir, "artifacts");
+  await mkdir(path.join(artifactsDir, "visual-review"), { recursive: true });
+  await writeFile(path.join(artifactsDir, "visual-review", "review.json"), JSON.stringify({
+    kind: "atlas.visual-review",
+    requestedModel: "qwen/qwen3.8-27b",
+    status: "complete",
+    verdictEffect: "none",
+    summary: { analyzedScreenshots: 1, advisoryIssues: 1 },
+    consent: { providerEgress: true },
+    screenshots: [{
+      profileId: "mid-android-4g",
+      checkpointId: "cp-final",
+      status: "analyzed",
+      artifact: "artifacts/visual-review/current.png",
+      referenceArtifact: "artifacts/visual-review/reference.png",
+      criteria: "Keep <script> from taking over the hierarchy.",
+      issues: [{
+        category: "layout",
+        kind: "subjective",
+        severity: "minor",
+        confidence: "medium",
+        observation: "<script>not executable</script>",
+        recommendation: "Review the spacing.",
+        region: null,
+      }],
+    }],
+  }), "utf8");
+  const outFile = path.join(dir, "report.html");
+  await renderReport({ outFile, artifactsDir, quiet: true });
+  const html = await readFile(outFile, "utf8");
+  assert.match(html, /AI visual review <span class="pill info">advisory only<\/span>/);
+  assert.match(html, /&lt;script&gt;not executable&lt;\/script&gt;/);
+  assert.ok(!html.includes("<script>not executable</script>"));
+  assert.match(html, /This analysis does not affect the release verdict/);
+  assert.match(html, /Screenshots were sent to Groq after explicit provider-egress consent/);
+  assert.match(html, /Approved design reference/);
+  assert.match(html, /Team criteria:<\/b> Keep &lt;script&gt; from taking over the hierarchy/);
+});
+
+test("deterministic visual comparison displays metrics and heatmap without affecting release verdict", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "atlas-report-"));
+  const artifactsDir = path.join(dir, "artifacts");
+  await mkdir(path.join(artifactsDir, "visual-compare"), { recursive: true });
+  await writeFile(path.join(artifactsDir, "visual-compare", "report.json"), JSON.stringify({
+    kind: "atlas.visual-compare",
+    status: "fail",
+    verdictEffect: "none",
+    metrics: { pixelDiffRatio: 0.12, perceptualScore: 0.82, actualWidth: 640, actualHeight: 480 },
+    thresholds: { maxDiffRatio: 0.02, minPerceptualScore: 0.98 },
+    inputs: { baseline: { sha256: "a".repeat(64) }, actual: { sha256: "b".repeat(64) } },
+    heatmap: "artifacts/visual-compare/diff-heatmap.png",
+  }), "utf8");
+  const outFile = path.join(dir, "report.html");
+  await renderReport({ outFile, artifactsDir, quiet: true });
+  const html = await readFile(outFile, "utf8");
+  assert.match(html, /Visual baseline comparison <span class="pill block">fail<\/span>/);
+  assert.match(html, /12%/);
+  assert.match(html, /0\.82/);
+  assert.match(html, /red heatmap showing pixels that differ from the baseline/);
+  assert.match(html, /does not affect the release verdict/);
+});
+
+test("code proposal report shows the escaped diff and labels it unapplied and untested", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "atlas-report-"));
+  const artifactsDir = path.join(dir, "artifacts");
+  await mkdir(path.join(artifactsDir, "visual-review"), { recursive: true });
+  await writeFile(path.join(artifactsDir, "visual-review", "code-proposal.json"), JSON.stringify({
+    kind: "atlas.code-proposal", status: "proposal", applied: false, testsRun: false, verdictEffect: "none",
+    fileName: "Button.jsx", requestedModel: "openai/gpt-oss-120b", returnedModel: "openai/gpt-oss-120b",
+    sourceSha256: "a".repeat(64), summary: "Use the approved accent token.",
+    unifiedDiff: "--- a/Button.jsx\n+++ b/Button.jsx\n@@ -1 +1 @@\n-<button className=\"blue\">\n+<button className=\"teal\">",
+  }), "utf8");
+  const outFile = path.join(dir, "report.html");
+  await renderReport({ outFile, artifactsDir, quiet: true });
+  const html = await readFile(outFile, "utf8");
+  assert.match(html, /Suggested component code patch/);
+  assert.match(html, /not been applied or tested by Atlas/);
+  assert.match(html, /&lt;button className=&quot;teal&quot;&gt;/);
+  assert.ok(!html.includes('<button className="teal">'));
+});
+
 test("a diagnosis on disk reaches the page with its three lists still separate", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "atlas-report-"));
   const artifactsDir = path.join(dir, "artifacts");
