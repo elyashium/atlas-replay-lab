@@ -18,8 +18,9 @@ const referenceFixture = path.join(output, "control-plane-synthetic-reference.pn
 const sourceFixture = path.join(output, "control-plane-synthetic-component.jsx");
 const previewArtifactRoot = path.join(output, "control-plane-preview-run-artifacts");
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const idempotencyPool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const app = buildApp({
-  pool, appOrigin: origin, secureCookies: false, closePool: false, artifactRoot: previewArtifactRoot,
+  pool, idempotencyPool, appOrigin: origin, secureCookies: false, closePool: false, artifactRoot: previewArtifactRoot,
   groqApiKey: "preview-only-no-egress",
   visualReviewer: async () => ({
     provider: "groq", requestedModel: "synthetic-fixture", returnedModel: "synthetic-fixture",
@@ -183,6 +184,7 @@ try {
   await rm(previewArtifactRoot, { recursive: true, force: true });
   if (organizationId) await pool.query("DELETE FROM organizations WHERE id=$1", [organizationId]);
   if (userId) await pool.query("DELETE FROM users WHERE id=$1", [userId]);
+  await idempotencyPool.end();
   await pool.end();
 }
 

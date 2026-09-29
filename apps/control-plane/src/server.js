@@ -21,6 +21,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 export function buildApp({
   pool = createPool(),
+  idempotencyPool = pool,
   appOrigin = process.env.ATLAS_APP_ORIGIN ?? "http://127.0.0.1:3000",
   secureCookies = process.env.NODE_ENV === "production",
   logger = false,
@@ -214,7 +215,7 @@ export function buildApp({
       referenceSha256: referenceImage ? createHash("sha256").update(referenceImage).digest("hex") : null,
       criteria: body.criteria ?? null,
     })).digest("hex");
-    return withIdempotencyLock(visualReviewLocks, `${orgId}:${idempotencyKey}`, async () => {
+    return withIdempotencyLock(visualReviewLocks, idempotencyPool, `${orgId}:${idempotencyKey}`, async () => {
       const duplicate = await pool.query("SELECT id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\",status,result,error FROM visual_reviews WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
       if (duplicate.rowCount) {
         const previous = duplicate.rows[0];
@@ -301,7 +302,7 @@ export function buildApp({
     if (!findings.length) return reply.code(409).send({ error: "visual review contains no findings to address" });
     const task = typeof body.task === "string" ? body.task.trim() : undefined;
     const requestSha256 = createHash("sha256").update(JSON.stringify({ reviewId, fileName: body.fileName, sourceSha256, task: task ?? null })).digest("hex");
-    return withIdempotencyLock(codeProposalLocks, `${orgId}:${idempotencyKey}`, async () => {
+    return withIdempotencyLock(codeProposalLocks, idempotencyPool, `${orgId}:${idempotencyKey}`, async () => {
       const duplicate = await pool.query("SELECT id,project_id AS \"projectId\",visual_review_id AS \"visualReviewId\",request_sha256 AS \"requestSha256\",status,result,error FROM code_proposals WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
       if (duplicate.rowCount) {
         const previous = duplicate.rows[0];
@@ -515,7 +516,10 @@ export function buildApp({
     }
   });
 
-  if (closePool) app.addHook("onClose", async () => { await pool.end(); });
+  if (closePool) app.addHook("onClose", async () => {
+    if (idempotencyPool !== pool) await idempotencyPool.end();
+    await pool.end();
+  });
   return app;
 }
 
@@ -573,16 +577,35 @@ function safeCodeProviderError(error) {
   if (status) return `Groq code proposal returned HTTP ${status[1]}`;
   return "Groq code proposal returned an invalid or unsupported response";
 }
-async function withIdempotencyLock(locks, key, callback) {
+async function withIdempotencyLock(locks, idempotencyPool, key, callback) {
   const previous = locks.get(key);
   if (previous) await previous;
   let release;
   const current = new Promise((resolve) => { release = resolve; });
   locks.set(key, current);
-  try { return await callback(); }
+  let client;
+  let acquired = false;
+  let lockParts;
+  try {
+    if (typeof idempotencyPool?.connect === "function") {
+      client = await idempotencyPool.connect();
+      const lockHash = createHash("sha256").update(`atlas-idempotency-v1\0${key}`).digest();
+      lockParts = [lockHash.readInt32BE(0), lockHash.readInt32BE(4)];
+      await client.query("SELECT pg_advisory_lock($1, $2)", lockParts);
+      acquired = true;
+    }
+    return await callback();
+  }
   finally {
+    let unlockError;
+    if (acquired) {
+      try { await client.query("SELECT pg_advisory_unlock($1, $2)", lockParts); }
+      catch (error) { unlockError = error; }
+    }
+    client?.release(unlockError);
     if (locks.get(key) === current) locks.delete(key);
     release();
+    if (unlockError) throw unlockError;
   }
 }
 async function audit(client, orgId, userId, action, type, id, details = {}) {
@@ -621,10 +644,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const secureCookies = process.env.NODE_ENV === "production";
   if (secureCookies && !process.env.ATLAS_APP_ORIGIN?.startsWith("https://")) throw new Error("production requires ATLAS_APP_ORIGIN with https://");
   const pool = createPool();
-  const app = buildApp({ pool, secureCookies, logger: true, closePool: false });
+  const idempotencyPool = createPool();
+  const app = buildApp({ pool, idempotencyPool, secureCookies, logger: true, closePool: false });
   const port = Number(process.env.PORT ?? 3000);
   const stopMaintenance = startRetentionMaintenance(pool, app.log);
   app.addHook("onClose", stopMaintenance);
-  app.addHook("onClose", async () => { await pool.end(); });
+  app.addHook("onClose", async () => { await idempotencyPool.end(); await pool.end(); });
   await app.listen({ port, host: process.env.HOST ?? "127.0.0.1" });
 }

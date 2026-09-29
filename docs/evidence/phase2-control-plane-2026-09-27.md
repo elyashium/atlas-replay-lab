@@ -297,11 +297,12 @@ Verification on Windows x64 / Node 20.18.0 / local PostgreSQL 17:
 - `node --check` passed for the API, client script, preview script, and shared
   proposal adapter; `git diff --check` passed.
 
-The control-plane provider call is still synchronous. Its idempotency lock is
-process-local, and a provider timeout can consume quota without a durable job
-record. Secret-pattern scanning is incomplete; a returned diff can repeat
-source lines. Do not host this endpoint publicly. Live quality, latency, and
-cost remain unmeasured.
+At this checkpoint the control-plane provider call was synchronous and its
+idempotency lock was process-local; the dated continuation below adds shared
+Postgres locking. Provider calls remain synchronous, so there is no durable
+visual-model job record or crash recovery. Secret-pattern scanning is
+incomplete; a returned diff can repeat source lines. Do not host this endpoint
+publicly. Live quality, latency, and cost remain unmeasured.
 
 ## 2026-09-29 continuation: opt-in local queue worker
 
@@ -444,3 +445,28 @@ retention on the server.
   finding is numbered, and the mobile clear control remains readable.
 - The preview model response and image are synthetic. This checks UI wiring,
   not model localization quality or a real customer defect.
+
+## 2026-09-29 continuation: cross-instance visual AI idempotency
+
+Visual-review and code-proposal routes now take a PostgreSQL session advisory
+lock keyed by organization plus idempotency key before checking for a prior
+result, reserving daily quota, or calling the provider. The service entry point
+uses a separate lock pool so synchronous provider waits do not hold a normal
+API-query pool connection. A retry on a second API instance waits for the first
+request to finish, then returns its stored row instead of repeating provider
+egress or consuming quota again.
+
+- Postgres integration used two independent API instances and four independent
+  connection pools. Concurrent identical visual-review requests returned the
+  same review ID with one mock provider call, one row, and one quota unit.
+- The same two-instance test concurrently submitted an identical code proposal
+  and observed the same proposal ID, one mock provider call, and one quota unit.
+- `node --test apps/control-plane/tests/integration.test.js`: **2/2 passed**.
+- Full control-plane suite with loopback-only Postgres: **35/35 passed**; root
+  suite: **390/390 passed**. Browser preview passed on desktop/mobile after
+  wiring the preview server to a distinct lock pool.
+
+This closes concurrent duplicate requests across API instances, but not crash
+recovery. The provider call still runs inline; a process can fail after remote
+egress and before its result is committed. Durable model jobs, cancellation,
+retry semantics, and distributed queue quotas remain unimplemented.

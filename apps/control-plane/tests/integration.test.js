@@ -9,6 +9,7 @@ import { createPool } from "../src/db.js";
 import { purgeExpiredRecords } from "../src/maintenance.js";
 import { claimNextRun, heartbeatRun, recoverExpiredRuns } from "../src/local-worker.js";
 import { recordFailedRun, recordSuccessfulRun } from "../src/worker-runtime.js";
+import { encodePng } from "../../../src/image/png.js";
 
   const databaseUrl = process.env.DATABASE_URL;
 const origin = "http://127.0.0.1:3000";
@@ -213,5 +214,80 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
     await runningApp.close();
     await pool.end();
     await rm(artifactRoot, { recursive: true, force: true });
+  }
+});
+
+test("separate API instances serialize consented visual-review retries through PostgreSQL", { skip: !databaseUrl && "set DATABASE_URL and run migrations to enable Postgres integration" }, async () => {
+  const pools = Array.from({ length: 4 }, () => createPool(databaseUrl));
+  const [poolA, poolB, lockPoolA, lockPoolB] = pools;
+  const suffix = randomUUID();
+  const email = `visual-race-${suffix}@example.org`;
+  let providerCalls = 0;
+  let codeProviderCalls = 0;
+  const review = async () => {
+    providerCalls += 1;
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    return { provider: "groq", requestedModel: "qwen/test", returnedModel: "qwen/test", issues: [{ category: "layout", kind: "objective", severity: "minor", confidence: "high", observation: "Fixture finding for idempotency test.", recommendation: "Keep the fixture unchanged.", region: null }], verdictEffect: "none" };
+  };
+  const propose = async ({ fileName, source }) => {
+    codeProviderCalls += 1;
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    return {
+      provider: "groq", requestedModel: "qwen/test", returnedModel: "qwen/test", fileName,
+      sourceSha256: createHash("sha256").update(source).digest("hex"), summary: "Synthetic test proposal.",
+      unifiedDiff: `--- a/${fileName}\n+++ b/${fileName}\n@@ -1 +1 @@\n-old\n+new`, status: "proposal", applied: false, testsRun: false,
+    };
+  };
+  const appA = buildApp({ pool: poolA, idempotencyPool: lockPoolA, appOrigin: origin, closePool: false, groqApiKey: "test-only", visualReviewer: review, codeProposer: propose });
+  const appB = buildApp({ pool: poolB, idempotencyPool: lockPoolB, appOrigin: origin, closePool: false, groqApiKey: "test-only", visualReviewer: review, codeProposer: propose });
+  let organizationId;
+  let userId;
+  try {
+    const registered = await appA.inject({
+      method: "POST", url: "/v1/auth/register", payload: { email, password: "a sufficiently long integration password", organizationName: "Visual race test" },
+      headers: { origin, "content-type": "application/json" },
+    });
+    assert.equal(registered.statusCode, 201, registered.body);
+    organizationId = registered.json().organization.id;
+    userId = registered.json().user.id;
+    const cookie = registered.headers["set-cookie"].split(";")[0];
+    const project = await appA.inject({
+      method: "POST", url: "/v1/projects", payload: { name: "Visual idempotency project" },
+      headers: { origin, "content-type": "application/json", cookie, "x-atlas-organization": organizationId },
+    });
+    assert.equal(project.statusCode, 201, project.body);
+    const projectId = project.json().project.id;
+    const pixels = Buffer.alloc(4 * 4 * 4, 120);
+    for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255;
+    const payload = { providerConsent: true, imageBase64: encodePng({ width: 4, height: 4, data: pixels }).toString("base64") };
+    const headers = { origin, "content-type": "application/json", cookie, "x-atlas-organization": organizationId, "idempotency-key": `same-visual-${suffix}` };
+    const responseOptions = { method: "POST", url: `/v1/projects/${projectId}/visual-reviews`, payload, headers };
+
+    const [responseA, responseB] = await Promise.all([appA.inject(responseOptions), appB.inject(responseOptions)]);
+    assert.deepEqual([responseA.statusCode, responseB.statusCode].sort(), [200, 201]);
+    assert.equal(responseA.json().review.id, responseB.json().review.id);
+    assert.equal(providerCalls, 1);
+    const stored = await poolA.query("SELECT count(*)::int AS count FROM visual_reviews WHERE organization_id=$1", [organizationId]);
+    const usage = await poolA.query("SELECT request_count FROM visual_review_usage WHERE organization_id=$1", [organizationId]);
+    assert.equal(stored.rows[0].count, 1);
+    assert.equal(usage.rows[0].request_count, 1);
+    const reviewId = responseA.json().review.id;
+    const source = "export const Button = () => <button>Buy</button>;\n";
+    const proposalOptions = {
+      method: "POST", url: `/v1/projects/${projectId}/visual-reviews/${reviewId}/code-proposals`,
+      payload: { sourceConsent: true, fileName: "button.jsx", source },
+      headers: { ...headers, "idempotency-key": `same-proposal-${suffix}` },
+    };
+    const [proposalA, proposalB] = await Promise.all([appA.inject(proposalOptions), appB.inject(proposalOptions)]);
+    assert.deepEqual([proposalA.statusCode, proposalB.statusCode].sort(), [200, 201]);
+    assert.equal(proposalA.json().proposal.id, proposalB.json().proposal.id);
+    assert.equal(codeProviderCalls, 1);
+    const proposalUsage = await poolA.query("SELECT request_count FROM code_proposal_usage WHERE organization_id=$1", [organizationId]);
+    assert.equal(proposalUsage.rows[0].request_count, 1);
+  } finally {
+    if (organizationId) await poolA.query("DELETE FROM organizations WHERE id=$1", [organizationId]);
+    if (userId) await poolA.query("DELETE FROM users WHERE id=$1", [userId]);
+    await Promise.all([appA.close(), appB.close()]);
+    await Promise.all(pools.map((pool) => pool.end()));
   }
 });

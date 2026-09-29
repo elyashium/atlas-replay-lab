@@ -51,6 +51,11 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
 
 - API/session/target/run routes: `apps/control-plane/src/server.js`.
 - SQL pool: `apps/control-plane/src/db.js`.
+- Cross-instance visual-review/code-proposal request locks use Postgres
+  advisory locks. `src/server.js` creates a separate lock pool in its service
+  entrypoint; configure one lock pool per API instance when embedding
+  `buildApp`. This serializes duplicate keys across replicas, but model calls
+  are still synchronous and have no durable crash recovery.
 - Retention maintenance: `apps/control-plane/src/maintenance.js`.
 - URL/public-address helpers: `apps/control-plane/src/security.js`.
 - Per-job HTTPS CONNECT proxy:
