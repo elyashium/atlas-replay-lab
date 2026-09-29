@@ -4,7 +4,7 @@ These notes let a new coding agent pick up Atlas's release-QA roadmap without mi
 
 ## Current state at handoff
 
-Repository base commit: `4f87025` (`Add findings diagnosis to all pipeline`). The local CLI engine remains zero-dependency. The separate `apps/control-plane` is a local Fastify/PostgreSQL foundation; hosted execution and browser workers remain disabled. The current working slice has root tests passing 363/363, `doctor` passing on Node 20.18.0 / Chrome 154.0.8037.58, and control-plane tests passing 17/17 against PostgreSQL 17. The pending DNS record and guided target form were captured at desktop 1440 px and emulated mobile 390 px with no horizontal overflow. These checks do not establish customer acceptance or hosted safety.
+At the prior handoff commit `6f0fc48` (`Harden queued run provenance and onboarding`), the local CLI engine remained zero-dependency and the separate `apps/control-plane` was a local Fastify/PostgreSQL foundation. Hosted execution and browser workers remain disabled. The preceding verified slice had root tests passing 363/363, `doctor` passing on Node 20.18.0 / Chrome 154.0.8037.58, and control-plane tests passing 17/17 against PostgreSQL 17. This continuation adds a locally tested egress-proxy component; see Phase 2 and ADR-0008 for current status. None of these checks establish customer acceptance or hosted safety.
 
 The current working slice also uses the shared destination classifier for control-plane onboarding, requires immutable build and policy binding on queued requests, cancels legacy unbound rows in migration 002, and rejects idempotency key reuse across targets. It does not enable browser execution.
 

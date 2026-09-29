@@ -24,15 +24,19 @@ only make claims supported by the required independent assessment.
   off; selectors are best-effort redaction, not a guarantee. Raw camera/audio
   artifacts are prohibited by the repo privacy boundary.
 - DNS TXT verifies control of a hostname at a point in time; it is not a safe
-  egress policy. No hosted browser worker is enabled.
+  egress policy. A CONNECT-only proxy component now checks all DNS answers and
+  pins its upstream socket to the checked address (ADR-0008), but it is not
+  attached to a worker and does not stop browser bypass. No hosted browser
+  worker is enabled.
 
 ## Hosted launch control backlog
 
 1. Threat model data and actors: tenants, operator, API, queue, worker, browser
    page, third-party scripts, object store, support, backup provider, optional
    Jev/model provider, CI/GitHub. Mark trust boundaries and abuse cases.
-2. Implement and adversarially test destination enforcement at connection time
-   for DNS rebinding, redirect chains, browser subresources, IPv4/IPv6,
+2. Force every worker browser connection through the per-job CONNECT proxy with
+   a network namespace/firewall rule, then adversarially test enforcement at
+   connection time for DNS rebinding, redirect chains, browser subresources, IPv4/IPv6,
    loopback/private/link-local/multicast/reserved/metadata ranges, alternate
    numeric host forms, DNS errors, proxying, WebSockets and downloads. Pair this
    with an isolated worker network namespace and explicit per-target egress
@@ -63,7 +67,8 @@ only make claims supported by the required independent assessment.
 
 ## Required evidence before public hosted use
 
-- Threat model and abuse-case tests linked to the actual worker network policy.
+- Threat model and abuse-case tests linked to the actual worker network policy;
+  the proxy's unit tests are not worker-boundary evidence.
 - Unsafe URLs/subresources and malicious uploads fail closed; no DNS TOCTOU
   gap can route a job to private/metadata space.
 - Second tenant cannot access another tenant's projects, runs, metadata,

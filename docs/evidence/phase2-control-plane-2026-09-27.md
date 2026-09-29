@@ -8,6 +8,7 @@ flowchart LR
   UI --> API[Fastify API and session auth]
   API --> DB[(PostgreSQL: orgs, targets, queued runs, audit)]
   API --> DNS[DNS ownership challenge]
+  Proxy[Per-job CONNECT proxy component: tested separately, not integrated]
   DB -. queued rows only .-> Worker[Isolated Chrome worker: not implemented]
   Worker -. future .-> Objects[(Private object storage: not implemented)]
   Objects -. future .-> Report[Private evidence report: not implemented]
@@ -122,3 +123,38 @@ deletion path. There are no blobs or backups connected to purge yet.
 
 This is a local development control-plane foundation; it is not a hosted MVP
 and not production ready.
+
+## 2026-09-29 continuation: isolated egress component (not worker enforcement)
+
+Added `apps/control-plane/src/egress-proxy.js`, a per-job HTTPS CONNECT proxy
+component. It accepts an exact HTTPS origin allowlist, checks every DNS answer
+with the shared destination classifier, rejects a mixed public/private answer,
+then connects to the selected checked numeric address. It does not resolve the
+hostname a second time. Plain HTTP proxy requests fail with 403; per-job tunnel
+capacity is bounded and excess connections return 503. This does not terminate
+TLS or validate encrypted HTTP paths/headers.
+
+Verification on Windows x64 / Node 20.18.0:
+
+- `node --test tests/egress-proxy.test.js`: **6/6 passed**. Includes exact-origin
+  allow/deny, malformed and alternate-port authority rejection, mixed DNS
+  refusal, a local TCP tunnel proving the checked numeric address was dialed,
+  CONNECT-only behavior, and tunnel-capacity rejection. DNS and upstreams are
+  test doubles; no external site or malicious container was tested.
+- `npm test` (repository root): **369/369 passed**; the root package remains
+  dependency-free.
+- `node bin/atlas.js doctor`: **passed**, Chrome 154.0.8037.58, CDP 1.3.
+- `npm test --prefix apps/control-plane` with local Postgres 17 and
+  `DATABASE_URL`: **17/17 passed**, including the Postgres integration flow.
+- `npm run migrate --prefix apps/control-plane` with `DATABASE_URL`: passed;
+  migrations 001 and 002 were already applied.
+- `npm audit --prefix apps/control-plane --omit=dev`: **0 production
+  vulnerabilities reported** by npm's current advisory data. This is not a
+  security audit or a guarantee against undisclosed vulnerabilities.
+
+The proxy is not imported by the API or any job consumer. There is still no
+queue consumer, worker, browser run, object store, or report. In particular,
+these unit/local-socket checks provide no evidence that a Chrome process cannot
+bypass a proxy. A per-job network namespace/firewall, container-level bypass
+tests, worker resource limits and cleanup must precede worker integration or
+any hosted execution claim. The component is documented in ADR-0008.

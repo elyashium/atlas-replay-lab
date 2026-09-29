@@ -13,6 +13,16 @@ verification. Queue requests require an immutable target build ID and snapshot
 the current release-policy hash and Atlas rule-engine identity. Legacy unbound
 queued rows are cancelled by migration 002.
 
+A per-job CONNECT-only egress proxy now exists at
+`apps/control-plane/src/egress-proxy.js`. It permits exact HTTPS origins, checks
+all DNS answers with the shared destination classifier, rejects mixed public
+and private answers, and dials the checked numeric address without resolving
+the hostname again. Five local tests include a TCP tunnel proving the numeric
+address is the one dialed. This is a tested component, **not an enforced worker
+boundary**: it is not connected to a job consumer, Chrome, or a network
+namespace. A browser could bypass it today; hosted execution remains disabled.
+See [ADR-0008](../adr/0008-connection-pinned-egress-proxy.md).
+
 Architecture decision: [`../adr/0007-phase2-control-plane-boundary.md`](../adr/0007-phase2-control-plane-boundary.md).
 Measured local setup: [`../evidence/phase2-control-plane-2026-09-27.md`](../evidence/phase2-control-plane-2026-09-27.md).
 Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
@@ -23,6 +33,8 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
 - SQL pool: `apps/control-plane/src/db.js`.
 - Retention maintenance: `apps/control-plane/src/maintenance.js`.
 - URL/public-address helpers: `apps/control-plane/src/security.js`.
+- Per-job HTTPS CONNECT proxy component (not integrated):
+  `apps/control-plane/src/egress-proxy.js`.
 - Versioned schema/up migrations: `apps/control-plane/migrations/001_initial.sql`
   and `002_immutable_run_binding.sql`; the second cancels legacy unbound queue
   rows and adds required run binding. Down migrations are destructive and only
@@ -40,8 +52,10 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
   project creation, mocked DNS TXT ownership and visibility, unverified-run
   rejection, immutable policy binding, idempotent queue record and key-reuse
   rejection, cross-org read denial, and expired run/artifact metadata deletion.
-- Root suite: 363/363 passed; `doctor` passed on Node 20.18.0 and Chrome
-  154.0.8037.58.
+- Root suite before adding the egress proxy suite: 363/363 passed. Current root
+  suite: 369/369; `doctor` passed on Node 20.18.0 and Chrome 154.0.8037.58.
+- Egress proxy suite: 6/6 passed with synthetic DNS and a local fake tunnel.
+  These tests do not exercise Docker network isolation or a browser.
 - DNS verification card and guided target form visually inspected at 1440 px
   desktop and 390 px emulated mobile; no horizontal overflow.
 - These tests do not prove full tenant isolation or hosted safety. DNS is
@@ -50,12 +64,14 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
 
 ## Recommended next work (keep workers disabled)
 
-1. Threat-model the worker/browser boundary and document SSRF cases across
-   initial DNS resolution, rebinding, redirects, iframes, scripts, fetch/XHR,
-   WebSockets, service workers, downloads, IPv4/IPv6/mapped addresses, proxy
-   paths, and metadata/private ranges.
-2. Design an isolated ephemeral worker with network namespace/egress allowlist
-   enforcement, no ambient credentials, per-run browser profile, strict CPU,
+1. Implement and adversarially test an isolated ephemeral worker network
+   namespace that forces browser traffic through the per-job proxy, including
+   direct-socket and alternate-proxy bypass attempts, QUIC, DNS, WebSockets,
+   redirects, frames, downloads, and service workers. Add DNS rebinding and
+   metadata/private-range tests at the actual network boundary. Proxy tests
+   alone do not close bypass paths.
+2. Build an ephemeral worker with no ambient credentials, per-run browser
+   profile, strict CPU,
    memory, disk and wall-time caps, sequential profiles in one isolated job,
    and cleanup verification. Do not connect it until the network policy is
    enforceable and adversarial tests pass.

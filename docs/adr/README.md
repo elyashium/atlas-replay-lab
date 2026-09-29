@@ -13,6 +13,7 @@ the decision to be revisited.
 | [0005](0005-decision-engine-interface.md) | The decision layer is an interface; the rule engine is the default and a guard has the last word | Accepted |
 | [0006](0006-jev-typed-answers-only.md) | Jev answers in a fixed vocabulary; there is no rationale string | Accepted |
 | [0007](0007-phase2-control-plane-boundary.md) | The hosted control plane is a separate package around the versioned local engine | Accepted for local Phase 2 slice |
+| [0008](0008-connection-pinned-egress-proxy.md) | Per-job HTTPS CONNECT egress validates all DNS answers and pins the socket to a checked address | Accepted for component; worker integration deferred |
 
 These are decision records, not documentation. Where they disagree with the code,
 the code is right and the record is stale — say so in a pull request rather than
