@@ -17,7 +17,7 @@ A per-job CONNECT-only egress proxy now exists at
 `apps/control-plane/src/egress-proxy.js`. It permits exact HTTPS origins, checks
 all DNS answers with the shared destination classifier, rejects mixed public
 and private answers, and dials the checked numeric address without resolving
-the hostname again. Five local tests include a TCP tunnel proving the numeric
+the hostname again. Six local tests include a TCP tunnel proving the numeric
 address is the one dialed. This is a tested component, **not an enforced worker
 boundary**: it is not connected to a job consumer, Chrome, or a network
 namespace. A browser could bypass it today; hosted execution remains disabled.
