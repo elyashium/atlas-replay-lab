@@ -91,6 +91,34 @@ generated desktop and mobile proposal screenshots. The preview injected a
 synthetic proposal; it made no provider request and is not a model-result
 measurement.
 
+## 2026-09-30 continuation: consented component crops
+
+Owned target contracts may optionally declare up to five unique component
+selectors under `screenshots.componentSelectors`. The existing target contract
+version remains v1 and omission stays backward-compatible. Capture requires
+the target's screenshot consent plus at least one redaction selector. At the
+final declared journey checkpoint, Chromium requires exactly one visible,
+fully in-viewport match per selector, enforces dimension and PNG size limits,
+and writes a separate PNG. Failure reasons are attached to the matrix row and
+trace notes; crop failures never create a visual pass.
+
+Verification on the synthetic isolated TLS target: the worker boundary script
+blocked direct public/private connections, observed 22 denied browser egress
+attempts and five UDP trap packets (not an external STUN test), then completed
+one Chromium matrix run. It exported a **240×120** selector crop beside the
+**1280×800** full checkpoint. The journey itself passed, while the Atlas core
+gate held because the synthetic trace score was **35**, below its existing
+50-point floor. This verifies crop plumbing and fail-closed gate consistency;
+it does not measure crop privacy quality, visual-review accuracy, or customer
+behavior.
+
+`npm test` passed **399/399**; control-plane tests with local Postgres passed
+**37/37**; `node --check` for changed JS, `git diff --check`, and the isolated
+worker build passed. The synthetic UI preview passed at **1440 px** and
+**390 px** with no horizontal overflow; I inspected the target wizard at both
+sizes. Provider calls remained mocked. No key was used and no customer image
+was sent to Groq.
+
 ## Reproduce local checks
 
 ```powershell

@@ -348,7 +348,7 @@ async function captureComponentScreenshots(session, dir, out, opts) {
         if (matches.length === 0) return { reason: "not-found" };
         if (matches.length !== 1) return { reason: "not-unique" };
         const element = matches[0], rect = element.getBoundingClientRect(), style = getComputedStyle(element);
-        if (style.display === "none" || style.visibility === "hidden" || rect.width <= 0 || rect.height <= 0) return { reason: "not-visible" };
+        if (style.display === "none" || style.visibility === "hidden" || !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) || rect.width <= 0 || rect.height <= 0) return { reason: "not-visible" };
         if (rect.x < 0 || rect.y < 0 || rect.right > innerWidth || rect.bottom > innerHeight) return { reason: "outside-viewport" };
         if (rect.width > 4096 || rect.height > 4096 || rect.width * rect.height > 8000000) return { reason: "over-dimension-limit" };
         return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };

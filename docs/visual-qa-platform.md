@@ -175,11 +175,23 @@ image dimensions are inconclusive, and passing means only that this image pair
 fits those thresholds.
 
 The control-plane UI now includes a consented PNG component review and report
-history. Images are size/dimension checked, processed in memory, sent to Groq
-only after explicit consent, and not persisted; the JSON findings, image hashes,
-and criteria are retained in Postgres for 30 days with an audit event. A hard
-limit of ten requests per organization per UTC day is enforced in Postgres.
-This is synchronous local control-plane execution, not an isolated worker.
+history. An owned-staging target may also declare up to five component CSS
+selectors; when screenshot capture consent is enabled, Chromium captures each
+unique visible in-viewport element as a separate crop at the final declared
+journey checkpoint. Configured redaction selectors are applied before both the
+full checkpoint and crops. Missing, duplicate, hidden, oversized, or off-screen
+matches are reported as capture gaps and do not become a visual pass. Inspect
+the images before sharing or selecting one for separate Groq egress consent.
+The crop feature extends the optional `screenshots.componentSelectors` field
+within target contract schema v1; contracts that omit it remain valid.
+
+Images are size/dimension checked, processed in memory, sent to Groq only after
+explicit consent, and not persisted; the JSON findings, image hashes, and
+criteria are retained in Postgres for 30 days with an audit event. A hard limit
+of ten requests per organization per UTC day is enforced in Postgres. This is
+synchronous local control-plane execution, not an isolated worker. The crop is
+not an arbitrary component-state recorder: it captures only the declared final
+journey state under Chromium emulation.
 
 A completed review with findings can also start a separate-consent code
 proposal. The route sends one source file (up to 64 KiB), validated findings,

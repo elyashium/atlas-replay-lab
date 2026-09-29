@@ -47,6 +47,35 @@ test("credentials in URL and query strings are refused; artifact URL scrubber re
   assert.equal(safeTargetUrl(new URL("https://stage.example.test/ar?token=secret#private")), "https://stage.example.test/ar");
 });
 
+test("component screenshot selectors are optional, bounded, unique, and consent-gated", () => {
+  const legacy = contract();
+  delete legacy.screenshots.componentSelectors;
+  assert.equal(validateTargetContract(legacy).ok, true, "existing schema v1 contracts remain valid");
+
+  const valid = contract();
+  valid.screenshots.componentSelectors = [
+    { id: "hero", selector: "[data-hero]" },
+    { id: "buy-button", selector: "#buy" },
+  ];
+  assert.equal(validateTargetContract(valid).ok, true);
+
+  const noConsent = structuredClone(valid);
+  noConsent.screenshots.consent = false;
+  assert.match(validateTargetContract(noConsent).issues.join(" "), /requires screenshot consent/);
+
+  for (const selectors of [
+    Array.from({ length: 6 }, (_, i) => ({ id: `part-${i}`, selector: `#part-${i}` })),
+    [{ id: "dup", selector: "#a" }, { id: "dup", selector: "#b" }],
+    [{ id: "../private", selector: "#a" }],
+    [{ id: "ok", selector: "" }],
+    [{ id: "ok", selector: "#".padEnd(257, "a") }],
+  ]) {
+    const invalid = structuredClone(valid);
+    invalid.screenshots.componentSelectors = selectors;
+    assert.equal(validateTargetContract(invalid).ok, false);
+  }
+});
+
 test("target policy fails closed for failed and missing critical journey evidence", () => {
   const c = contract();
   const good = [

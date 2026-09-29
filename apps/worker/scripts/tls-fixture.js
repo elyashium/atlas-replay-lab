@@ -29,7 +29,7 @@ const server = https.createServer({ key: await readFile(keyPath), cert: await re
     return;
   }
   response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-  response.end("<!doctype html><title>Atlas isolated fixture</title><main id=ready>Controlled worker network fixture</main>");
+  response.end("<!doctype html><title>Atlas isolated fixture</title><style>body{margin:0}main{width:240px;height:120px;background:#345;color:#fff;padding:12px;box-sizing:border-box}</style><main id=ready>Controlled worker network fixture <span data-private>fixture private label</span></main>");
 });
 server.listen(443, "0.0.0.0", () => process.stdout.write("TLS fixture ready on 443\n"));
 

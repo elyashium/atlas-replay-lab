@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { decodePng } from "../../../src/image/png.js";
 import { assertInternalJobNetwork, assertProxyNetworkAttachments, assertWorkerNetworkAttachments, exportContainerArtifacts } from "../../control-plane/src/local-worker.js";
 
 const image = process.env.ATLAS_WORKER_IMAGE ?? "atlas-worker:local";
@@ -91,7 +92,7 @@ try {
     budgets: { journeyTimeoutMs: 10000, stepTimeoutMs: 5000 },
     mediaConsent: false,
     policy: { version: "1", criticalProfiles: ["high-wifi"], minimumScore: 0 },
-    screenshots: { consent: false, redactSelectors: [] },
+    screenshots: { consent: true, redactSelectors: ["[data-private]"], componentSelectors: [{ id: "ready", selector: "#ready" }] },
   };
   await writeFile(contractFile, `${JSON.stringify(fixtureContract)}\n`, { flag: "wx" });
   run("create", [
@@ -123,6 +124,19 @@ try {
   process.stdout.write(`job output root: ${run("exec", [jobWorkerName, "ls", "-la", "/output"])}\n`);
   process.stdout.write(`job output files: ${run("exec", [jobWorkerName, "find", "/output", "-maxdepth", "3", "-type", "f"])}\n`);
   await exportContainerArtifacts(docker, jobWorkerName, capturedOutput);
+  const matrixReport = JSON.parse(await readFile(path.join(capturedOutput, "matrix", "report.json"), "utf8"));
+  const screenshots = matrixReport.runs?.[0]?.screenshots ?? {};
+  const componentPath = screenshots["component-ready"];
+  const checkpointPath = screenshots["cp-final"];
+  if (!componentPath || !checkpointPath) throw new Error("worker did not export both the consented final checkpoint and component crop");
+  const componentFile = await findArtifact(capturedOutput, path.basename(componentPath));
+  const checkpointFile = await findArtifact(capturedOutput, path.basename(checkpointPath));
+  const componentImage = decodePng(await readFile(componentFile));
+  const checkpointImage = decodePng(await readFile(checkpointFile));
+  if (componentImage.width >= checkpointImage.width || componentImage.height >= checkpointImage.height) {
+    throw new Error(`component crop was not smaller than the full checkpoint (${componentImage.width}x${componentImage.height} vs ${checkpointImage.width}x${checkpointImage.height})`);
+  }
+  process.stdout.write(`PASS: consented selector crop was exported separately (${componentImage.width}x${componentImage.height}; full checkpoint ${checkpointImage.width}x${checkpointImage.height}); redaction selector was configured before both captures\n`);
   const jobResult = JSON.parse(await readFile(path.join(capturedOutput, "job-result.json"), "utf8"));
   run("exec", [jobWorkerName, "touch", "/output/.parent-collected"]);
   if (Number(run("wait", [jobWorkerName])) !== jobExit) throw new Error("synthetic worker supervisor exit did not match its execution marker");
@@ -166,4 +180,17 @@ async function waitForLogs(name, pattern) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`${name} was not ready before timeout`);
+}
+
+async function findArtifact(root, expectedName) {
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    const candidate = path.join(root, entry.name);
+    if (entry.isFile() && entry.name === expectedName) return candidate;
+    if (entry.isDirectory()) {
+      try { return await findArtifact(candidate, expectedName); } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+  }
+  throw Object.assign(new Error(`artifact ${expectedName} was not exported`), { code: "ENOENT" });
 }
