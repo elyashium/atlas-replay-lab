@@ -4,18 +4,28 @@
   "private": true,
   "type": "module",
   "description": "Separate Phase 2 web control plane for Atlas Replay Lab",
-  "engines": { "node": ">=20.0.0" },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
-    "start": "node src/server.js",
+    "start": "npm run build && node scripts/start.js",
+    "build": "vite build",
     "worker:local": "node src/worker.js",
     "migrate": "node src/migrate.js",
     "preview:screenshots": "node scripts/capture-preview.js",
+    "verify:artifact-store": "node scripts/verify-artifact-store.js",
     "verify:worker-boundary": "node ../worker/scripts/verify-network-boundary.js",
     "test": "node --test"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1143.0",
+    "@supabase/supabase-js": "^2.109.0",
     "fastify": "^5.12.5",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "ws": "^8.22.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "vite": "^6.4.3"
+  }
 }

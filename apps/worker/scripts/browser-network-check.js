@@ -25,9 +25,11 @@ try {
   await page.send("Network.enable", {}, 5000);
   const tracked = new Map();
   page.on("Network.requestWillBeSent", ({ requestId, request }) => {
-    let host;
-    try { host = new URL(request.url).hostname; } catch { return; }
-    if (["169.254.169.254", "93.184.216.3", "blocked.example.test"].includes(host)) tracked.set(requestId, { host, failed: false });
+    let parsed;
+    try { parsed = new URL(request.url); } catch { return; }
+    if (["169.254.169.254", "93.184.216.3", "blocked.example.test"].includes(parsed.hostname)) {
+      tracked.set(requestId, { host: parsed.hostname, path: parsed.pathname, failed: false });
+    }
   });
   page.on("Network.loadingFailed", ({ requestId }) => {
     const request = tracked.get(requestId);
@@ -84,7 +86,10 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 400));
   const failedForbiddenRequests = [...tracked.values()].filter((request) => request.failed).length;
   assert.ok(failedForbiddenRequests >= 5, `expected failed browser requests to forbidden destinations, observed ${failedForbiddenRequests}`);
-  process.stdout.write(`browser adversarial probes blocked: ${JSON.stringify({ fetches: probeResults.slice(0, 4), image: probeResults[4], redirectFrame: probeResults[5], webSocket: probeResults[6], serviceWorker: probeResults[7], webRtcServerReflexiveCandidates: probeResults[8].serverReflexiveCandidates, failedForbiddenRequests })}\n`);
+  const deniedRequests = [...tracked.values()].filter((request) => request.failed);
+  const blockedMetadataRedirect = deniedRequests.some((request) => request.host === "169.254.169.254" && request.path === "/metadata-probe");
+  assert.ok(blockedMetadataRedirect, "browser must show the cross-origin redirect to metadata failed at the connection boundary");
+  process.stdout.write(`browser adversarial probes blocked: ${JSON.stringify({ fetches: probeResults.slice(0, 4), image: probeResults[4], redirectFrame: probeResults[5], webSocket: probeResults[6], serviceWorker: probeResults[7], webRtcServerReflexiveCandidates: probeResults[8].serverReflexiveCandidates, failedForbiddenRequests, blockedMetadataRedirect })}\n`);
 } finally {
   await browser.close();
 }

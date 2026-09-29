@@ -57,13 +57,19 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
   `buildApp`. This serializes duplicate keys across replicas, but model calls
   are still synchronous and have no durable crash recovery.
 - Retention maintenance: `apps/control-plane/src/maintenance.js`.
+- Artifact storage adapter: `apps/control-plane/src/artifact-store.js`; local
+  filesystem remains the dev default, while an optional S3-compatible bucket
+  is required by the production server path. The isolated worker verifies staged
+  bytes before upload; authenticated/private-share API reads verify size/hash;
+  `src/artifact-upload.js` verifies local worker files before upload; retention
+  deletes the run prefix through the retryable purge queue.
 - URL/public-address helpers: `apps/control-plane/src/security.js`.
 - Per-job HTTPS CONNECT proxy:
   `apps/control-plane/src/egress-proxy.js`.
 - Local queue leases/artifact export: `apps/control-plane/src/local-worker.js`; result/failure transactions: `apps/control-plane/src/worker-runtime.js`; process entry: `apps/control-plane/src/worker.js`.
 - Pinned isolated Chromium executor and local Docker boundary check: `apps/worker/`.
 - Versioned schema/up migrations: `apps/control-plane/migrations/001` through
-  `009`; down migrations are destructive and only for a disposable DB.
+  `014`; down migrations are destructive and only for a disposable DB.
 - UI: `apps/control-plane/public/{index.html,app.js,app.css}`.
 - Local screenshot comparison worker: `apps/control-plane/public/pixel-diff-worker.js`;
   it imports `/image-diff.js`, a server route exposing the dependency-free core
@@ -140,6 +146,42 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
   returns `410 Gone`. The PostgreSQL integration suite exercises those paths.
   This enforces the row-level 30-day access cutoff; it does not provide backup,
   object-store, or third-party provider deletion guarantees.
+- Supabase Auth is now a selectable/configured provider. A server-side verifier
+  validates confirmed users, maps provider subject IDs to Atlas users, and
+  creates the first organization transactionally. Migration 012 is reversible.
+  Supabase Auth does not replace the Atlas PostgreSQL database; local Atlas
+  records still use `DATABASE_URL`. Real Supabase sign-up is not yet verified:
+  the current project's redirect allow list is empty, so configure a local or
+  deployed redirect in Supabase Auth URL settings before account onboarding.
+- `npm start --prefix apps/control-plane` builds and launches Fastify through
+  its env-loading wrapper. CI now builds the Vite frontend after the complete
+  PostgreSQL-backed control-plane suite.
+- New run submissions now have configurable per-organization quotas:
+  `ATLAS_RUN_DAILY_LIMIT` (100 by default, UTC day) and
+  `ATLAS_RUN_CONCURRENT_LIMIT` (5 queued/running). A PostgreSQL advisory
+  transaction lock serializes each organization's existing-idempotency check,
+  usage count, and insert across API replicas. Retries return the prior row
+  before quota checks; cancelled/completed runs release concurrent capacity.
+  Migration `013_run_quota_indexes.sql` supports the daily and active counts.
+  These are safety defaults, not commercial plan limits or measured customer
+  allowances.
+- The local network-boundary verifier now explicitly observes a failed
+  browser request to the metadata IP reached through a cross-origin redirect,
+  rather than treating iframe `load` completion as proof of blocking. Latest
+  local run observed 21 denied proxy attempts and six failed forbidden browser
+  requests. It remains a one-run synthetic Docker test and is not a hosted or
+  comprehensive SSRF proof.
+- Target screenshot redaction now happens in PNG pixels rather than relying on
+  a CSS blur that could leave text legible. Atlas measures each configured
+  selector's box and writes an opaque black mask with 12 CSS pixels of padding;
+  the same mask is applied relative to component screenshot crops. Missing,
+  invalid, or unmeasurable selector bounds withhold the screenshot. In the
+  latest isolated synthetic worker run, both the 1280x800 checkpoint and
+  240x120 component crop contained 6,191 fully opaque black pixels. This is
+  evidence for the fixture selector only, not a privacy guarantee for arbitrary
+  pages: overflowing content, pseudo-elements, cross-origin frames, later
+  layout shifts, and unselected sensitive areas can remain visible. Keep
+  screenshot capture opt-in and review artifacts before sharing them.
 
 ## Recommended next work (keep hosted workers disabled)
 
@@ -335,3 +377,118 @@ already applied. `npm test --prefix apps/control-plane` with loopback
 `DATABASE_URL` passed **37/37**, including the previously skipped integration
 tests. This verifies the local database path only; production DB operations,
 backup/restore, and hosted isolation remain open.
+
+### Anonymous share route aggregate ceiling (2026-09-30)
+
+Migration `014_anonymous_share_request_limit.sql` adds fixed-minute counters
+for public share-open and artifact routes. The default ceiling is 1,200 requests
+per route/minute (`ATLAS_ANONYMOUS_SHARE_RATE_LIMIT_PER_MINUTE`, consistently
+configured across API instances). Counting happens before token validation, so
+unknown, expired, revoked, and malformed-token attempts consume the same route
+budget. Counters retain no IP, token, or user-agent and maintenance deletes
+minute buckets older than two minutes. A saturated route returns 429 with
+`Retry-After: 60`.
+
+This is a coarse service-wide ceiling. It does not provide per-client fairness,
+cannot stop a distributed actor from exhausting the shared budget, and is not
+a substitute for an edge/WAF control, proxy log review, abuse monitoring, or
+production load testing. It may throttle legitimate users if the limit is set
+too low. The per-share limit remains a second independent check after token
+lookup.
+
+### Local app onboarding follow-up (2026-09-30)
+
+The package's local `.env` loader is shared by the API and worker entry points.
+Shell-provided environment values still take precedence, and the worker remains
+disabled unless `ATLAS_ENABLE_LOCAL_WORKER=1`. The checked-in example again
+includes the worker image, private artifact directory, review limits, model
+settings, Supabase auth values, and run/share quotas. The control-plane README
+now documents building the worker image and starting the API and worker in two
+local terminals. This makes the local workflow discoverable; it does not prove
+the queue has run against an owned customer staging target.
+
+The provided Supabase project's public auth settings reported sign-up enabled
+and email auto-confirm disabled. A real confirmation email round trip was not
+performed; add the exact local or deployed redirect URL to the project's Auth
+redirect allow list before testing sign-up. No account was created by this
+check.
+
+On 2026-09-30 the local app was started with `npm start --prefix
+apps/control-plane`; the server built and listened on `127.0.0.1:3000`. A
+loopback HTTP smoke check returned `provider: supabase`, the configured project
+origin, and a non-empty publishable key; the landing page returned 200 and
+contained the release-QA product copy. The key value was not printed. This
+proves local env loading and runtime config wiring, not a Supabase signup,
+email confirmation, or authenticated onboarding round trip.
+
+Verification on this worktree: control-plane tests with local PostgreSQL
+**54/54**, root tests **400/400**, Vite production build passed, and
+`preview:screenshots` completed desktop 1440 px and emulated mobile 390 px
+states without horizontal overflow. Preview data and model outputs are
+synthetic. The mobile proposal screen was visually inspected; it labels the
+diff unapplied and untested, clearly presents the required source-egress
+consent, and wraps long hashes within the viewport. The worker entry-point
+guard was also checked with local env loading and remained disabled by default.
+
+### Private S3-compatible artifact storage slice (2026-09-30)
+
+`src/artifact-store.js` adds an optional S3-compatible bucket adapter using the
+AWS SDK for JavaScript v3. Local disk remains the default outside production;
+the production API refuses startup without a bucket. The local worker stages
+the bounded job output on private disk, verifies each artifact's path, byte
+length, and SHA-256, then uploads it before committing metadata. On upload or
+commit failure, it attempts deletion of the run prefix; the API downloads
+through its organization/share authorization and rechecks byte length and
+SHA-256. Retention drains its existing database outbox only after remote
+prefix deletion succeeds, and it also removes the local run directory when
+configured. Share links continue to serve through Atlas rather than expose
+object URLs.
+
+The configured bucket must remain private and use TLS outside local testing.
+Retention lists versions and delete markers, then deletes each explicit version
+ID. Providers that cannot return a complete version listing fail the purge so
+the outbox keeps retrying; key-only deletion is not used as a fallback. Mocked
+tests cover this behavior, but versioned-object deletion has not been exercised
+against a live S3-compatible provider. Object-store policy, least-privilege
+credentials, encryption, provider backups, region, and restore also remain
+unverified. The adapter has injected-client tests plus one disposable loopback
+RustFS container round trip (put/get/prefix-delete); no hosted bucket or
+selected-provider configuration was involved. The `verify:artifact-store`
+command repeats that guarded loopback smoke against an already-created
+disposable bucket. The AWS SDK dependency is pinned at 3.1143.0 and install/audit reported zero
+vulnerabilities; Node 20 emitted an upstream notice that SDK versions published
+after January 2027 will require Node 22. This slice is not evidence of
+production storage readiness.
+
+Latest verification after version-aware purge changes: control-plane tests with
+local PostgreSQL **60/60**, root tests **400/400**, frontend build passed, and
+`npm audit --prefix apps/control-plane --audit-level=moderate` reported **0
+vulnerabilities**. The loopback smoke test passed against a disposable RustFS
+container and removed its bucket, object, container, and named volume. The
+tracked smoke command requires explicit test opt-in, a test bucket, and a
+loopback HTTP endpoint.
+
+### Opaque screenshot redaction (2026-09-30)
+
+The core runner no longer relies on CSS blur for target screenshot privacy.
+With explicit capture consent and configured selectors, it measures matching
+element boxes and paints opaque black pixels into the PNG with 12 CSS pixels
+of padding. The page layout is left untouched. The same treatment applies to
+component crops; invalid, missing, or unmeasurable bounds withhold the image.
+First-frame score inputs use the original capture held briefly in memory;
+artifacts and report links receive only the redacted PNG.
+Selectors still need to cover all sensitive content, and overflow,
+pseudo-elements, cross-origin frames, layout changes between measurement and
+capture, and unselected content remain risks. Human review is still required.
+
+Evidence: `node --test tests/image.test.js` passed **30/30**; root `npm test`
+passed **402/402**; `docker build -f apps/worker/Dockerfile -t
+atlas-worker:local .` passed; and `npm run verify:worker-boundary --prefix
+apps/control-plane` passed on local Docker Desktop. The verifier found 6,191
+fully opaque black pixels in both the 1280x800 synthetic checkpoint and its
+240x120 component crop. The same one-profile synthetic run recorded six failed
+forbidden browser requests, 21 proxy refusals, five UDP packets reaching a
+same-job-network trap, zero server-reflexive candidates, and a `HOLD` verdict
+at score 35 against the configured 50 floor. This is local synthetic evidence,
+not hosted isolation, a customer journey, external STUN coverage, or a repeated
+benchmark.

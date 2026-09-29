@@ -21,6 +21,7 @@ const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const idempotencyPool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const app = buildApp({
   pool, idempotencyPool, appOrigin: origin, secureCookies: false, closePool: false, artifactRoot: previewArtifactRoot,
+  dns: { lookup: async () => [{ address: "93.184.216.34", family: 4 }], resolveTxt: async () => [] },
   groqApiKey: "preview-only-no-egress",
   visualReviewer: async () => ({
     provider: "groq", requestedModel: "synthetic-fixture", returnedModel: "synthetic-fixture",
@@ -141,6 +142,12 @@ try {
     const verificationLayout = await page.evaluate("({innerWidth, clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, bodyScrollWidth: document.body.scrollWidth})");
     reports.push({ viewport: viewport.name, state: "verification", ...verificationLayout, screenshot: `artifacts/control-plane-verification-${viewport.name}.png` });
     await page.evaluate("document.querySelector('.target-form').scrollIntoView({block:'start'})");
+    await page.evaluate("(() => { const form=document.querySelector('.target-form'); const set=(name,value)=>{form.elements[name].value=value;form.elements[name].dispatchEvent(new Event('input',{bubbles:true}));}; set('buildId','preview-build-2026'); form.elements.authorizationConsent.checked=true; form.elements.authorizationConsent.dispatchEvent(new Event('change',{bubbles:true})); form.querySelector('button[type=button]').click(); })()");
+    await page.evaluate("new Promise((resolve,reject)=>{const started=Date.now();const check=()=>{const status=document.querySelector('.target-validation-status');if(status?.dataset.state==='success')resolve(true);else if(status?.dataset.state==='error')reject(new Error('target static validation failed: '+status.innerText));else if(Date.now()-started>8000)reject(new Error('target static validation did not finish'));else setTimeout(check,25)};check()})", { awaitPromise: true });
+    const targetPreflightState = await page.evaluate("({registerEnabled:!document.querySelector('.target-form button[type=submit]').disabled, ownershipPending:document.querySelector('.target-validation-status').innerText.includes('Ownership verification is still pending'), selectorNotTested:document.querySelector('.target-validation-status').innerText.includes('selectors have not been tested')})");
+    reports.push({ viewport: viewport.name, state: "target-static-preflight", ...targetPreflightState });
+    await page.evaluate("document.querySelector('.target-validation-status').scrollIntoView({block:'center'})");
+    await writeFile(path.join(output, `control-plane-target-preflight-${viewport.name}.png`), await page.screenshot());
     await new Promise((resolve) => setTimeout(resolve, 250));
     const layout = await page.evaluate("({innerWidth, clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, bodyScrollWidth: document.body.scrollWidth})");
     const screenshot = await page.screenshot();
@@ -206,7 +213,7 @@ try {
     reports.push({ viewport: viewport.name, state: "anonymous-shared-report", ...shareView, screenshot: `artifacts/control-plane-shared-report-${viewport.name}.png` });
   }
   console.log(JSON.stringify(reports, null, 2));
-  if (reports.some((item) => item.scrollWidth > item.clientWidth || (item.state === "visual-review-result" && (item.findingOverlayCount !== 1 || !item.sourceProvenanceVisible)) || (item.state === "finding-disposition" && (!item.persisted || !item.noVerdictClaim)) || (item.state === "clear-local-screenshot" && !item.passed) || (item.state === "code-proposal-result" && (!item.unappliedLabel || !item.candidateHashVisible)) || (item.state === "share-link-created" && (!item.activeShare || !item.shareTokenInUrl || !item.artifactSelected)) || (item.state === "anonymous-shared-report" && (!item.tokenRemoved || item.artifactCount !== 1 || item.screenshotPreviewCount !== 1)))) process.exitCode = 1;
+  if (reports.some((item) => item.scrollWidth > item.clientWidth || (item.state === "target-static-preflight" && (!item.registerEnabled || !item.ownershipPending || !item.selectorNotTested)) || (item.state === "visual-review-result" && (item.findingOverlayCount !== 1 || !item.sourceProvenanceVisible)) || (item.state === "finding-disposition" && (!item.persisted || !item.noVerdictClaim)) || (item.state === "clear-local-screenshot" && !item.passed) || (item.state === "code-proposal-result" && (!item.unappliedLabel || !item.candidateHashVisible)) || (item.state === "share-link-created" && (!item.activeShare || !item.shareTokenInUrl || !item.artifactSelected)) || (item.state === "anonymous-shared-report" && (!item.tokenRemoved || item.artifactCount !== 1 || item.screenshotPreviewCount !== 1)))) process.exitCode = 1;
 } finally {
   await browser.close();
   await app.close();

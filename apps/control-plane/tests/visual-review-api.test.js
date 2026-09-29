@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { decodePng, encodePng } from "../../../src/image/png.js";
 import { buildApp } from "../src/server.js";
 
@@ -101,6 +101,34 @@ test("visual review requires consent, valid capped PNGs, and an idempotency key 
   } finally { await app.close(); }
 });
 
+test("visual-review route accepts bounded multi-megabyte PNG payloads without raising other API body limits", async () => {
+  const currentBytes = encodePng({ width: 512, height: 512, data: randomBytes(512 * 512 * 4) });
+  const referenceBytes = encodePng({ width: 512, height: 512, data: randomBytes(512 * 512 * 4) });
+  assert.ok(currentBytes.length > 256 * 1024);
+  assert.ok(referenceBytes.length > 256 * 1024);
+  assert.ok(currentBytes.length < 10 * 1024 * 1024);
+  const app = buildApp({
+    pool: reviewPool(), appOrigin: origin, groqApiKey: "test-only",
+    visualReviewer: async () => ({ provider: "groq", requestedModel: "qwen/test", returnedModel: "qwen/test", issues: [], verdictEffect: "none" }),
+  });
+  try {
+    const reviewed = await request(app, {
+      providerConsent: true,
+      imageBase64: currentBytes.toString("base64"),
+      referenceImageBase64: referenceBytes.toString("base64"),
+      criteria: "Use the same component bounds.",
+    });
+    assert.equal(reviewed.statusCode, 201, reviewed.body);
+    assert.equal(reviewed.json().review.status, "complete");
+    const unrelated = await app.inject({
+      method: "POST", url: "/v1/projects",
+      headers: { origin, "content-type": "application/json", cookie, "x-atlas-organization": orgId },
+      payload: { name: "oversized body", extra: "x".repeat(300 * 1024) },
+    });
+    assert.equal(unrelated.statusCode, 413);
+  } finally { await app.close(); }
+});
+
 test("OpenAPI documents expiry outcomes for visual-review and code-proposal retries", async () => {
   const app = buildApp({ pool: reviewPool(), appOrigin: origin });
   try {
@@ -110,6 +138,8 @@ test("OpenAPI documents expiry outcomes for visual-review and code-proposal retr
     assert.match(spec.paths["/v1/projects/{projectId}/visual-reviews"].post.responses["410"].description, /expired/);
     assert.match(spec.paths["/v1/projects/{projectId}/visual-reviews/{reviewId}/code-proposals"].post.responses["404"].description, /expired/);
     assert.match(spec.paths["/v1/projects/{projectId}/visual-reviews/{reviewId}/code-proposals"].post.responses["410"].description, /expired/);
+    assert.match(spec.paths["/v1/targets/{targetId}/runs"].post.responses["410"].description, /expired/);
+    assert.match(spec.paths["/v1/runs/{runId}"].get.responses["404"].description, /expired/);
   } finally { await app.close(); }
 });
 

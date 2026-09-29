@@ -4,23 +4,68 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>Atlas · release QA</title>
+  <meta name="description" content="Evidence-first release QA for browser-based 3D, WebAR, and interactive commerce.">
+  <title>Atlas — release QA for Web3D</title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <header class="topbar"><a class="wordmark" href="/" aria-label="Atlas home"><span class="mark">A</span><span>atlas<span class="muted"> / release qa</span></span></a><a class="quiet-link" href="/api/openapi.json">API reference</a></header>
+  <header class="topbar">
+    <a class="wordmark" href="/" aria-label="Atlas home"><span class="mark">A</span><span>atlas<span class="muted"> / release qa</span></span></a>
+    <nav class="topnav" aria-label="Main navigation"><a class="quiet-link" href="#how-it-works">How it works</a><a class="quiet-link" href="/api/openapi.json">API</a><a class="nav-cta" href="#auth">Sign in <span aria-hidden="true">↗</span></a></nav>
+  </header>
   <main>
-    <section class="intro"><p class="eyebrow">WEB3D · WEBAR · INTERACTIVE COMMERCE</p><h1>Know what ships<br>before it reaches a customer.</h1><p class="lede">Connect an owned staging experience, declare its critical journey and fallback, then keep the evidence with the release.</p></section>
-    <section id="auth" class="panel auth-panel" aria-labelledby="auth-title">
-      <div class="panel-heading"><div><p class="eyebrow">WORKSPACE</p><h2 id="auth-title">Sign in</h2></div><button id="toggle-auth" class="text-button" type="button">Create an account</button></div>
-      <form id="auth-form" class="stack">
-        <label>Email<input name="email" type="email" autocomplete="email" required></label>
-        <label>Password<input name="password" type="password" minlength="12" autocomplete="current-password" required><small>Use at least 12 characters.</small></label>
-        <label id="org-name-row" hidden>Organization name<input name="organizationName" maxlength="120" autocomplete="organization"></label>
-        <button class="primary" type="submit">Continue <span aria-hidden="true">→</span></button>
-        <p class="notice" id="auth-message" role="status"></p>
-      </form>
-    </section>
+    <div id="landing">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">WEB3D · WEBAR · INTERACTIVE COMMERCE</p>
+          <h1 id="hero-title">Ship the experience.<br><span>Know it works.</span></h1>
+          <p class="lede">Release QA for browser-based 3D. Test the journey, fallback, and visual details on owned staging builds, then carry replayable evidence into the release.</p>
+          <div class="hero-actions"><a class="primary hero-primary" id="start-workspace" href="#auth">Create a workspace <span aria-hidden="true">→</span></a><a class="secondary" href="#how-it-works">See the workflow</a></div>
+          <p class="hero-footnote"><span class="status-dot"></span>Chromium emulation · owned staging only · no handset claim</p>
+        </div>
+        <div class="hero-art" aria-label="Illustrative release report anatomy; no run data shown">
+          <div class="art-orbit orbit-one"></div><div class="art-orbit orbit-two"></div>
+          <article class="evidence-board">
+            <div class="board-top"><div><p class="eyebrow">ATLAS / REPORT ANATOMY</p><h2>Release evidence</h2></div><span class="example-tag">Illustrative</span></div>
+            <div class="build-line"><span class="mini-check">✓</span><div><strong>Build identity</strong><small>Commit and target contract bound</small></div><span class="line-state">recorded</span></div>
+            <div class="profile-list"><div class="profile-head"><span>PROFILE MATRIX</span><span>EMULATED</span></div><div class="profile-row"><i class="profile-icon">◌</i><span>Fast connection</span><b>journey + fallback</b></div><div class="profile-row"><i class="profile-icon">◒</i><span>Constrained device</span><b>journey + fallback</b></div></div>
+            <div class="board-bottom"><span class="trace-mark">↳</span><p><strong>Trace, screenshots, and gate reasons</strong><small>Artifacts belong to a real run when one is submitted.</small></p></div>
+          </article>
+          <span class="art-label label-top">01 / TEST</span><span class="art-label label-bottom">02 / EVIDENCE</span>
+        </div>
+      </section>
+
+      <section class="workflow" id="how-it-works" aria-labelledby="workflow-title">
+        <div class="section-heading"><div><p class="eyebrow">A RELEASE WORKFLOW</p><h2 id="workflow-title">From staging link to a reasoned decision.</h2></div><p>Keep the target, test conditions, and evidence tied together.</p></div>
+        <div class="workflow-grid">
+          <article class="workflow-card"><span class="step-no">01</span><h3>Connect your build</h3><p>Register a staging URL you control, verify its domain, and bind a specific immutable build.</p><span class="capability">Available in local control plane</span></article>
+          <article class="workflow-card"><span class="step-no">02</span><h3>Define “working”</h3><p>Set journey success, safe fallback, critical profiles, and screenshot consent for that experience.</p><span class="capability">Versioned target contract</span></article>
+          <article class="workflow-card"><span class="step-no">03</span><h3>Review evidence</h3><p>Inspect the gate, per-profile traces, metrics, screenshots, and optional advisory visual findings.</p><span class="capability">Model findings never set SHIP</span></article>
+        </div>
+      </section>
+
+      <section class="truth-strip" aria-label="Current testing scope">
+        <span class="truth-icon">i</span><p><strong>Know what the test represents.</strong> The current worker uses isolated Chromium with emulated profiles. It does not measure iPhone Safari, physical cameras, real radio conditions, GPU thermals, or native XR apps.</p>
+      </section>
+
+      <section id="auth" class="panel auth-panel" aria-labelledby="auth-title">
+        <div class="panel-heading"><div><p class="eyebrow">YOUR STUDIO WORKSPACE</p><h2 id="auth-title">Sign in</h2></div><button id="toggle-auth" class="text-button" type="button">Create an account</button></div>
+        <form id="auth-form" class="stack">
+          <label>Email<input name="email" type="email" autocomplete="email" required></label>
+          <label>Password<input name="password" type="password" minlength="12" autocomplete="current-password" required><small>Use at least 12 characters.</small></label>
+          <label id="org-name-row" hidden>Organization name<input name="organizationName" maxlength="120" autocomplete="organization"></label>
+          <button class="primary" type="submit">Continue <span aria-hidden="true">→</span></button>
+          <p class="notice" id="auth-message" role="status"></p>
+        </form>
+        <p class="auth-footnote">Private by default. Your browser tests run only after target ownership is verified.</p>
+      </section>
+
+      <section id="provision-workspace" class="panel auth-panel provision-panel" hidden aria-labelledby="provision-title">
+        <p class="eyebrow">ACCOUNT CONFIRMED</p><h2 id="provision-title">Create your first workspace</h2><p class="muted">Your Supabase account is verified. Choose the organization that will own projects and run evidence.</p>
+        <form id="provision-form" class="stack"><label>Organization name<input name="organizationName" maxlength="120" autocomplete="organization" required></label><button class="primary" type="submit">Create workspace <span aria-hidden="true">→</span></button><p class="notice" id="provision-message" role="status"></p></form>
+      </section>
+    </div>
+
     <section id="shared-report" class="panel shared-report" hidden aria-live="polite"></section>
     <section id="workspace" hidden>
       <div class="workspace-bar"><div><p class="eyebrow">YOUR WORKSPACE</p><h2 id="workspace-title">Projects</h2></div><div class="workspace-actions"><select id="org-picker" aria-label="Organization"></select><button id="logout" class="text-button" type="button">Sign out</button></div></div>
@@ -31,7 +76,7 @@
         <section class="panel detail-panel" id="project-detail"><p class="eyebrow">SELECT A PROJECT</p><h3>Start with your staging app</h3><p class="muted">Register an owned HTTPS target and verify its DNS record. A local isolated Docker worker can execute queued runs when explicitly enabled.</p><div class="coverage-note"><span class="status-dot"></span><div><strong>Current lane</strong><p>Chromium emulation only. No handset, Safari, real radio, GPU, thermal, or camera result is represented.</p></div></div></section>
       </div>
     </section>
-    <footer class="footer"><span>Atlas Replay Lab</span><span>Private by default · Evidence scoped to declared checks</span></footer>
+    <footer class="footer"><span>Atlas Replay Lab</span><span>Evidence first · Web3D release QA · Emulator scope is always explicit</span></footer>
   </main>
   <script type="module" src="/app.js"></script>
 </body>

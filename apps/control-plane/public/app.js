@@ -1,4 +1,13 @@
+import { createSupabaseBrowserClient } from "./supabase-client.js";
+
+const authConfigResponse = await fetch("/v1/auth/config", { headers: { accept: "application/json" }, credentials: "same-origin" });
+const authConfig = authConfigResponse.ok ? await authConfigResponse.json() : { provider: "local" };
+const supabase = createSupabaseBrowserClient(authConfig);
+if (supabase) document.documentElement.dataset.authProvider = "supabase";
+
 const authSection = document.querySelector("#auth");
+const provisionSection = document.querySelector("#provision-workspace");
+const landing = document.querySelector("#landing");
 const workspace = document.querySelector("#workspace");
 const authForm = document.querySelector("#auth-form");
 const authTitle = document.querySelector("#auth-title");
@@ -26,21 +35,85 @@ async function api(path, options = {}) {
   headers.set("accept", "application/json");
   if (options.body !== undefined) headers.set("content-type", "application/json");
   if (selectedOrg) headers.set("x-atlas-organization", selectedOrg);
+  if (supabase && !headers.has("authorization")) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) headers.set("authorization", `Bearer ${session.access_token}`);
+  }
   const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
   if (response.status === 204) return null;
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error([payload.error ?? `Request failed (${response.status})`, ...(payload.issues ?? [])].join(" · "));
+  if (!response.ok) {
+    const error = new Error([payload.error ?? `Request failed (${response.status})`, ...(payload.issues ?? [])].join(" · "));
+    error.status = response.status;
+    error.retryAfter = payload.retryAfter;
+    throw error;
+  }
   return payload;
 }
 
-toggleAuth.addEventListener("click", () => {
-  isRegister = !isRegister;
-  authTitle.textContent = isRegister ? "Create your workspace" : "Sign in";
-  toggleAuth.textContent = isRegister ? "I already have an account" : "Create an account";
-  orgNameRow.hidden = !isRegister;
-  authForm.elements.password.autocomplete = isRegister ? "new-password" : "current-password";
-  authForm.elements.organizationName.required = isRegister;
+function setAuthMode(register) {
+  isRegister = register;
+  authTitle.textContent = register ? "Create your workspace" : "Sign in";
+  toggleAuth.textContent = register ? "I already have an account" : "Create an account";
+  orgNameRow.hidden = !register;
+  authForm.elements.password.autocomplete = register ? "new-password" : "current-password";
+  authForm.elements.organizationName.required = register;
   document.querySelector("#auth-message").textContent = "";
+}
+
+async function submitSupabaseAuth(values, message) {
+  let response;
+  if (isRegister) {
+    localStorage.setItem("atlas.pending-org", values.organizationName.trim());
+    response = await supabase.auth.signUp({
+      email: values.email,
+      password: values.password,
+      options: { emailRedirectTo: `${location.origin}/` },
+    });
+  } else {
+    response = await supabase.auth.signInWithPassword({ email: values.email, password: values.password });
+  }
+  if (response.error) throw new Error(response.error.message || "Supabase authentication failed.");
+  if (!response.data.session) {
+    setAuthMode(false);
+    message.textContent = "Check your email to confirm your account, then sign in to finish workspace setup.";
+    return;
+  }
+  await finishSupabaseSession(localStorage.getItem("atlas.pending-org") ?? "");
+}
+
+async function finishSupabaseSession(organizationName = "") {
+  try {
+    const body = organizationName ? { organizationName } : {};
+    const result = await api("/v1/auth/provision", { method: "POST", body: JSON.stringify(body) });
+    organizations = result.organizations;
+    localStorage.removeItem("atlas.pending-org");
+    if (!organizations.length) throw new Error("This account has no organization yet.");
+    if (!organizations.some((item) => item.id === selectedOrg)) selectedOrg = organizations[0].id;
+    localStorage.setItem("atlas.org", selectedOrg);
+    await showWorkspace();
+  } catch (error) {
+    if (error.status !== 400) throw error;
+    landing.hidden = true;
+    authSection.hidden = true;
+    provisionSection.hidden = false;
+    workspace.hidden = true;
+    const pending = organizationName || localStorage.getItem("atlas.pending-org") || "";
+    if (pending) document.querySelector("#provision-form").elements.organizationName.value = pending;
+    document.querySelector("#provision-message").textContent = "Create the first workspace for this Supabase account.";
+  }
+}
+
+toggleAuth.addEventListener("click", () => {
+  setAuthMode(!isRegister);
+});
+
+document.querySelector("#start-workspace").addEventListener("click", () => {
+  setAuthMode(true);
+});
+
+document.querySelector(".nav-cta").addEventListener("click", () => {
+  setAuthMode(false);
 });
 
 authForm.addEventListener("submit", async (event) => {
@@ -49,13 +122,34 @@ authForm.addEventListener("submit", async (event) => {
   message.textContent = "";
   const values = Object.fromEntries(new FormData(authForm));
   try {
-    const result = await api(isRegister ? "/v1/auth/register" : "/v1/auth/login", { method: "POST", body: JSON.stringify(values) });
-    organizations = isRegister ? [result.organization] : result.organizations;
-    if (!organizations.length) throw new Error("This account has no organization yet.");
+    if (supabase) await submitSupabaseAuth(values, message);
+    else {
+      const result = await api(isRegister ? "/v1/auth/register" : "/v1/auth/login", { method: "POST", body: JSON.stringify(values) });
+      organizations = isRegister ? [result.organization] : result.organizations;
+      if (!organizations.length) throw new Error("This account has no organization yet.");
+      if (!organizations.some((item) => item.id === selectedOrg)) selectedOrg = organizations[0].id;
+      localStorage.setItem("atlas.org", selectedOrg);
+      await showWorkspace();
+    }
+  } catch (error) { message.textContent = error.message; }
+});
+
+document.querySelector("#provision-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = document.querySelector("#provision-message");
+  const button = form.querySelector("button");
+  button.disabled = true;
+  message.textContent = "Creating your workspace…";
+  try {
+    const result = await api("/v1/auth/provision", { method: "POST", body: JSON.stringify({ organizationName: form.elements.organizationName.value }) });
+    localStorage.removeItem("atlas.pending-org");
+    organizations = result.organizations;
     if (!organizations.some((item) => item.id === selectedOrg)) selectedOrg = organizations[0].id;
     localStorage.setItem("atlas.org", selectedOrg);
-    showWorkspace();
+    await showWorkspace();
   } catch (error) { message.textContent = error.message; }
+  finally { button.disabled = false; }
 });
 
 orgPicker.addEventListener("change", async () => {
@@ -68,12 +162,15 @@ orgPicker.addEventListener("change", async () => {
 });
 
 document.querySelector("#logout").addEventListener("click", async () => {
-  try { await api("/v1/auth/logout", { method: "POST", body: "{}" }); } catch {}
+  if (supabase) await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+  else try { await api("/v1/auth/logout", { method: "POST", body: "{}" }); } catch {}
   organizations = [];
   selectedOrg = "";
   selectedProject = "";
   activeVisualPreview = null;
+  landing.hidden = false;
   authSection.hidden = false;
+  provisionSection.hidden = true;
   workspace.hidden = true;
   localStorage.removeItem("atlas.org");
   authForm.reset();
@@ -94,7 +191,9 @@ document.querySelector("#project-form").addEventListener("submit", async (event)
 });
 
 async function showWorkspace() {
+  landing.hidden = true;
   authSection.hidden = true;
+  provisionSection.hidden = true;
   workspace.hidden = false;
   orgPicker.replaceChildren(...organizations.map((org) => {
     const option = document.createElement("option");
@@ -274,8 +373,7 @@ function renderShareManager(run, container) {
 }
 
 async function showSharedReport(token) {
-  authSection.hidden = true; workspace.hidden = true; sharedReportSection.hidden = false;
-  document.querySelector(".intro").hidden = true;
+  landing.hidden = true; authSection.hidden = true; provisionSection.hidden = true; workspace.hidden = true; sharedReportSection.hidden = false;
   document.querySelector(".topbar .quiet-link").hidden = true;
   sharedReportSection.replaceChildren();
   const eyebrow = document.createElement("p"); eyebrow.className = "eyebrow"; eyebrow.textContent = "SHARED ATLAS QA REPORT";
@@ -787,7 +885,7 @@ function renderTarget(target) {
         await api(`/v1/targets/${target.id}/runs`, { method: "POST", headers: { "idempotency-key": idempotencyKey }, body: "{}" });
         sessionStorage.removeItem(keyName);
         await loadProject(selectedProject);
-      } catch (error) { window.alert(error.message); }
+      } catch (error) { window.alert([error.message, error.retryAfter ? `Retry ${error.retryAfter}.` : ""].filter(Boolean).join(" ")); }
       finally { run.disabled = false; }
     }); card.append(run);
   } else {
@@ -821,6 +919,7 @@ function renderTargetForm() {
     <details class="advanced-contract"><summary>Advanced · edit the versioned target contract</summary><label>Contract JSON<textarea name="contract" spellcheck="false" aria-label="Advanced target contract JSON"></textarea></label></details>
   `;
   const textarea = form.elements.contract;
+  let validatedSnapshot = null;
   let advancedEdited = false;
   const buildContract = () => {
     const values = new FormData(form);
@@ -856,21 +955,56 @@ function renderTargetForm() {
     if (advancedEdited) return;
     try { textarea.value = JSON.stringify(buildContract(), null, 2); } catch { /* keep editing incomplete fields */ }
   };
+  const validationStatus = document.createElement("p"); validationStatus.className = "notice target-validation-status"; validationStatus.setAttribute("role", "status");
+  const invalidateValidation = () => {
+    if (!validatedSnapshot) return;
+    validatedSnapshot = null;
+    submit.disabled = true;
+    validationStatus.dataset.state = "info";
+    validationStatus.textContent = "Target settings changed. Run static validation again before registering.";
+  };
   form.addEventListener("input", (event) => {
+    invalidateValidation();
     if (event.target === textarea) advancedEdited = true;
     else { advancedEdited = false; refreshContract(); }
   });
   form.addEventListener("change", (event) => {
+    invalidateValidation();
     if (event.target !== textarea) { advancedEdited = false; refreshContract(); }
   });
   refreshContract();
+  const validate = document.createElement("button"); validate.className = "secondary"; validate.type = "button"; validate.textContent = "Validate target setup";
+  validate.addEventListener("click", async () => {
+    if (!form.reportValidity()) return;
+    validationStatus.dataset.state = "pending";
+    validationStatus.textContent = "Checking the contract and current DNS answers. This does not open the target page.";
+    validate.disabled = true;
+    try {
+      const contract = advancedEdited ? JSON.parse(textarea.value) : buildContract();
+      const result = await api(`/v1/projects/${encodeURIComponent(selectedProject)}/targets/validate`, { method: "POST", body: JSON.stringify({ contract }) });
+      validatedSnapshot = JSON.stringify(contract);
+      submit.disabled = false;
+      validationStatus.dataset.state = "success";
+      validationStatus.textContent = `Static checks passed for ${result.target.url} (${result.target.profiles.join(", ")}). Ownership verification is still pending; the browser journey and selectors have not been tested.`;
+    } catch (error) {
+      validationStatus.dataset.state = "error";
+      validationStatus.textContent = error instanceof SyntaxError ? "Contract JSON must be valid." : error.message;
+    } finally { validate.disabled = false; }
+  });
   const submit = document.createElement("button"); submit.className = "primary"; submit.type = "submit"; submit.textContent = "Register target";
+  submit.disabled = true;
   const helper = document.createElement("small"); helper.textContent = "Domain ownership is checked through a DNS TXT challenge. This confirms control of the hostname; it does not mean a browser run has happened.";
-  form.append(helper, submit);
+  form.append(helper, validate, submit, validationStatus);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
       const contract = advancedEdited ? JSON.parse(textarea.value) : buildContract();
+      if (!validatedSnapshot || validatedSnapshot !== JSON.stringify(contract)) {
+        invalidateValidation();
+        validationStatus.dataset.state = "warning";
+        validationStatus.textContent = "Validate the current target settings before registering.";
+        return;
+      }
       await api(`/v1/projects/${selectedProject}/targets`, { method: "POST", body: JSON.stringify({ contract }) });
       await loadProject(selectedProject);
     } catch (error) { window.alert(error instanceof SyntaxError ? "Contract must be valid JSON." : error.message); }
@@ -878,7 +1012,12 @@ function renderTargetForm() {
   projectDetail.append(form);
 }
 
-if (!sharedToken) {
+if (!sharedToken && supabase) {
+  supabase.auth.getSession().then(async ({ data: { session } }) => {
+    if (!session) return;
+    await finishSupabaseSession(localStorage.getItem("atlas.pending-org") ?? "");
+  }).catch((error) => { document.querySelector("#auth-message").textContent = error.message; });
+} else if (!sharedToken) {
   api("/v1/me").then(({ organizations: list }) => {
     organizations = list;
     if (!organizations.length) return;

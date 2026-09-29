@@ -49,3 +49,4 @@ jobs:
       - run: npm ci --prefix apps/control-plane
       - run: npm run migrate --prefix apps/control-plane
       - run: npm test --prefix apps/control-plane
+      - run: npm run build --prefix apps/control-plane

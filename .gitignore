@@ -1,4 +1,5 @@
 node_modules/
+apps/control-plane/dist/
 artifacts/
 !artifacts/.gitkeep
 experience/assets/generated/

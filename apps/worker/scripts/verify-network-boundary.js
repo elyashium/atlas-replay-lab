@@ -136,7 +136,12 @@ try {
   if (componentImage.width >= checkpointImage.width || componentImage.height >= checkpointImage.height) {
     throw new Error(`component crop was not smaller than the full checkpoint (${componentImage.width}x${componentImage.height} vs ${checkpointImage.width}x${checkpointImage.height})`);
   }
-  process.stdout.write(`PASS: consented selector crop was exported separately (${componentImage.width}x${componentImage.height}; full checkpoint ${checkpointImage.width}x${checkpointImage.height}); redaction selector was configured before both captures\n`);
+  const componentRedactionPixels = countOpaqueBlack(componentImage);
+  const checkpointRedactionPixels = countOpaqueBlack(checkpointImage);
+  if (componentRedactionPixels < 100 || checkpointRedactionPixels < 100) {
+    throw new Error(`opaque redaction was not visible in both screenshots (${componentRedactionPixels} component pixels; ${checkpointRedactionPixels} checkpoint pixels)`);
+  }
+  process.stdout.write(`PASS: selector crops were exported separately and opaque-redacted (${componentImage.width}x${componentImage.height}, ${componentRedactionPixels} covered pixels; full checkpoint ${checkpointImage.width}x${checkpointImage.height}, ${checkpointRedactionPixels} covered pixels)\n`);
   const jobResult = JSON.parse(await readFile(path.join(capturedOutput, "job-result.json"), "utf8"));
   run("exec", [jobWorkerName, "touch", "/output/.parent-collected"]);
   if (Number(run("wait", [jobWorkerName])) !== jobExit) throw new Error("synthetic worker supervisor exit did not match its execution marker");
@@ -193,4 +198,12 @@ async function findArtifact(root, expectedName) {
     }
   }
   throw Object.assign(new Error(`artifact ${expectedName} was not exported`), { code: "ENOENT" });
+}
+
+function countOpaqueBlack(image) {
+  let count = 0;
+  for (let offset = 0; offset < image.data.length; offset += 4) {
+    if (image.data[offset] === 0 && image.data[offset + 1] === 0 && image.data[offset + 2] === 0 && image.data[offset + 3] === 255) count += 1;
+  }
+  return count;
 }

@@ -11,6 +11,8 @@ import { diffImages } from "../../../src/image/diff.js";
 import { decodePng } from "../../../src/image/png.js";
 import { GROQ_VISION_MODEL_DEFAULT, reviewScreenshotWithGroq, validateVisualIssues, VISUAL_REVIEW_IMAGE_LIMIT_BYTES, VISUAL_REVIEW_MAX_DIMENSION, VISUAL_REVIEW_MAX_PIXELS } from "../../../src/visual/groq-review.js";
 import { CODE_SOURCE_LIMIT_BYTES, containsCredentialLikeText, GROQ_CODE_MODEL_DEFAULT, proposeCodePatch } from "../../../src/visual/groq-patch.js";
+import { createSupabaseAuth } from "./supabase-auth.js";
+import { createArtifactStore } from "./artifact-store.js";
 import { createPool, inTransaction } from "./db.js";
 import { startRetentionMaintenance } from "./maintenance.js";
 import { clearSessionCookie, hashPassword, hashToken, newId, newSecret, parseCookies, parseOwnedTargetUrl, sessionCookie, verifyPassword, isPublicAddress } from "./security.js";
@@ -32,12 +34,21 @@ export function buildApp({
   visualReviewDailyLimit = Number(process.env.ATLAS_VISUAL_REVIEW_DAILY_LIMIT ?? 10),
   codeProposer = proposeCodePatch,
   codeProposalDailyLimit = Number(process.env.ATLAS_CODE_PROPOSAL_DAILY_LIMIT ?? 5),
+  runDailyLimit = Number(process.env.ATLAS_RUN_DAILY_LIMIT ?? 100),
+  runConcurrentLimit = Number(process.env.ATLAS_RUN_CONCURRENT_LIMIT ?? 5),
   sharedReportRateLimitPerMinute = Number(process.env.ATLAS_SHARED_REPORT_RATE_LIMIT_PER_MINUTE ?? 120),
+  anonymousShareRateLimitPerMinute = Number(process.env.ATLAS_ANONYMOUS_SHARE_RATE_LIMIT_PER_MINUTE ?? 1200),
   artifactRoot = process.env.ATLAS_LOCAL_ARTIFACT_DIR,
+  artifactStore = null,
+  supabaseAuth = createSupabaseAuth({ url: process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL, anonKey: process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_PUBLISHABLE_KEY }),
 } = {}) {
   if (!Number.isInteger(visualReviewDailyLimit) || visualReviewDailyLimit < 1 || visualReviewDailyLimit > 1000) throw new Error("ATLAS_VISUAL_REVIEW_DAILY_LIMIT must be an integer from 1 to 1000");
   if (!Number.isInteger(codeProposalDailyLimit) || codeProposalDailyLimit < 1 || codeProposalDailyLimit > 1000) throw new Error("ATLAS_CODE_PROPOSAL_DAILY_LIMIT must be an integer from 1 to 1000");
+  if (!Number.isInteger(runDailyLimit) || runDailyLimit < 1 || runDailyLimit > 100000) throw new Error("ATLAS_RUN_DAILY_LIMIT must be an integer from 1 to 100000");
+  if (!Number.isInteger(runConcurrentLimit) || runConcurrentLimit < 1 || runConcurrentLimit > 10000) throw new Error("ATLAS_RUN_CONCURRENT_LIMIT must be an integer from 1 to 10000");
   if (!Number.isInteger(sharedReportRateLimitPerMinute) || sharedReportRateLimitPerMinute < 1 || sharedReportRateLimitPerMinute > 10000) throw new Error("sharedReportRateLimitPerMinute must be an integer from 1 to 10000");
+  if (!Number.isInteger(anonymousShareRateLimitPerMinute) || anonymousShareRateLimitPerMinute < 1 || anonymousShareRateLimitPerMinute > 1000000) throw new Error("anonymousShareRateLimitPerMinute must be an integer from 1 to 1000000");
+  if (process.env.NODE_ENV === "production" && !artifactStore) throw new Error("production requires configured S3-compatible artifact storage");
   const visualReviewLocks = new Map();
   const codeProposalLocks = new Map();
   const app = Fastify({
@@ -51,6 +62,7 @@ export function buildApp({
     bodyLimit: 256 * 1024,
     trustProxy: false,
   });
+  app.decorate("supabaseAuth", supabaseAuth);
 
   app.addHook("onRequest", async (_request, reply) => {
     reply.header("x-content-type-options", "nosniff");
@@ -60,7 +72,8 @@ export function buildApp({
     reply.header("cross-origin-opener-policy", "same-origin");
     reply.header("cross-origin-resource-policy", "same-origin");
     reply.header("cache-control", "no-store");
-    reply.header("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'");
+    const authOrigin = supabaseAuth?.clientConfig.url ? ` ${new URL(supabaseAuth.clientConfig.url).origin}` : "";
+    reply.header("content-security-policy", `default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'${authOrigin}; img-src 'self' data: blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'`);
   });
 
   app.addHook("onRequest", async (request, reply) => {
@@ -78,13 +91,24 @@ export function buildApp({
   });
 
   app.get("/api/openapi.json", async () => OPENAPI);
-  app.get("/", async (_request, reply) => reply.type("text/html; charset=utf-8").send(await readFile(path.join(here, "../public/index.html"), "utf8")));
-  app.get("/app.js", async (_request, reply) => reply.type("text/javascript; charset=utf-8").send(await readFile(path.join(here, "../public/app.js"), "utf8")));
+  app.get("/v1/auth/config", async () => supabaseAuth
+    ? { provider: "supabase", url: supabaseAuth.clientConfig.url, anonKey: supabaseAuth.clientConfig.anonKey }
+    : { provider: "local" });
+  app.get("/", async (_request, reply) => reply.type("text/html; charset=utf-8").send(await readFrontendFile("index.html")));
+  app.get("/app.js", async (_request, reply) => reply.type("text/javascript; charset=utf-8").send(await readFrontendFile("assets/index.js", "app.js")));
+  app.get("/app.css", async (_request, reply) => reply.type("text/css; charset=utf-8").send(await readFrontendFile("assets/index.css", "app.css")));
+  app.get("/assets/:assetName", async (request, reply) => {
+    const { assetName } = request.params;
+    if (!/^[A-Za-z0-9_.-]{1,160}\.(?:js|css|svg|woff2?)$/.test(assetName)) return reply.code(404).send({ error: "asset not found" });
+    const type = assetName.endsWith(".css") ? "text/css; charset=utf-8" : assetName.endsWith(".svg") ? "image/svg+xml" : assetName.endsWith(".woff2") ? "font/woff2" : assetName.endsWith(".woff") ? "font/woff" : "text/javascript; charset=utf-8";
+    try { return reply.type(type).send(await readFile(path.join(here, "../dist/public/assets", assetName))); }
+    catch (error) { if (error?.code === "ENOENT") return reply.code(404).send({ error: "asset not found" }); throw error; }
+  });
   app.get("/pixel-diff-worker.js", async (_request, reply) => reply.type("text/javascript; charset=utf-8").send(await readFile(path.join(here, "../public/pixel-diff-worker.js"), "utf8")));
   app.get("/image-diff.js", async (_request, reply) => reply.type("text/javascript; charset=utf-8").send(await readFile(path.resolve(here, "../../../src/image/diff.js"), "utf8")));
-  app.get("/app.css", async (_request, reply) => reply.type("text/css; charset=utf-8").send(await readFile(path.join(here, "../public/app.css"), "utf8")));
 
   app.post("/v1/auth/register", async (request, reply) => {
+    if (supabaseAuth) return reply.code(409).send({ error: "use the configured Supabase sign-up flow" });
     const body = asObject(request.body);
     const email = normalizeEmail(body.email);
     const password = body.password;
@@ -113,6 +137,7 @@ export function buildApp({
   });
 
   app.post("/v1/auth/login", async (request, reply) => {
+    if (supabaseAuth) return reply.code(409).send({ error: "use the configured Supabase sign-in flow" });
     const body = asObject(request.body);
     const email = normalizeEmail(body.email);
     if (!email || typeof body.password !== "string" || body.password.length > 256) return reply.code(400).send({ error: "email and password are required" });
@@ -137,8 +162,48 @@ export function buildApp({
     return reply.code(204).send();
   });
 
+  app.post("/v1/auth/provision", async (request, reply) => {
+    if (!supabaseAuth) return reply.code(404).send({ error: "Supabase authentication is not configured" });
+    const accessToken = bearerToken(request);
+    const authUser = await supabaseAuth.getUser(accessToken);
+    if (!authUser) return reply.code(401).send({ error: "a valid, email-confirmed Supabase session is required" });
+    const email = normalizeEmail(authUser.email);
+    if (!email || !UUID.test(authUser.id)) return reply.code(401).send({ error: "Supabase returned an invalid account identity" });
+    const organizationName = cleanName(asObject(request.body).organizationName);
+    const provisioned = await inTransaction(pool, async (client) => {
+      const lock = createHash("sha256").update(`atlas-supabase-user-v1\0${authUser.id}`).digest();
+      await client.query("SELECT pg_advisory_xact_lock($1,$2)", [lock.readInt32BE(0), lock.readInt32BE(4)]);
+      let identity = await client.query("SELECT user_id AS \"userId\" FROM auth_identities WHERE provider='supabase' AND subject=$1", [authUser.id]);
+      let userId = identity.rows[0]?.userId;
+      if (!userId) {
+        const existing = await client.query("SELECT id FROM users WHERE email=$1", [email]);
+        userId = existing.rows[0]?.id;
+        if (!userId) {
+          userId = newId();
+          await client.query("INSERT INTO users(id,email,password_salt,password_hash) VALUES($1,$2,$3,$4)", [userId, email, randomBytes(16), randomBytes(64)]);
+        }
+        await client.query("INSERT INTO auth_identities(provider,subject,user_id) VALUES('supabase',$1,$2) ON CONFLICT(provider,subject) DO NOTHING", [authUser.id, userId]);
+        identity = await client.query("SELECT user_id AS \"userId\" FROM auth_identities WHERE provider='supabase' AND subject=$1", [authUser.id]);
+        userId = identity.rows[0]?.userId;
+        if (!userId) throw new Error("Supabase identity provisioning did not create a mapping");
+      }
+      const orgs = await client.query("SELECT o.id,o.name,m.role FROM memberships m JOIN organizations o ON o.id=m.organization_id WHERE m.user_id=$1 ORDER BY o.created_at", [userId]);
+      if (!orgs.rowCount) {
+        if (!organizationName) return { needsOrganization: true };
+        const orgId = newId();
+        await client.query("INSERT INTO organizations(id,name) VALUES($1,$2)", [orgId, organizationName]);
+        await client.query("INSERT INTO memberships(organization_id,user_id,role) VALUES($1,$2,'owner')", [orgId, userId]);
+        await client.query("INSERT INTO audit_events(organization_id,actor_user_id,action,resource_type,resource_id) VALUES($1,$2,'organization.created','organization',$1)", [orgId, userId]);
+        return { user: { id: userId, email }, organizations: [{ id: orgId, name: organizationName, role: "owner" }], created: true };
+      }
+      return { user: { id: userId, email }, organizations: orgs.rows, created: false };
+    });
+    if (provisioned.needsOrganization) return reply.code(400).send({ error: "organizationName is required to create the first workspace" });
+    return reply.code(provisioned.created ? 201 : 200).send({ user: provisioned.user, organizations: provisioned.organizations });
+  });
+
   app.get("/v1/me", async (request, reply) => {
-    const user = await sessionUser(request, pool);
+    const user = await sessionUser(request, pool, supabaseAuth);
     if (!user) return reply.code(401).send({ error: "authentication required" });
     const orgs = await pool.query("SELECT o.id,o.name,m.role FROM memberships m JOIN organizations o ON o.id=m.organization_id WHERE m.user_id=$1 ORDER BY o.created_at", [user.id]);
     return { user, organizations: orgs.rows };
@@ -428,31 +493,39 @@ export function buildApp({
     });
   });
 
+  app.post("/v1/projects/:projectId/targets/validate", async (request, reply) => {
+    const { orgId, role, error } = await organizationContext(request, pool);
+    if (error) return reply.code(error.status).send({ error: error.message });
+    if (!canWrite(role)) return reply.code(403).send({ error: "organization editor role required" });
+    const { projectId } = request.params;
+    const exists = await pool.query("SELECT 1 FROM projects WHERE organization_id=$1 AND id=$2", [orgId, projectId]);
+    if (!exists.rowCount) return reply.code(404).send({ error: "project not found" });
+    const checked = await prepareTargetContract(asObject(request.body).contract, dns);
+    if (!checked.ok) return reply.code(400).send({ error: checked.error, ...(checked.issues ? { issues: checked.issues } : {}) });
+    return {
+      status: "ready-for-registration",
+      checks: [
+        { id: "contract", status: "passed", detail: "Versioned target contract is structurally valid." },
+        { id: "target-dns", status: "passed", detail: "Target hostname currently resolves only to public addresses." },
+        { id: "ownership", status: "pending", detail: "Register the target and publish its DNS TXT challenge." },
+        { id: "browser-journey", status: "not-run", detail: "This validation did not open the page or verify selectors." },
+      ],
+      target: { id: checked.contract.id, name: checked.contract.name, url: checked.parsed.url.href, buildId: checked.contract.target.buildId, profiles: checked.contract.profiles },
+    };
+  });
+
   app.post("/v1/projects/:projectId/targets", async (request, reply) => {
     const { user, orgId, role, error } = await organizationContext(request, pool);
     if (error) return reply.code(error.status).send({ error: error.message });
     if (!canWrite(role)) return reply.code(403).send({ error: "organization editor role required" });
     const { projectId } = request.params;
-    const body = asObject(request.body);
-    const validation = validateTargetContract(body.contract);
-    if (!validation.ok) return reply.code(400).send({ error: "invalid target contract", issues: validation.issues });
-    let parsed;
-    try { parsed = parseOwnedTargetUrl(validation.contract.target.url); }
-    catch (e) { return reply.code(400).send({ error: e.message }); }
-    const allowed = validation.contract.target.allowedOrigins;
-    if (allowed.some((origin) => new URL(origin).protocol !== "https:")) return reply.code(400).send({ error: "hosted allowedOrigins must all use HTTPS" });
-    try {
-      const addresses = await dns.lookup(parsed.hostname, { all: true, verbatim: true });
-      if (!addresses.length || addresses.some((item) => !isPublicAddress(item.address))) return reply.code(400).send({ error: "target DNS must resolve only to public addresses" });
-    } catch (e) {
-      if (e?.statusCode) throw e;
-      return reply.code(400).send({ error: "target hostname could not be resolved safely" });
-    }
+    const checked = await prepareTargetContract(asObject(request.body).contract, dns);
+    if (!checked.ok) return reply.code(400).send({ error: checked.error, ...(checked.issues ? { issues: checked.issues } : {}) });
+    const { contract, parsed } = checked;
     const exists = await pool.query("SELECT 1 FROM projects WHERE organization_id=$1 AND id=$2", [orgId, projectId]);
     if (!exists.rowCount) return reply.code(404).send({ error: "project not found" });
     const id = newId();
     const verificationToken = `atlas-verify=${newSecret(24)}`;
-    const contract = { ...validation.contract, target: { ...validation.contract.target, url: parsed.url.href } };
     await inTransaction(pool, async (client) => {
       await client.query("INSERT INTO targets(id,organization_id,project_id,base_url,hostname,verification_token,contract,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", [id, orgId, projectId, parsed.url.href, parsed.hostname, verificationToken, contract, user.id]);
       await audit(client, orgId, user.id, "target.created", "target", id, { hostname: parsed.hostname });
@@ -507,6 +580,20 @@ export function buildApp({
     if (!bindingCheck.ok) return reply.code(409).send({ error: "target is not bound to immutable release evidence", issues: bindingCheck.issues });
     const id = newId();
     const queued = await inTransaction(pool, async (client) => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('atlas-run-quota-v1'),hashtext($1))", [orgId]);
+      const existing = await client.query("SELECT id,target_id AS \"targetId\",status,verdict,binding_snapshot AS binding,retention_expires_at>now() AS active FROM runs WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
+      if (existing.rowCount) {
+        const previous = existing.rows[0];
+        return { run: previous, created: false, conflict: previous.targetId !== targetId, expired: previous.active === false };
+      }
+      const usage = await client.query(
+        "SELECT (SELECT count(*) FROM runs WHERE organization_id=$1 AND created_at >= (date_trunc('day',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')) AS \"dailyCount\",(SELECT count(*) FROM runs WHERE organization_id=$1 AND status IN ('queued','running') AND retention_expires_at>now()) AS \"activeCount\"",
+        [orgId],
+      );
+      const dailyCount = Number(usage.rows[0]?.dailyCount ?? 0);
+      const activeCount = Number(usage.rows[0]?.activeCount ?? 0);
+      if (dailyCount >= runDailyLimit) return { quota: "daily", limit: runDailyLimit };
+      if (activeCount >= runConcurrentLimit) return { quota: "concurrent", limit: runConcurrentLimit };
       const inserted = await client.query("INSERT INTO runs(id,organization_id,project_id,target_id,status,contract_version,contract_snapshot,binding_snapshot,requested_by,idempotency_key,retention_expires_at) VALUES($1,$2,$3,$4,'queued',$5,$6,$7,$8,$9,now()+interval '30 days') ON CONFLICT (organization_id,idempotency_key) DO NOTHING RETURNING id,target_id AS \"targetId\",status,verdict,binding_snapshot AS binding", [id, orgId, target.project_id, targetId, String(target.contract.schemaVersion), target.contract, binding, user.id, idempotencyKey]);
       if (!inserted.rowCount) {
         const existing = await client.query("SELECT id,target_id AS \"targetId\",status,verdict,binding_snapshot AS binding,retention_expires_at>now() AS active FROM runs WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
@@ -515,6 +602,7 @@ export function buildApp({
       await audit(client, orgId, user.id, "run.queued", "run", id, { targetId, bindingHash: binding.bindingHash });
       return { run: inserted.rows[0], created: true, conflict: false };
     });
+    if (queued.quota) return reply.code(429).send({ error: queued.quota === "daily" ? "organization daily run quota reached" : "organization concurrent run limit reached", quota: queued.quota, limit: queued.limit, retryAfter: queued.quota === "concurrent" ? "after an active run completes or is cancelled" : "at the next UTC day" });
     if (queued.conflict) return reply.code(409).send({ error: "idempotency-key was already used for a different target" });
     if (queued.expired) return reply.code(410).send({ error: "this idempotent run has expired" });
     return reply.code(queued.created ? 202 : 200).send({ run: { ...queued.run, message: "Run queued. A separately started local Docker worker is required; this API process does not launch browsers." } });
@@ -615,6 +703,7 @@ export function buildApp({
   });
 
   app.post("/v1/shared-reports/open", { bodyLimit: 4096 }, async (request, reply) => {
+    if (!await consumeAnonymousShareRequest(pool, "open", anonymousShareRateLimitPerMinute)) return reply.header("retry-after", "60").code(429).send({ error: "public shared-report request limit reached; retry in about one minute" });
     const token = asObject(request.body).token;
     if (typeof token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(token)) return reply.code(404).send({ error: "shared report not found or expired" });
     const report = await inTransaction(pool, async (client) => {
@@ -637,6 +726,7 @@ export function buildApp({
   });
 
   app.post("/v1/shared-reports/artifact", { bodyLimit: 4096 }, async (request, reply) => {
+    if (!await consumeAnonymousShareRequest(pool, "artifact", anonymousShareRateLimitPerMinute)) return reply.header("retry-after", "60").code(429).send({ error: "public shared-report request limit reached; retry in about one minute" });
     const body = asObject(request.body);
     if (typeof body.token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.token) || typeof body.artifactId !== "string" || !UUID.test(body.artifactId)) return reply.code(404).send({ error: "shared artifact not found or expired" });
     const share = await inTransaction(pool, async (client) => {
@@ -653,17 +743,23 @@ export function buildApp({
     if (!share) return reply.code(404).send({ error: "shared artifact not found or expired" });
     const row = share;
     const result = await pool.query("SELECT a.object_key,a.media_type,a.byte_length,a.sha256 FROM artifacts a JOIN runs r ON r.organization_id=a.organization_id AND r.id=a.run_id WHERE a.organization_id=$1 AND r.id=$2 AND a.id=$3 AND r.retention_expires_at>now()", [row.organizationId, row.runId, body.artifactId]);
-    if (!result.rowCount || !artifactRoot || !path.isAbsolute(artifactRoot)) return reply.code(404).send({ error: "shared artifact not found or expired" });
+    if (!result.rowCount || (!artifactStore && (!artifactRoot || !path.isAbsolute(artifactRoot)))) return reply.code(404).send({ error: "shared artifact not found or expired" });
     const artifact = result.rows[0];
     const pieces = artifact.object_key.split("/");
     if (pieces[0] !== row.runId || pieces.length < 2 || pieces.some((piece) => !piece || piece === "." || piece === ".." || !/^[A-Za-z0-9._-]+$/.test(piece))) return reply.code(404).send({ error: "shared artifact not found or expired" });
-    const root = path.resolve(artifactRoot);
-    const filePath = path.resolve(root, ...pieces);
-    if (!filePath.startsWith(`${root}${path.sep}`)) return reply.code(404).send({ error: "shared artifact not found or expired" });
     try {
-      const file = await lstat(filePath);
-      if (!file.isFile() || file.isSymbolicLink() || file.size !== Number(artifact.byte_length)) return reply.code(410).send({ error: "shared artifact integrity check failed" });
-      const bytes = await readFile(filePath);
+      let bytes;
+      if (artifactStore) bytes = await artifactStore.getObject(artifact.object_key);
+      else {
+        const root = path.resolve(artifactRoot);
+        const filePath = path.resolve(root, ...pieces);
+        if (!filePath.startsWith(`${root}${path.sep}`)) return reply.code(404).send({ error: "shared artifact not found or expired" });
+        const file = await lstat(filePath);
+        if (!file.isFile() || file.isSymbolicLink()) return reply.code(404).send({ error: "shared artifact not found or expired" });
+        if (file.size !== Number(artifact.byte_length)) return reply.code(410).send({ error: "shared artifact integrity check failed" });
+        bytes = await readFile(filePath);
+      }
+      if (bytes.length !== Number(artifact.byte_length)) return reply.code(410).send({ error: "shared artifact integrity check failed" });
       if (createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) return reply.code(410).send({ error: "shared artifact integrity check failed" });
       await inTransaction(pool, async (client) => {
         const active = await client.query("SELECT id FROM share_links WHERE id=$1 AND revoked_at IS NULL AND expires_at>now() FOR UPDATE", [row.shareId]);
@@ -680,7 +776,7 @@ export function buildApp({
       reply.header("x-content-type-options", "nosniff");
       return reply.send(bytes);
     } catch (readError) {
-      if (readError?.code === "ENOENT") return reply.code(410).send({ error: "shared artifact is no longer available" });
+      if (readError?.code === "ENOENT" || readError?.name === "NoSuchKey" || readError?.$metadata?.httpStatusCode === 404) return reply.code(410).send({ error: "shared artifact is no longer available" });
       throw readError;
     }
   });
@@ -688,7 +784,7 @@ export function buildApp({
   app.get("/v1/runs/:runId/artifacts/:artifactId", async (request, reply) => {
     const { user, orgId, error } = await organizationContext(request, pool);
     if (error) return reply.code(error.status).send({ error: error.message });
-    if (!artifactRoot || !path.isAbsolute(artifactRoot)) return reply.code(503).send({ error: "local run artifacts are not configured" });
+    if (!artifactStore && (!artifactRoot || !path.isAbsolute(artifactRoot))) return reply.code(503).send({ error: "run artifact storage is not configured" });
     const { runId, artifactId } = request.params;
     if (!UUID.test(runId) || !UUID.test(artifactId)) return reply.code(404).send({ error: "artifact not found" });
     const result = await pool.query("SELECT a.object_key,a.media_type,a.byte_length,a.sha256 FROM artifacts a JOIN runs r ON r.organization_id=a.organization_id AND r.id=a.run_id WHERE a.organization_id=$1 AND r.id=$2 AND a.id=$3 AND r.retention_expires_at>now()", [orgId, runId, artifactId]);
@@ -696,14 +792,19 @@ export function buildApp({
     const artifact = result.rows[0];
     const pieces = artifact.object_key.split("/");
     if (pieces[0] !== runId || pieces.length < 2 || pieces.some((piece) => !piece || piece === "." || piece === ".." || !/^[A-Za-z0-9._-]+$/.test(piece))) return reply.code(404).send({ error: "artifact not found" });
-    const root = path.resolve(artifactRoot);
-    const filePath = path.resolve(root, ...pieces);
-    if (!filePath.startsWith(`${root}${path.sep}`)) return reply.code(404).send({ error: "artifact not found" });
     try {
-      const file = await lstat(filePath);
-      if (!file.isFile() || file.isSymbolicLink()) return reply.code(404).send({ error: "artifact not found" });
-      if (file.size !== Number(artifact.byte_length)) return reply.code(410).send({ error: "artifact integrity check failed" });
-      const bytes = await readFile(filePath);
+      let bytes;
+      if (artifactStore) bytes = await artifactStore.getObject(artifact.object_key);
+      else {
+        const root = path.resolve(artifactRoot);
+        const filePath = path.resolve(root, ...pieces);
+        if (!filePath.startsWith(`${root}${path.sep}`)) return reply.code(404).send({ error: "artifact not found" });
+        const file = await lstat(filePath);
+        if (!file.isFile() || file.isSymbolicLink()) return reply.code(404).send({ error: "artifact not found" });
+        if (file.size !== Number(artifact.byte_length)) return reply.code(410).send({ error: "artifact integrity check failed" });
+        bytes = await readFile(filePath);
+      }
+      if (bytes.length !== Number(artifact.byte_length)) return reply.code(410).send({ error: "artifact integrity check failed" });
       if (createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) return reply.code(410).send({ error: "artifact integrity check failed" });
       await pool.query("INSERT INTO audit_events(organization_id,actor_user_id,action,resource_type,resource_id,details) VALUES($1,$2,'artifact.downloaded','run',$3,$4)", [orgId, user.id, runId, { artifactId, sha256: artifact.sha256 }]);
       reply.header("content-type", artifact.media_type);
@@ -713,7 +814,7 @@ export function buildApp({
       reply.header("x-content-type-options", "nosniff");
       return reply.send(bytes);
     } catch (readError) {
-      if (readError?.code === "ENOENT") return reply.code(410).send({ error: "artifact is no longer available" });
+      if (readError?.code === "ENOENT" || readError?.name === "NoSuchKey" || readError?.$metadata?.httpStatusCode === 404) return reply.code(410).send({ error: "artifact is no longer available" });
       throw readError;
     }
   });
@@ -725,7 +826,21 @@ export function buildApp({
   return app;
 }
 
-async function sessionUser(request, pool) {
+function bearerToken(request) {
+  const header = request.headers.authorization;
+  const match = typeof header === "string" ? /^Bearer ([A-Za-z0-9._~-]{20,8192})$/.exec(header) : null;
+  return match?.[1] ?? null;
+}
+
+async function sessionUser(request, pool, supabaseAuth = null) {
+  if (supabaseAuth) {
+    const token = bearerToken(request);
+    if (!token) return null;
+    const authUser = await supabaseAuth.getUser(token);
+    if (!authUser) return null;
+    const identity = await pool.query("SELECT u.id,u.email FROM auth_identities i JOIN users u ON u.id=i.user_id WHERE i.provider='supabase' AND i.subject=$1", [authUser.id]);
+    return identity.rows[0] ?? null;
+  }
   const token = parseCookies(request.headers.cookie).get("atlas_session");
   if (!token || token.length < 32) return null;
   const result = await pool.query("SELECT u.id,u.email FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()", [hashToken(token)]);
@@ -733,7 +848,7 @@ async function sessionUser(request, pool) {
 }
 
 async function organizationContext(request, pool) {
-  const user = await sessionUser(request, pool);
+  const user = await sessionUser(request, pool, request.server.supabaseAuth);
   if (!user) return { error: { status: 401, message: "authentication required" } };
   const orgId = request.headers["x-atlas-organization"];
   if (typeof orgId !== "string" || !UUID.test(orgId)) return { error: { status: 400, message: "x-atlas-organization header is required" } };
@@ -742,7 +857,42 @@ async function organizationContext(request, pool) {
   return { user, orgId, role: member.rows[0].role };
 }
 
+async function prepareTargetContract(rawContract, dns) {
+  const validation = validateTargetContract(rawContract);
+  if (!validation.ok) return { ok: false, error: "invalid target contract", issues: validation.issues };
+  const candidate = validation.contract;
+  if (!candidate.target.buildId) return { ok: false, error: "an immutable build or deployment ID is required before target registration" };
+  let parsed;
+  try { parsed = parseOwnedTargetUrl(candidate.target.url); }
+  catch (error) { return { ok: false, error: error.message }; }
+  for (const origin of candidate.target.allowedOrigins) {
+    let url;
+    try { url = new URL(origin); } catch { return { ok: false, error: "invalid allowed origin" }; }
+    if (url.protocol !== "https:" || (url.port && url.port !== "443")) {
+      return { ok: false, error: "hosted allowed origins must use HTTPS on the standard port" };
+    }
+  }
+  try {
+    const addresses = await dns.lookup(parsed.hostname, { all: true, verbatim: true });
+    if (!addresses.length || addresses.some((item) => !isPublicAddress(item.address))) {
+      return { ok: false, error: "target DNS must resolve only to public addresses" };
+    }
+  } catch (error) {
+    if (error?.statusCode) throw error;
+    return { ok: false, error: "target hostname could not be resolved safely" };
+  }
+  const contract = { ...candidate, target: { ...candidate.target, url: parsed.url.href } };
+  return { ok: true, contract, parsed };
+}
+
 function canWrite(role) { return ["owner", "admin", "member"].includes(role); }
+async function readFrontendFile(builtPath, sourcePath = builtPath) {
+  try { return await readFile(path.join(here, "../dist/public", builtPath), "utf8"); }
+  catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    return readFile(path.join(here, "../public", sourcePath), "utf8");
+  }
+}
 function asObject(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
 function normalizeEmail(value) { return typeof value === "string" && value.length <= 254 ? value.trim().toLowerCase() : ""; }
 function cleanName(value) { return typeof value === "string" && value.trim().length <= 120 ? value.trim() : ""; }
@@ -822,13 +972,25 @@ async function consumeSharedReportRequest(client, shareId, limit) {
   return result.rows[0].request_count <= limit;
 }
 
+/** Aggregate public traffic by route and minute without retaining IP addresses or tokens. */
+async function consumeAnonymousShareRequest(pool, route, limit) {
+  const result = await pool.query(
+    "INSERT INTO anonymous_share_request_buckets(route,bucket_start,request_count) VALUES($1,date_trunc('minute',clock_timestamp()),1) ON CONFLICT(route,bucket_start) DO UPDATE SET request_count=anonymous_share_request_buckets.request_count+1 RETURNING request_count",
+    [route],
+  );
+  return Number(result.rows[0].request_count) <= limit;
+}
+
 const OPENAPI = {
   openapi: "3.1.0", info: { title: "Atlas Control Plane API", version: "0.1.0", description: "Local development control plane with an opt-in Docker worker; it is not a hosted service." },
   servers: [{ url: "http://localhost:3000" }],
   paths: {
+    "/v1/auth/config": { get: { summary: "Get public auth-provider configuration; the Supabase publishable key is not a secret", responses: { "200": { description: "Local or Supabase auth mode" } } } },
+    "/v1/auth/provision": { post: { summary: "Link a verified Supabase user to an Atlas workspace", responses: { "200": { description: "Existing organizations returned" }, "201": { description: "First workspace created" }, "400": { description: "First workspace name is required" }, "401": { description: "Valid confirmed Supabase session required" } } } },
     "/v1/auth/register": { post: { summary: "Create account and organization", responses: { "201": { description: "Created" } } } },
     "/v1/auth/login": { post: { summary: "Create a session", responses: { "200": { description: "Authenticated" } } } },
     "/v1/projects": { get: { summary: "List projects in selected organization", responses: { "200": { description: "Project list" } } }, post: { summary: "Create project", responses: { "201": { description: "Created" } } } },
+    "/v1/projects/{projectId}/targets/validate": { post: { summary: "Validate a target contract and current public DNS without persisting it or opening a browser; this does not verify selectors", responses: { "200": { description: "Static checks passed; ownership remains pending and browser journey is not run" }, "400": { description: "Invalid contract, mutable build ID, unsupported origin, or unsafe DNS" }, "404": { description: "Project not found" } } } },
     "/v1/projects/{projectId}/targets": { post: { summary: "Register an HTTPS target and DNS ownership challenge", responses: { "201": { description: "Created" } } } },
     "/v1/projects/{projectId}/visual-reviews": { post: {
       summary: "Compare consented reference/current PNGs deterministically and request separate advisory model review; image bytes are not retained by this route",
@@ -849,26 +1011,29 @@ const OPENAPI = {
       responses: { "201": { description: "Unapplied, untested proposal stored for 30 days" }, "400": { description: "Invalid source or missing code-egress consent" }, "404": { description: "Review is missing or expired" }, "409": { description: "Review is inconclusive or has no findings" }, "410": { description: "Idempotent proposal has expired" }, "429": { description: "Daily organization quota reached" }, "503": { description: "Groq code model is not configured" } },
     } },
     "/v1/targets/{targetId}/verify": { post: { summary: "Verify DNS TXT ownership", responses: { "200": { description: "Verified" } } } },
-    "/v1/targets/{targetId}/runs": { post: { summary: "Queue a run record (Idempotency-Key required)", responses: { "202": { description: "Queued; an explicitly started local Docker worker may process it" }, "200": { description: "Existing idempotent run" }, "410": { description: "Idempotent run has expired" } } } },
+    "/v1/targets/{targetId}/runs": { post: { summary: "Queue a run record (Idempotency-Key required) under organization UTC-day and active-run quotas", responses: { "202": { description: "Queued; an explicitly started local Docker worker may process it" }, "200": { description: "Existing idempotent run; retry consumes no additional quota" }, "410": { description: "Idempotent run has expired" }, "429": { description: "Organization daily or concurrent run quota reached" } } } },
     "/v1/runs/{runId}": { get: { summary: "Get private run status and artifact metadata", responses: { "200": { description: "Run detail" }, "404": { description: "Run is missing or expired" } } } },
     "/v1/runs/{runId}/share-links": { post: { summary: "Create an expiring client link for an explicitly selected run summary and artifacts; raw token is returned once in a URL fragment", responses: { "201": { description: "Created; client must store the fragment URL" }, "400": { description: "Invalid expiry or artifact scope" }, "409": { description: "Run evidence is still pending" } } } },
     "/v1/runs/{runId}/share-links/{shareId}/revoke": { post: { summary: "Immediately revoke a client report link", responses: { "200": { description: "Revoked" }, "404": { description: "Link not found" } } } },
-    "/v1/shared-reports/open": { post: { summary: "Resolve an anonymous client report using a token sent in the JSON body; access is audited", responses: { "200": { description: "Scoped report summary and selected artifact metadata" }, "404": { description: "Invalid, expired, or revoked link" }, "429": { description: "Per-link request limit reached; retry after the supplied interval" } } } },
-    "/v1/shared-reports/artifact": { post: { summary: "Download only an artifact explicitly included in an active client link; access is audited and content hash verified", responses: { "200": { description: "Verified artifact bytes" }, "404": { description: "Artifact outside link scope or inactive link" }, "429": { description: "Per-link request limit reached; retry after the supplied interval" } } } },
+    "/v1/shared-reports/open": { post: { summary: "Resolve an anonymous client report using a token sent in the JSON body; access is audited", responses: { "200": { description: "Scoped report summary and selected artifact metadata" }, "404": { description: "Invalid, expired, or revoked link" }, "429": { description: "Service-wide public-route or per-link limit reached; retry after the supplied interval" } } } },
+    "/v1/shared-reports/artifact": { post: { summary: "Download only an artifact explicitly included in an active client link; access is audited and content hash verified", responses: { "200": { description: "Verified artifact bytes" }, "404": { description: "Artifact outside link scope or inactive link" }, "429": { description: "Service-wide public-route or per-link limit reached; retry after the supplied interval" } } } },
     "/v1/runs/{runId}/cancel": { post: { summary: "Cancel a queued run or request cancellation of a running local Docker job", responses: { "200": { description: "Cancelled or cancellation requested" }, "404": { description: "Run is missing or expired" }, "409": { description: "Run already completed" } } } },
     "/v1/runs/{runId}/artifacts/{artifactId}": { get: { summary: "Download an organization-scoped local run artifact with integrity verification and audit", responses: { "200": { description: "Artifact bytes" }, "404": { description: "Artifact not found or expired" }, "410": { description: "Artifact integrity failure or missing expired file" } } } },
   },
 };
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+export async function startServer() {
   const secureCookies = process.env.NODE_ENV === "production";
   if (secureCookies && !process.env.ATLAS_APP_ORIGIN?.startsWith("https://")) throw new Error("production requires ATLAS_APP_ORIGIN with https://");
   const pool = createPool();
   const idempotencyPool = createPool();
-  const app = buildApp({ pool, idempotencyPool, secureCookies, logger: true, closePool: false });
+  const artifactStore = createArtifactStore();
+  const app = buildApp({ pool, idempotencyPool, secureCookies, logger: true, closePool: false, artifactStore });
   const port = Number(process.env.PORT ?? 3000);
-  const stopMaintenance = startRetentionMaintenance(pool, app.log);
+  const stopMaintenance = startRetentionMaintenance(pool, app.log, undefined, { artifactStore });
   app.addHook("onClose", stopMaintenance);
-  app.addHook("onClose", async () => { await idempotencyPool.end(); await pool.end(); });
+  app.addHook("onClose", async () => { artifactStore?.close(); await idempotencyPool.end(); await pool.end(); });
   await app.listen({ port, host: process.env.HOST ?? "127.0.0.1" });
 }
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await startServer();

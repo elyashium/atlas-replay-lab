@@ -50,6 +50,7 @@ import { buildInjectedScript } from "./inject.js";
 import { waitForDone, sleep } from "./drive.js";
 import { writeFileEnsured, ensureDir } from "../util/fsx.js";
 import { decodePng } from "../image/png.js";
+import { redactPngRectangles } from "../image/redact.js";
 import { nonBlankness, focalCoverage, edgeEnergy, edgeDrift } from "../image/diff.js";
 import { assembleTrace, applyFirstFrameVisual, finalizeTrace } from "../trace/assemble.js";
 import { logger } from "../util/log.js";
@@ -110,6 +111,8 @@ export async function runSession(opts) {
 
   const session = await opts.connection.newPage();
   await ensureDir(opts.screenshotDir);
+  /** Raw first-frame bytes stay in memory for deterministic measurement only. */
+  let firstFrameScreenshot = null;
 
   try {
     // The binding must exist before the document's own scripts evaluate, or
@@ -133,7 +136,11 @@ export async function runSession(opts) {
         return;
       }
       if (msg?.type !== "checkpoint" || typeof msg.id !== "string") return;
-      captureChain = captureChain.then(() => captureCheckpoint(session, msg.id, opts.screenshotDir, screenshots, { ...opts, componentScreenshotErrors }));
+      captureChain = captureChain.then(() => captureCheckpoint(
+        session, msg.id, opts.screenshotDir, screenshots,
+        { ...opts, componentScreenshotErrors },
+        (id, bytes) => { if (id === "cp-first-frame") firstFrameScreenshot = bytes; },
+      ));
     });
 
     // Page-side errors are collected as evidence, not swallowed. A trace whose
@@ -237,9 +244,9 @@ export async function runSession(opts) {
       for (const failure of componentScreenshotErrors) trace.notes.push(`component screenshot ${failure.componentId} withheld at ${failure.checkpointId}: ${failure.reason}`);
       for (const err of pageErrors.slice(0, 20)) trace.notes.push(err);
 
-      const cpFirstFrame = screenshots["cp-first-frame"];
-      if (cpFirstFrame) {
-        await measureFirstFrame(trace, opts.manifest, cpFirstFrame);
+      if (screenshots["cp-first-frame"] && firstFrameScreenshot) {
+        await measureFirstFrame(trace, opts.manifest, firstFrameScreenshot);
+        firstFrameScreenshot = null;
       } else {
         trace.notes.push("no cp-first-frame screenshot: blank-frame check could not be performed");
         finalizeTrace(trace, opts.manifest);
@@ -297,28 +304,17 @@ export async function runSession(opts) {
  * @param {string} dir
  * @param {Record<string, string>} out
  */
-async function captureCheckpoint(session, id, dir, out, opts = {}) {
+async function captureCheckpoint(session, id, dir, out, opts = {}, onRawCapture = () => {}) {
   try {
     if (opts.captureScreenshots === false) return;
     const selectors = opts.screenshotRedactSelectors ?? [];
-    if (selectors.length) {
-      const redacted = await session.evaluate(`(() => {
-        globalThis.__atlasRedactedStyles = [];
-        for (const selector of ${JSON.stringify(selectors)}) {
-          let nodes;
-          try { nodes = [...document.querySelectorAll(selector)]; } catch { return false; }
-          if (!nodes.length) return false;
-          for (const node of nodes) {
-            globalThis.__atlasRedactedStyles.push([node, node.getAttribute('style')]);
-            node.style.setProperty('filter', 'blur(18px)', 'important');
-            node.style.setProperty('text-shadow', '0 0 12px currentColor', 'important');
-          }
-        }
-        return true;
-      })()`);
-      if (redacted !== true) throw new Error("a screenshot redaction selector is invalid or matched no element; screenshot withheld");
-    }
-    const png = await session.screenshot();
+    const privacyBounds = selectors.length ? await measureRedactionBounds(session, selectors) : null;
+    if (selectors.length && !privacyBounds) throw new Error("a screenshot redaction selector is invalid or matched no measurable element; screenshot withheld");
+    const captured = await session.screenshot();
+    const png = privacyBounds
+      ? redactPngRectangles(captured, privacyBounds.rectangles, { cssWidth: privacyBounds.width, cssHeight: privacyBounds.height })
+      : captured;
+    onRawCapture(id, captured);
     const file = path.join(dir, `${id}.png`);
     await writeFileEnsured(file, png);
     out[id] = file;
@@ -327,7 +323,6 @@ async function captureCheckpoint(session, id, dir, out, opts = {}) {
   } catch (err) {
     log.warn(`checkpoint ${id} capture failed: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
-    await session.evaluate(`(() => { for (const [node, style] of globalThis.__atlasRedactedStyles ?? []) { if (style === null) node.removeAttribute('style'); else node.setAttribute('style', style); } delete globalThis.__atlasRedactedStyles; })()`).catch(() => {});
     // Acknowledge even on failure. A missing screenshot is a reported gap; a
     // page hung for five seconds waiting on an acknowledgement that will never
     // come would corrupt every timing after it.
@@ -335,6 +330,27 @@ async function captureCheckpoint(session, id, dir, out, opts = {}) {
       .evaluate(`globalThis.__atlasCheckpointAck = ${JSON.stringify(id)}; true`)
       .catch(() => {});
   }
+}
+
+async function measureRedactionBounds(session, selectors) {
+  const measured = await session.evaluate(`(() => {
+    const rectangles = [];
+    for (const selector of ${JSON.stringify(selectors)}) {
+      let nodes;
+      try { nodes = [...document.querySelectorAll(selector)]; } catch { return null; }
+      if (!nodes.length) return null;
+      for (const node of nodes) {
+        const rect = node.getBoundingClientRect();
+        if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return null;
+        rectangles.push({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+      }
+    }
+    if (!rectangles.length || innerWidth <= 0 || innerHeight <= 0) return null;
+    return { width: innerWidth, height: innerHeight, rectangles };
+  })()`);
+  return measured && Number.isFinite(measured.width) && Number.isFinite(measured.height) && Array.isArray(measured.rectangles) && measured.rectangles.length
+    ? measured
+    : null;
 }
 
 async function captureComponentScreenshots(session, dir, out, opts) {
@@ -351,10 +367,26 @@ async function captureComponentScreenshots(session, dir, out, opts) {
         if (style.display === "none" || style.visibility === "hidden" || !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) || rect.width <= 0 || rect.height <= 0) return { reason: "not-visible" };
         if (rect.x < 0 || rect.y < 0 || rect.right > innerWidth || rect.bottom > innerHeight) return { reason: "outside-viewport" };
         if (rect.width > 4096 || rect.height > 4096 || rect.width * rect.height > 8000000) return { reason: "over-dimension-limit" };
-        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        const redactionRects = [];
+        for (const selector of ${JSON.stringify(opts.screenshotRedactSelectors ?? [])}) {
+          let redacted;
+          try { redacted = [...document.querySelectorAll(selector)]; } catch { return { reason: "redaction-selector-invalid" }; }
+          if (!redacted.length) return { reason: "redaction-selector-missing" };
+          for (const node of redacted) {
+            const box = node.getBoundingClientRect();
+            if (![box.x, box.y, box.width, box.height].every(Number.isFinite) || box.width <= 0 || box.height <= 0) return { reason: "redaction-bounds-invalid" };
+            redactionRects.push({ x: box.x, y: box.y, width: box.width, height: box.height });
+          }
+        }
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, redactionRects };
       })()`);
       if (!measured || measured.reason) { reason = measured?.reason ?? reason; throw new Error("component screenshot unavailable"); }
-      const png = await session.screenshot({ clip: { ...measured, scale: 1 } });
+      const captured = await session.screenshot({ clip: { x: measured.x, y: measured.y, width: measured.width, height: measured.height, scale: 1 } });
+      const png = measured.redactionRects.length
+        ? redactPngRectangles(captured, measured.redactionRects, {
+          cssOriginX: measured.x, cssOriginY: measured.y, cssWidth: measured.width, cssHeight: measured.height,
+        })
+        : captured;
       if (png.length > 10 * 1024 * 1024) { reason = "over-file-size-limit"; throw new Error("component screenshot too large"); }
       const file = path.join(dir, `component-${item.id}.png`);
       await writeFileEnsured(file, png);
@@ -373,9 +405,9 @@ async function captureComponentScreenshots(session, dir, out, opts) {
  * @param {ExperienceManifest} manifest
  * @param {string} screenshotPath
  */
-async function measureFirstFrame(trace, manifest, screenshotPath) {
+async function measureFirstFrame(trace, manifest, screenshotBytes) {
   try {
-    const image = decodePng(await readFile(screenshotPath));
+    const image = decodePng(screenshotBytes);
     applyFirstFrameVisual(trace, manifest, {
       nonBlankness: nonBlankness(image),
       focalCoverage: focalCoverage(image),

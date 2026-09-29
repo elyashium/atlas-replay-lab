@@ -5,14 +5,33 @@ import { buildApp } from "../src/server.js";
 const ORIGIN = "http://127.0.0.1:3000";
 const tokenCookie = "atlas_session=0123456789abcdef0123456789abcdef0123456789abcdef";
 
-function fakePool({ member = true, projects = [], projectTargets = [], verifiedTarget = false, targetContract = { schemaVersion: 1, id: "owned-target", name: "Owned target", environment: "staging", authorization: { authorized: true }, target: { url: "https://stage.example.org/", allowedOrigins: ["https://stage.example.org"], buildId: "a1b2c3d4" }, journey: { steps: [{ type: "waitForVisible", selector: "[data-ready]" }], success: { selector: "[data-ready]" }, fallback: { selector: "[data-fallback]", requiredOn: [] } }, profiles: ["high-wifi"], budgets: { journeyTimeoutMs: 5000, stepTimeoutMs: 2000 }, policy: { version: "1", criticalProfiles: ["high-wifi"], minimumScore: 50 }, mediaConsent: false, screenshots: { consent: false, redactSelectors: [] } } } = {}) {
+test("anonymous share request ceilings count invalid tokens without retaining token or client identity", async () => {
+  const pool = fakePool();
+  const app = buildApp({ pool, appOrigin: ORIGIN, anonymousShareRateLimitPerMinute: 1 });
+  try {
+    const headers = { origin: ORIGIN, "content-type": "application/json" };
+    const first = await app.inject({ method: "POST", url: "/v1/shared-reports/open", payload: { token: "A".repeat(43) }, headers });
+    const second = await app.inject({ method: "POST", url: "/v1/shared-reports/open", payload: { token: "B".repeat(43) }, headers });
+    assert.equal(first.statusCode, 404, first.body);
+    assert.equal(second.statusCode, 429);
+    assert.equal(second.headers["retry-after"], "60");
+    const bucket = pool.calls.find((call) => call.sql.includes("INSERT INTO anonymous_share_request_buckets"));
+    assert.deepEqual(bucket.params, ["open"]);
+    assert.doesNotMatch(bucket.sql, /inet|token|user.agent/i);
+  } finally { await app.close(); }
+});
+
+function fakePool({ member = true, projects = [], projectTargets = [], verifiedTarget = false, dailyRunCount = 0, activeRunCount = 0, targetContract = { schemaVersion: 1, id: "owned-target", name: "Owned target", environment: "staging", authorization: { authorized: true }, target: { url: "https://stage.example.org/", allowedOrigins: ["https://stage.example.org"], buildId: "a1b2c3d4" }, journey: { steps: [{ type: "waitForVisible", selector: "[data-ready]" }], success: { selector: "[data-ready]" }, fallback: { selector: "[data-fallback]", requiredOn: [] } }, profiles: ["high-wifi"], budgets: { journeyTimeoutMs: 5000, stepTimeoutMs: 2000 }, policy: { version: "1", criticalProfiles: ["high-wifi"], minimumScore: 50 }, mediaConsent: false, screenshots: { consent: false, redactSelectors: [] } } } = {}) {
   const calls = [];
   const runsByKey = new Map();
+  let queuedRunCount = 0;
+  let anonymousShareRequestCount = 0;
   return {
     calls,
     targetContract,
     async query(sql, params = []) {
       calls.push({ sql, params });
+      if (sql.includes("INSERT INTO anonymous_share_request_buckets")) return { rows: [{ request_count: ++anonymousShareRequestCount }], rowCount: 1 };
       if (sql.includes("SELECT u.id,u.email FROM sessions")) return { rows: [{ id: "user-1", email: "qa@example.org" }], rowCount: 1 };
       if (sql.includes("SELECT role FROM memberships")) return member ? { rows: [{ role: "owner" }], rowCount: 1 } : { rows: [], rowCount: 0 };
       if (sql.includes("SELECT project_id,contract,verified_at FROM targets")) return verifiedTarget ? { rows: [{ project_id: "project-1", contract: targetContract, verified_at: "2026-09-27T00:00:00Z" }], rowCount: 1 } : { rows: [], rowCount: 0 };
@@ -26,16 +45,20 @@ function fakePool({ member = true, projects = [], projectTargets = [], verifiedT
     async connect() {
       return { query: async (sql, params = []) => {
         calls.push({ sql, params });
+        if (sql.includes("SELECT s.id AS \"shareId\"")) return { rows: [], rowCount: 0 };
+        if (sql.includes("pg_advisory_xact_lock(hashtext('atlas-run-quota-v1')")) return { rows: [{}], rowCount: 1 };
+        if (sql.includes("AS \"dailyCount\"") && sql.includes("AS \"activeCount\"")) return { rows: [{ dailyCount: dailyRunCount + queuedRunCount, activeCount: activeRunCount + queuedRunCount }], rowCount: 1 };
         if (sql.includes("INSERT INTO runs")) {
           const key = params[8];
           if (runsByKey.has(key)) return { rows: [], rowCount: 0 };
           const run = { id: params[0], targetId: params[3], status: "queued", verdict: null, binding: params[6] };
           runsByKey.set(key, run);
+          queuedRunCount += 1;
           return { rows: [run], rowCount: 1 };
         }
-        if (sql.includes("SELECT id,target_id AS \"targetId\",status,verdict,binding_snapshot AS binding FROM runs WHERE organization_id=$1 AND idempotency_key=$2")) {
+        if (sql.includes("SELECT id,target_id AS \"targetId\",status,verdict,binding_snapshot AS binding,retention_expires_at>now() AS active FROM runs WHERE organization_id=$1 AND idempotency_key=$2")) {
           const run = runsByKey.get(params[1]);
-          return { rows: run ? [run] : [], rowCount: run ? 1 : 0 };
+          return { rows: run ? [{ ...run, active: true }] : [], rowCount: run ? 1 : 0 };
         }
         return { rows: [], rowCount: 1 };
       }, release() {} };
@@ -108,6 +131,40 @@ test("target onboarding refuses a hostname with any non-public DNS answer", asyn
   } finally { await app.close(); }
 });
 
+test("target preflight validates contract and public DNS without registering or claiming a browser journey", async () => {
+  const pool = fakePool();
+  const app = buildApp({ pool, appOrigin: ORIGIN, dns: { lookup: async () => [{ address: "93.184.216.34", family: 4 }], resolveTxt: async () => [] } });
+  try {
+    const response = await app.inject({
+      method: "POST", url: "/v1/projects/123e4567-e89b-42d3-a456-426614174000/targets/validate",
+      headers: { origin: ORIGIN, "content-type": "application/json", cookie: tokenCookie, "x-atlas-organization": "123e4567-e89b-42d3-a456-426614174000" },
+      payload: { contract: pool.targetContract },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().status, "ready-for-registration");
+    assert.deepEqual(response.json().checks.map((check) => check.status), ["passed", "passed", "pending", "not-run"]);
+    assert.match(response.json().checks[3].detail, /did not open the page or verify selectors/);
+    assert.equal(pool.calls.some((call) => call.sql.includes("INSERT INTO targets")), false);
+    assert.equal(pool.calls.some((call) => call.sql.includes("INSERT INTO audit_events")), false);
+  } finally { await app.close(); }
+});
+
+test("target preflight rejects private DNS and missing immutable build IDs", async () => {
+  const pool = fakePool();
+  const headers = { origin: ORIGIN, "content-type": "application/json", cookie: tokenCookie, "x-atlas-organization": "123e4567-e89b-42d3-a456-426614174000" };
+  const app = buildApp({ pool, appOrigin: ORIGIN, dns: { lookup: async () => [{ address: "127.0.0.1", family: 4 }], resolveTxt: async () => [] } });
+  try {
+    const unsafe = await app.inject({ method: "POST", url: "/v1/projects/123e4567-e89b-42d3-a456-426614174000/targets/validate", headers, payload: { contract: pool.targetContract } });
+    assert.equal(unsafe.statusCode, 400);
+    assert.match(unsafe.json().error, /public addresses/);
+    const noBuild = structuredClone(pool.targetContract); delete noBuild.target.buildId;
+    const mutable = await app.inject({ method: "POST", url: "/v1/projects/123e4567-e89b-42d3-a456-426614174000/targets/validate", headers, payload: { contract: noBuild } });
+    assert.equal(mutable.statusCode, 400);
+    assert.match(mutable.json().error, /immutable build/);
+    assert.equal(pool.calls.some((call) => call.sql.includes("INSERT INTO targets")), false);
+  } finally { await app.close(); }
+});
+
 test("health endpoint reports unavailable when Postgres is down", async () => {
   const pool = fakePool();
   pool.query = async (sql) => { if (sql === "SELECT 1") throw new Error("offline"); return { rows: [], rowCount: 0 }; };
@@ -131,6 +188,19 @@ test("responses set privacy-oriented browser security headers", async () => {
   } finally { await app.close(); }
 });
 
+test("OpenAPI documents run and artifact expiry behavior", async () => {
+  const app = buildApp({ pool: fakePool(), appOrigin: ORIGIN });
+  try {
+    const response = await app.inject({ method: "GET", url: "/api/openapi.json" });
+    const spec = response.json();
+    assert.match(spec.paths["/v1/projects/{projectId}/targets/validate"].post.summary, /without persisting it or opening a browser/);
+    assert.match(spec.paths["/v1/targets/{targetId}/runs"].post.responses["429"].description, /daily or concurrent/);
+    assert.match(spec.paths["/v1/targets/{targetId}/runs"].post.responses["410"].description, /expired/);
+    assert.match(spec.paths["/v1/runs/{runId}"].get.responses["404"].description, /expired/);
+    assert.match(spec.paths["/v1/runs/{runId}/artifacts/{artifactId}"].get.responses["404"].description, /expired/);
+  } finally { await app.close(); }
+});
+
 test("run submissions require an idempotency key and retries resolve to the same queued row", async () => {
   const pool = fakePool({ verifiedTarget: true });
   const app = buildApp({ pool, appOrigin: ORIGIN });
@@ -151,6 +221,36 @@ test("run submissions require an idempotency key and retries resolve to the same
     assert.match(first.json().run.message, /local Docker worker is required/);
     assert.equal(retry.statusCode, 200);
     assert.equal(retry.json().run.id, first.json().run.id);
+  } finally { await app.close(); }
+});
+
+test("run quotas are configurable and idempotent retries do not consume another slot", async () => {
+  const pool = fakePool({ verifiedTarget: true });
+  const app = buildApp({ pool, appOrigin: ORIGIN, runDailyLimit: 10, runConcurrentLimit: 1 });
+  const headers = { origin: ORIGIN, "content-type": "application/json", cookie: tokenCookie, "x-atlas-organization": "123e4567-e89b-42d3-a456-426614174000" };
+  const url = "/v1/targets/123e4567-e89b-42d3-a456-426614174000/runs";
+  try {
+    const first = await app.inject({ method: "POST", url, headers: { ...headers, "idempotency-key": "quota-first-run" }, payload: {} });
+    const retry = await app.inject({ method: "POST", url, headers: { ...headers, "idempotency-key": "quota-first-run" }, payload: {} });
+    assert.equal(first.statusCode, 202);
+    assert.equal(retry.statusCode, 200);
+    assert.equal(retry.json().run.id, first.json().run.id);
+    const second = await app.inject({ method: "POST", url, headers: { ...headers, "idempotency-key": "quota-second-run" }, payload: {} });
+    assert.equal(second.statusCode, 429);
+    assert.equal(second.json().quota, "concurrent");
+    assert.equal(pool.calls.filter((call) => call.sql.includes("INSERT INTO runs")).length, 1);
+  } finally { await app.close(); }
+});
+
+test("daily run quota rejects before inserting a new queue row", async () => {
+  const pool = fakePool({ verifiedTarget: true, dailyRunCount: 1 });
+  const app = buildApp({ pool, appOrigin: ORIGIN, runDailyLimit: 1 });
+  const headers = { origin: ORIGIN, "content-type": "application/json", cookie: tokenCookie, "x-atlas-organization": "123e4567-e89b-42d3-a456-426614174000", "idempotency-key": "daily-cap-run-key" };
+  try {
+    const response = await app.inject({ method: "POST", url: "/v1/targets/123e4567-e89b-42d3-a456-426614174000/runs", headers, payload: {} });
+    assert.equal(response.statusCode, 429);
+    assert.equal(response.json().quota, "daily");
+    assert.equal(pool.calls.some((call) => call.sql.includes("INSERT INTO runs")), false);
   } finally { await app.close(); }
 });
 

@@ -12,6 +12,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { encodePng, decodePng, blankImage } from "../src/image/png.js";
+import { redactPngRectangles } from "../src/image/redact.js";
 import {
   diffImages,
   perceptualScore,
@@ -95,6 +96,28 @@ test("an unimplemented filter is refused rather than silently mis-encoded", () =
   // Emitting a filter byte the decoder cannot read would produce a file that
   // looks valid, passes a size check, and renders as garbage.
   assert.throws(() => encodePng(gradient(), { filter: 4 }), /filter/i);
+});
+
+test("screenshot redaction paints opaque rectangles at the PNG pixel scale", () => {
+  const source = encodePng(withSubject(20, 10));
+  const result = decodePng(redactPngRectangles(source, [{ x: 4, y: 3, width: 4, height: 2 }], {
+    cssWidth: 10, cssHeight: 5, paddingCssPx: 0,
+  }));
+  const pixel = (x, y) => [...result.data.subarray((y * result.width + x) * 4, (y * result.width + x) * 4 + 4)];
+  assert.deepEqual(pixel(8, 6), [0, 0, 0, 255]);
+  assert.deepEqual(pixel(15, 9), [0, 0, 0, 255]);
+  assert.notDeepEqual(pixel(7, 6), [0, 0, 0, 255]);
+  assert.notDeepEqual(pixel(16, 6), [0, 0, 0, 255]);
+});
+
+test("screenshot redaction clips rectangles to component crops and rejects missing bounds", () => {
+  const source = encodePng(withSubject(10, 10));
+  const result = decodePng(redactPngRectangles(source, [{ x: 9, y: 4, width: 3, height: 3 }], {
+    cssOriginX: 10, cssOriginY: 5, cssWidth: 5, cssHeight: 5, paddingCssPx: 0,
+  }));
+  assert.deepEqual([...result.data.subarray(0, 4)], [0, 0, 0, 255]);
+  assert.throws(() => redactPngRectangles(source, [], { cssWidth: 10, cssHeight: 10 }), /at least one/);
+  assert.throws(() => redactPngRectangles(source, [{ x: 0, y: 0, width: 0, height: 1 }], { cssWidth: 10, cssHeight: 10 }), /invalid screenshot redaction rectangle/);
 });
 
 test("the degenerate image sizes round-trip", () => {

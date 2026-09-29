@@ -178,10 +178,13 @@ The control-plane UI now includes a consented PNG component review and report
 history. An owned-staging target may also declare up to five component CSS
 selectors; when screenshot capture consent is enabled, Chromium captures each
 unique visible in-viewport element as a separate crop at the final declared
-journey checkpoint. Configured redaction selectors are applied before both the
-full checkpoint and crops. Missing, duplicate, hidden, oversized, or off-screen
-matches are reported as capture gaps and do not become a visual pass. Inspect
-the images before sharing or selecting one for separate Groq egress consent.
+journey checkpoint. Configured redaction selectors are measured and applied as
+opaque pixel masks with 12 CSS pixels of padding to both the full checkpoint
+and crops. Missing or unmeasurable redaction bounds withhold the screenshot;
+missing, duplicate, hidden, oversized, or off-screen component matches are
+reported as capture gaps and do not become a visual pass. Selectors must cover
+the full sensitive area, and screenshots still require inspection before
+sharing or selecting one for separate Groq egress consent.
 The crop feature extends the optional `screenshots.componentSelectors` field
 within target contract schema v1; contracts that omit it remain valid.
 

@@ -238,7 +238,7 @@ function targetDisclaimers() {
   const items = [
     ["Chromium emulation", "Profiles shape viewport, CPU and network conditions in desktop Chromium. They do not establish real Android/iPhone, Safari, radio, camera, GPU or thermal behavior."],
     ["Authorized staging scope", "The local operator attested target authorization. Atlas checked top-level navigations against the contract; the local runner does not restrict subresource egress."],
-    ["Screenshot privacy", "Capture requires explicit consent and configured blur selectors. CSS redaction is not comprehensive; inspect every image before sharing. Hosted isolation and retention controls are not part of this CLI."],
+    ["Screenshot privacy", "Capture requires explicit consent and configured selectors. Atlas applies opaque pixel masks with 12 CSS pixels of padding; selectors must cover the full sensitive area. Inspect every image before sharing. Hosted isolation and retention controls are not part of this CLI."],
   ];
   return `<section><h2>Evidence scope</h2><div class="disclaimers">${items.map(([title, body]) => `<div class="disclaimer"><h3>${esc(title)}</h3><p>${esc(body)}</p></div>`).join("")}</div></section>`;
 }
@@ -322,7 +322,7 @@ function targetJourneySection(matrix, href) {
     <span class="verdict-counts">policy ${esc(decision?.policyVersion ?? "?")} · required ${esc((decision?.requiredProfiles ?? []).join(", "))}</span>
   </div>
   <p class="rule">${esc(contract.name)} · ${esc(contract.id)} · ${esc(contract.environment)} · target ${esc(m.target.url)} · app build ${esc(contract.buildId ?? "not supplied")} · Atlas build ${esc(m.runnerBuildId ?? "not supplied")}</p>
-  <p class="note">Authorization was attested by the local operator, not independently verified. Page media consent: ${contract.mediaConsent ? "yes" : "no"}; camera/microphone APIs are denied unless opted in. Screenshot consent: ${contract.screenshotConsent ? "yes" : "no"}. Configured redaction selectors are blurred before capture; component crops are taken at the final declared journey checkpoint and must be inspected before sharing.</p>
+  <p class="note">Authorization was attested by the local operator, not independently verified. Page media consent: ${contract.mediaConsent ? "yes" : "no"}; camera/microphone APIs are denied unless opted in. Screenshot consent: ${contract.screenshotConsent ? "yes" : "no"}. Configured redaction selectors are painted as opaque masks into the PNG; selectors must cover the full sensitive area. Component crops are taken at the final declared journey checkpoint and must be inspected before sharing.</p>
   <div class="target-table-wrap"><table><thead><tr><th>profile</th><th>declared journey evidence</th><th>score</th><th>first frame</th><th>p95 input</th><th>screenshots</th><th>trace</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>
   <p class="note">Chromium/CDP emulation only. Top-level navigation origins are checked; subresource egress is not constrained by this local runner. Selector journeys are repeatable, not captured customer-input replay.</p>
   <p class="source">Contract schema ${contract.schemaVersion} · budgets ${contract.budgets?.journeyTimeoutMs ?? "?"}ms total / ${contract.budgets?.stepTimeoutMs ?? "?"}ms per step · source <code>${esc(rel(matrix.path))}</code></p>

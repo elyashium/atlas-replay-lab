@@ -23,6 +23,7 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
   const artifactRoot = await mkdtemp(path.join(tmpdir(), "atlas-pg-artifacts-"));
   let shareReplicaPool;
   let shareReplicaApp;
+  let remoteArtifactApp;
   let runId;
   let challenge = "";
   const dns = {
@@ -213,6 +214,24 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
     assert.equal(shareCounts.rows[0].access_count, 2);
     const rateLimitRows = await pool.query("SELECT request_count FROM shared_report_request_buckets WHERE share_id=$1", [shareCreated.json().share.id]);
     assert.equal(rateLimitRows.rows[0].request_count, 3);
+    const anonymousBuckets = await pool.query("SELECT route,request_count FROM anonymous_share_request_buckets WHERE bucket_start=date_trunc('minute',now())");
+    const anonymousCounts = Object.fromEntries(anonymousBuckets.rows.map((row) => [row.route, Number(row.request_count)]));
+    assert.ok(anonymousCounts.open >= 2, "valid and throttled opens are counted in PostgreSQL across API instances");
+    assert.ok(anonymousCounts.artifact >= 2, "artifact requests are counted in PostgreSQL");
+    const remoteObjects = new Map([[reportArtifact.objectKey, Buffer.from("<!doctype html><title>synthetic report</title>\n")]]);
+    remoteArtifactApp = buildApp({
+      pool, appOrigin: origin, closePool: false, sharedReportRateLimitPerMinute: 10,
+      artifactStore: { getObject: async (key) => remoteObjects.get(key) ?? Object.assign(new Error("missing object"), { name: "NoSuchKey" }) },
+    });
+    const remotePrivateDownload = await remoteArtifactApp.inject({ method: "GET", url: `/v1/runs/${workerRun.id}/artifacts/${reportArtifact.id}`, headers: { cookie: cookieA, "x-atlas-organization": orgA } });
+    assert.equal(remotePrivateDownload.statusCode, 200, remotePrivateDownload.body);
+    assert.match(remotePrivateDownload.body, /synthetic report/);
+    const remoteSharedDownload = await remoteArtifactApp.inject({ method: "POST", url: "/v1/shared-reports/artifact", payload: { token: shareToken, artifactId: reportArtifact.id }, headers: shareHeaders });
+    assert.equal(remoteSharedDownload.statusCode, 200, remoteSharedDownload.body);
+    assert.match(remoteSharedDownload.body, /synthetic report/);
+    remoteObjects.set(reportArtifact.objectKey, Buffer.from("tampered remote bytes"));
+    const corruptRemoteDownload = await remoteArtifactApp.inject({ method: "GET", url: `/v1/runs/${workerRun.id}/artifacts/${reportArtifact.id}`, headers: { cookie: cookieA, "x-atlas-organization": orgA } });
+    assert.equal(corruptRemoteDownload.statusCode, 410);
     const revokedShare = await write(`/v1/runs/${workerRun.id}/share-links/${shareCreated.json().share.id}/revoke`, { cookie: cookieA, organizationId: orgA, body: {} });
     assert.equal(revokedShare.statusCode, 200, revokedShare.body);
     const revokedOpen = await runningApp.inject({ method: "POST", url: "/v1/shared-reports/open", payload: { token: shareToken }, headers: shareHeaders });
@@ -248,6 +267,17 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
     await writeFile(path.join(runArtifactDir, "report.json"), "{}\n");
     await pool.query("INSERT INTO artifacts(id,organization_id,run_id,object_key,media_type,byte_length,sha256) VALUES($1,$2,$3,$4,'application/json',2,$5)", [artifactId, orgA, runId, `${runId}/report.json`, "0".repeat(64)]);
     await pool.query("UPDATE runs SET retention_expires_at=now()-interval '1 second' WHERE organization_id=$1 AND id=$2", [orgA, runId]);
+    const expiredDetail = await runningApp.inject({ method: "GET", url: `/v1/runs/${runId}`, headers: { cookie: cookieA, "x-atlas-organization": orgA } });
+    assert.equal(expiredDetail.statusCode, 404, expiredDetail.body);
+    const expiredProject = await runningApp.inject({ method: "GET", url: `/v1/projects/${projectId}`, headers: { cookie: cookieA, "x-atlas-organization": orgA } });
+    assert.equal(expiredProject.statusCode, 200, expiredProject.body);
+    assert.equal(expiredProject.json().runs.some((run) => run.id === runId), false);
+    const expiredArtifact = await runningApp.inject({ method: "GET", url: `/v1/runs/${runId}/artifacts/${artifactId}`, headers: { cookie: cookieA, "x-atlas-organization": orgA } });
+    assert.equal(expiredArtifact.statusCode, 404, expiredArtifact.body);
+    const expiredCancellation = await write(`/v1/runs/${runId}/cancel`, { cookie: cookieA, organizationId: orgA });
+    assert.equal(expiredCancellation.statusCode, 404, expiredCancellation.body);
+    const expiredRetry = await write(`/v1/targets/${targetId}/runs`, { cookie: cookieA, organizationId: orgA, headers: { "idempotency-key": "release-build-a1b2c3" } });
+    assert.equal(expiredRetry.statusCode, 410, expiredRetry.body);
     const purge = await purgeExpiredRecords(pool, { artifactRoot });
     assert.equal(purge.runCount, 1);
     assert.equal(purge.artifactDirectories, 1);
@@ -263,10 +293,78 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
     for (const id of organizationIds) await pool.query("DELETE FROM organizations WHERE id=$1", [id]);
     await pool.query("DELETE FROM users WHERE email=ANY($1::text[])", [[emailA, emailB]]);
     if (shareReplicaApp) await shareReplicaApp.close();
+    if (remoteArtifactApp) await remoteArtifactApp.close();
     if (shareReplicaPool) await shareReplicaPool.end();
     await runningApp.close();
     await pool.end();
     await rm(artifactRoot, { recursive: true, force: true });
+  }
+});
+
+test("separate API instances enforce tenant daily and concurrent run quotas atomically", { skip: !databaseUrl && "set DATABASE_URL and run migrations to enable Postgres integration" }, async () => {
+  const poolA = createPool(databaseUrl);
+  const poolB = createPool(databaseUrl);
+  const suffix = randomUUID();
+  const email = `run-quota-${suffix}@example.org`;
+  let organizationId;
+  let appA;
+  let appB;
+  let ownershipProof = "";
+  const dns = { lookup: async () => [{ address: "93.184.216.34", family: 4 }], resolveTxt: async () => ownershipProof ? [[ownershipProof]] : [] };
+  try {
+    appA = buildApp({ pool: poolA, appOrigin: origin, secureCookies: false, closePool: false, dns, runDailyLimit: 2, runConcurrentLimit: 1 });
+    appB = buildApp({ pool: poolB, appOrigin: origin, secureCookies: false, closePool: false, dns, runDailyLimit: 2, runConcurrentLimit: 1 });
+    const register = await appA.inject({ method: "POST", url: "/v1/auth/register", headers: { origin, "content-type": "application/json" }, payload: { email, password: "a sufficiently long run quota password", organizationName: "Run quota test" } });
+    assert.equal(register.statusCode, 201, register.body);
+    organizationId = register.json().organization.id;
+    const cookie = register.headers["set-cookie"].split(";")[0];
+    const headers = { origin, "content-type": "application/json", cookie, "x-atlas-organization": organizationId };
+    const projectResponse = await appA.inject({ method: "POST", url: "/v1/projects", headers, payload: { name: "Quota target" } });
+    assert.equal(projectResponse.statusCode, 201, projectResponse.body);
+    const projectId = projectResponse.json().project.id;
+    const contract = {
+      schemaVersion: 1, id: "run-quota-target", name: "Run quota target", environment: "staging",
+      authorization: { authorized: true, note: "Synthetic PostgreSQL quota integration" },
+      target: { url: "https://quota-owned.example.org/", allowedOrigins: ["https://quota-owned.example.org"], buildId: "a1b2c3d4" },
+      journey: { steps: [{ type: "waitForVisible", selector: "[data-ready]" }], success: { selector: "[data-ready]" }, fallback: { selector: "[data-fallback]", requiredOn: [] } },
+      profiles: ["high-wifi"], budgets: { journeyTimeoutMs: 5000, stepTimeoutMs: 2000 }, mediaConsent: false,
+      policy: { version: "1", criticalProfiles: ["high-wifi"], minimumScore: 50 }, screenshots: { consent: false, redactSelectors: [] },
+    };
+    const targetResponse = await appA.inject({ method: "POST", url: `/v1/projects/${projectId}/targets`, headers, payload: { contract } });
+    assert.equal(targetResponse.statusCode, 201, targetResponse.body);
+    const targetId = targetResponse.json().target.id;
+    ownershipProof = targetResponse.json().dnsVerification.value;
+    const verified = await appA.inject({ method: "POST", url: `/v1/targets/${targetId}/verify`, headers, payload: {} });
+    assert.equal(verified.statusCode, 200, verified.body);
+    const runUrl = `/v1/targets/${targetId}/runs`;
+    const submit = (app, key) => app.inject({ method: "POST", url: runUrl, headers: { ...headers, "idempotency-key": key }, payload: {} });
+    const [raceA, raceB] = await Promise.all([submit(appA, "parallel-run-alpha"), submit(appB, "parallel-run-bravo")]);
+    const responses = [raceA, raceB];
+    const winner = responses.find((response) => response.statusCode === 202);
+    const rejected = responses.find((response) => response.statusCode === 429);
+    assert.ok(winner, `one API replica must reserve the sole concurrency slot: ${raceA.body}; ${raceB.body}`);
+    assert.ok(rejected, `the second API replica must be quota-limited: ${raceA.body}; ${raceB.body}`);
+    assert.equal(rejected.json().quota, "concurrent");
+    const winnerKey = winner.json().run.id === raceA.json()?.run?.id ? "parallel-run-alpha" : "parallel-run-bravo";
+    const winnerRetry = await submit(winner === raceA ? appB : appA, winnerKey);
+    assert.equal(winnerRetry.statusCode, 200, winnerRetry.body);
+    assert.equal(winnerRetry.json().run.id, winner.json().run.id);
+    const cancelled = await appA.inject({ method: "POST", url: `/v1/runs/${winner.json().run.id}/cancel`, headers, payload: {} });
+    assert.equal(cancelled.statusCode, 200, cancelled.body);
+    const rejectedKey = winnerKey === "parallel-run-alpha" ? "parallel-run-bravo" : "parallel-run-alpha";
+    const released = await submit(appB, rejectedKey);
+    assert.equal(released.statusCode, 202, released.body);
+    const dailyLimit = await submit(appA, "parallel-run-charlie");
+    assert.equal(dailyLimit.statusCode, 429, dailyLimit.body);
+    assert.equal(dailyLimit.json().quota, "daily");
+    const stored = await poolA.query("SELECT count(*)::int AS count FROM runs WHERE organization_id=$1", [organizationId]);
+    assert.equal(stored.rows[0].count, 2);
+  } finally {
+    if (organizationId) await poolA.query("DELETE FROM organizations WHERE id=$1", [organizationId]);
+    await appA?.close();
+    await appB?.close();
+    await poolA.end();
+    await poolB.end();
   }
 });
 
