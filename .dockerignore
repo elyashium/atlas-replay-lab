@@ -1,0 +1,8 @@
+.git
+node_modules
+apps/control-plane/node_modules
+artifacts
+experience/assets/generated
+.env
+.env.local
+**/*.log

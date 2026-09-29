@@ -231,11 +231,13 @@ The separate Phase 2 web control-plane foundation is documented in
 [the Phase 2 evidence record](docs/evidence/phase2-control-plane-2026-09-27.md).
 It needs its own dependencies and local PostgreSQL; it is not a hosted service,
 and its queued records do not represent browser test results. The signed-in
-project view now includes an optional component screenshot review: PNG uploads
-require explicit Groq egress consent, are not stored, and produce advisory
-reports retained for 30 days. Configure the server-side `GROQ_API_KEY`; never
-put it in browser storage. This synchronous path is local-only and does not use
-the queued browser lane.
+project view now includes optional component screenshot review and a guarded
+source-code proposal flow. PNG uploads and source files require separate
+explicit Groq egress consent and are not retained; report data, hashes, and
+proposed diffs expire after 30 days. A proposed diff can repeat source lines.
+Proposals are advisory, unapplied, and untested. Configure the server-side
+`GROQ_API_KEY`; never put it in browser storage. These synchronous paths are
+local-only and do not use the queued browser lane.
 
 `node bin/atlas.js <command> --help` for flags.
 
@@ -313,9 +315,10 @@ only covers its declared journey and Chromium emulation.
 | `TYPESAFE_MODEL` | Model id (default `jev-latest`; pin e.g. `jev-1.13.0` once thresholds are tuned). |
 | `TYPESAFE_BASE_URL` | API base override (default `https://api.typesafe.ai`). |
 | `TYPESAFE_TIMEOUT_MS` | Live-call timeout (default 4000). |
-| `GROQ_API_KEY` | Enables optional screenshot review only when the CLI egress consent flag is also passed. |
+| `GROQ_API_KEY` | Enables optional CLI screenshot review with its consent flag and server-side control-plane visual/code reviews with separate UI consent. |
 | `ATLAS_GROQ_VISION_MODEL` | Requested visual review model (default `qwen/qwen3.8-27b`; returned model ID is recorded). |
 | `ATLAS_GROQ_CODE_MODEL` | Requested patch proposal model (default `openai/gpt-oss-120b`; returned model ID is recorded). |
+| `ATLAS_CODE_PROPOSAL_DAILY_LIMIT` | Local control-plane code proposal ceiling (default five per organization per UTC day; not a customer plan). |
 | `ATLAS_JEV_FIXTURES=1` | Runs the Jev code path against hand-authored illustrative fixtures. |
 | `ATLAS_PREFLIGHT_ALLOW_PRIVATE=1` | Let `preflight` fetch private/loopback targets (local dev only). |
 | `ATLAS_CHROME` | Path to a Chromium-family browser, if detection fails. |

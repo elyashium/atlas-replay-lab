@@ -105,6 +105,6 @@ function validateSingleFileDiff(diff, fileName) {
   if (gitHeaders.length && gitHeaders[0] !== `diff --git a/${fileName} b/${fileName}`) throw new Error("proposal contains an unexpected file path");
 }
 
-function containsCredentialLikeText(source) {
+export function containsCredentialLikeText(source) {
   return /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gsk_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})\b/.test(source);
 }

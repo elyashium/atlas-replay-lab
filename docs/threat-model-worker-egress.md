@@ -1,14 +1,18 @@
 # Threat model: the worker / browser egress boundary
 
 **Status: threat model and preflight refusal implemented; connection-time egress
-enforcement is not implemented, and no browser worker is enabled.** This document
+enforcement is partly prototyped locally, but API queue dispatch remains disabled.** This document
 exists to satisfy Phase 2 item 1 and `security-operations.md` item 2. It is a
-design and a test plan, not evidence that the boundary holds — nothing in this
-repository currently runs an untrusted page.
+design and a test plan. One local synthetic HTTPS test demonstrates that Chromium
+can use the proxy while an isolated worker cannot resolve DNS or directly connect
+to sampled public/private addresses. This is partial local evidence, not
+production assurance. Do not expose the worker or arbitrary-URL endpoint publicly.
 
 Implementation of the preflight half: [`../src/net/destination-policy.js`](../src/net/destination-policy.js).
 Tests: `tests/destination-policy.test.js`.
 Boundary decision record: [`adr/0007-phase2-control-plane-boundary.md`](adr/0007-phase2-control-plane-boundary.md).
+Proxy decision and implementation: [`adr/0008-connection-pinned-egress-proxy.md`](adr/0008-connection-pinned-egress-proxy.md), [`../apps/control-plane/src/egress-proxy.js`](../apps/control-plane/src/egress-proxy.js).
+Local worker prototype and verification command: [`../apps/worker/README.md`](../apps/worker/README.md).
 
 ## Scope
 
@@ -138,7 +142,12 @@ has an adversarial test:
 7. The adversarial suite covers rows 1.1–1.13, 2.1–2.3, 3.1–3.2 and a
    representative case from each of 4.1–4.9, and runs in CI.
 
-Until 1–7 exist with passing tests, the operating rule is the one in
+The prototype has not completed gates 1 through 7. It exercises one synthetic
+HTTPS origin, worker DNS failure, direct-socket failures to sampled public and
+private destinations, and an unlisted CONNECT refusal. It does not test all
+redirect/subresource/alternate-egress cases, the full destination list,
+resource-exhaustion handling, cancellation, artifact cleanup, or CI execution.
+Until 1 through 7 exist with passing tests, the operating rule is the one in
 `docs/handoffs/phase-1.md`: run only targets the operator has permission to run.
 
 ## What the shipped preflight is honestly for

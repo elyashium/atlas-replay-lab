@@ -128,7 +128,18 @@ public hosting and does not use a managed secret vault or isolated worker.
 
 The screenshot is supplied by the user and may contain page content or
 personal data. The user must review it and confirm authority to share it before
-submitting. The raw-camera/no-raw-audio trace invariant remains unchanged; this
+submitting. A separate code-proposal action can send one user-selected source
+file (up to 64 KiB), validated visual findings, and an optional task to Groq
+after an organization editor checks a separate source-egress consent. Common
+credential-like patterns are rejected, but that scanner cannot guarantee a
+file contains no secrets. Atlas does not retain the submitted source; it stores
+the source hash, filename, model response and proposed diff for 30 days. A diff
+may reproduce unchanged source lines, so review its contents before sharing it.
+The default local abuse ceiling is five proposal requests per organization per
+UTC day and is not a paid plan or hosted quota. The hourly retention job deletes
+expired proposal and usage rows. The route is synchronous and local-only; it
+does not apply or test patches and has not been assessed for public hosting.
+The raw-camera/no-raw-audio trace invariant remains unchanged; the screenshot
 upload feature is not a camera capture path.
 
 `thirdPartyTraceEgress: "off-by-default"`.

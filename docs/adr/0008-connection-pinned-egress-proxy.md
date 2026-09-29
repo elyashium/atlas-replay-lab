@@ -1,6 +1,6 @@
 # ADR-0008: connection-pinned per-job egress proxy
 
-- Status: accepted for the proxy component; worker integration is deferred.
+- Status: proxy component accepted; local Docker network-boundary prototype verified; API queue integration and hosted worker remain deferred.
 - Date: 2026-09-29.
 - Decision owners: product/engineering.
 
@@ -59,3 +59,15 @@ header corresponds to the authority.
   browser-state tests.
 - A reviewed threat model and evidence that firewall policy is applied to the
   namespace actually running Chrome.
+
+## Local prototype evidence (2026-09-29)
+
+`npm run verify:worker-boundary --prefix apps/control-plane` passed on local
+Docker Desktop 29.6.2. It used the pinned `atlas-worker:local` image and ran
+Chromium against a synthetic HTTPS fixture. The isolated worker's DNS lookup
+failed; direct TCP attempts to the fixture, `1.1.1.1:443`, and
+`169.254.169.254:80` failed; a non-allowlisted CONNECT was denied; Chromium
+loaded the fixture through the proxy. The verifier cleaned up its test
+containers and networks. This is one local environment and one synthetic
+fixture, not a production or comprehensive adversarial security test. Queue
+entries are still not executed by this worker.

@@ -8,7 +8,8 @@ import { validateTargetContract } from "../../../src/targets/contract.js";
 import { buildBinding, requireImmutableBuild } from "../../../src/targets/build-binding.js";
 import { policyStamp } from "../../../src/gate/policy.js";
 import { decodePng } from "../../../src/image/png.js";
-import { GROQ_VISION_MODEL_DEFAULT, reviewScreenshotWithGroq, VISUAL_REVIEW_IMAGE_LIMIT_BYTES, VISUAL_REVIEW_MAX_DIMENSION, VISUAL_REVIEW_MAX_PIXELS } from "../../../src/visual/groq-review.js";
+import { GROQ_VISION_MODEL_DEFAULT, reviewScreenshotWithGroq, validateVisualIssues, VISUAL_REVIEW_IMAGE_LIMIT_BYTES, VISUAL_REVIEW_MAX_DIMENSION, VISUAL_REVIEW_MAX_PIXELS } from "../../../src/visual/groq-review.js";
+import { CODE_SOURCE_LIMIT_BYTES, containsCredentialLikeText, GROQ_CODE_MODEL_DEFAULT, proposeCodePatch } from "../../../src/visual/groq-patch.js";
 import { createPool, inTransaction } from "./db.js";
 import { startRetentionMaintenance } from "./maintenance.js";
 import { clearSessionCookie, hashPassword, hashToken, newId, newSecret, parseCookies, parseOwnedTargetUrl, sessionCookie, verifyPassword, isPublicAddress } from "./security.js";
@@ -27,9 +28,13 @@ export function buildApp({
   visualReviewer = reviewScreenshotWithGroq,
   groqApiKey = process.env.GROQ_API_KEY,
   visualReviewDailyLimit = Number(process.env.ATLAS_VISUAL_REVIEW_DAILY_LIMIT ?? 10),
+  codeProposer = proposeCodePatch,
+  codeProposalDailyLimit = Number(process.env.ATLAS_CODE_PROPOSAL_DAILY_LIMIT ?? 5),
 } = {}) {
   if (!Number.isInteger(visualReviewDailyLimit) || visualReviewDailyLimit < 1 || visualReviewDailyLimit > 1000) throw new Error("ATLAS_VISUAL_REVIEW_DAILY_LIMIT must be an integer from 1 to 1000");
+  if (!Number.isInteger(codeProposalDailyLimit) || codeProposalDailyLimit < 1 || codeProposalDailyLimit > 1000) throw new Error("ATLAS_CODE_PROPOSAL_DAILY_LIMIT must be an integer from 1 to 1000");
   const visualReviewLocks = new Map();
+  const codeProposalLocks = new Map();
   const app = Fastify({
     logger: logger ? {
       level: "info",
@@ -162,7 +167,8 @@ export function buildApp({
     const targets = await pool.query("SELECT id,base_url AS \"baseUrl\",hostname,verified_at IS NOT NULL AS verified,CASE WHEN verified_at IS NULL THEN verification_token ELSE NULL END AS \"verificationToken\",contract->>'name' AS name,created_at AS \"createdAt\" FROM targets WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC", [orgId, projectId]);
     const runs = await pool.query("SELECT id,target_id AS \"targetId\",status,verdict,contract_version AS \"contractVersion\",created_at AS \"createdAt\",finished_at AS \"finishedAt\" FROM runs WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
     const visualReviews = await pool.query("SELECT id,status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",screenshot_sha256 AS \"screenshotSha256\",reference_sha256 AS \"referenceSha256\",result,error,created_at AS \"createdAt\" FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
-    return { project: result.rows[0], targets: targets.rows, runs: runs.rows, visualReviews: visualReviews.rows };
+    const codeProposals = await pool.query("SELECT id,visual_review_id AS \"visualReviewId\",status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",file_name AS \"fileName\",source_sha256 AS \"sourceSha256\",result,error,created_at AS \"createdAt\" FROM code_proposals WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
+    return { project: result.rows[0], targets: targets.rows, runs: runs.rows, visualReviews: visualReviews.rows, codeProposals: codeProposals.rows };
   });
 
   app.post("/v1/projects/:projectId/visual-reviews", { bodyLimit: 28 * 1024 * 1024 }, async (request, reply) => {
@@ -240,6 +246,88 @@ export function buildApp({
         return inserted.rows[0];
       });
       return reply.code(201).send({ review: record });
+    });
+  });
+
+  app.post("/v1/projects/:projectId/visual-reviews/:reviewId/code-proposals", async (request, reply) => {
+    const { user, orgId, role, error } = await organizationContext(request, pool);
+    if (error) return reply.code(error.status).send({ error: error.message });
+    if (!canWrite(role)) return reply.code(403).send({ error: "organization editor role required" });
+    const { projectId, reviewId } = request.params;
+    const body = asObject(request.body);
+    if (body.sourceConsent !== true) return reply.code(400).send({ error: "explicit consent to send this source file to Groq is required" });
+    const apiKey = groqApiKey;
+    if (!apiKey) return reply.code(503).send({ error: "code proposal is not configured on this server" });
+    const idempotencyKey = request.headers["idempotency-key"];
+    if (typeof idempotencyKey !== "string" || idempotencyKey.length < 8 || idempotencyKey.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)) {
+      return reply.code(400).send({ error: "idempotency-key header (8 to 128 safe characters) is required" });
+    }
+    if (typeof body.fileName !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(body.fileName) || body.fileName === "." || body.fileName === ".." || !/\.(css|html|js|jsx|mjs|svelte|ts|tsx|vue)$/i.test(body.fileName)) {
+      return reply.code(400).send({ error: "choose a supported component source file with a simple file name" });
+    }
+    if (typeof body.source !== "string" || !body.source.trim() || Buffer.byteLength(body.source, "utf8") > CODE_SOURCE_LIMIT_BYTES) {
+      return reply.code(400).send({ error: "source must be non-empty UTF-8 text no larger than 64 KiB" });
+    }
+    if (body.task !== undefined && (typeof body.task !== "string" || body.task.trim().length > 1200)) return reply.code(400).send({ error: "code task must be text no longer than 1200 characters" });
+    if (containsCredentialLikeText(body.source)) return reply.code(400).send({ error: "source contains common credential-like material; remove secrets before requesting a proposal" });
+    const sourceSha256 = createHash("sha256").update(body.source, "utf8").digest("hex");
+    const reviewed = await pool.query("SELECT id,status,result FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 AND id=$3", [orgId, projectId, reviewId]);
+    if (!reviewed.rowCount) return reply.code(404).send({ error: "visual review not found" });
+    if (reviewed.rows[0].status !== "complete") return reply.code(409).send({ error: "an inconclusive visual review cannot drive a code proposal" });
+    let findings;
+    try { findings = validateVisualIssues({ issues: reviewed.rows[0].result?.issues }).slice(0, 10); }
+    catch { return reply.code(409).send({ error: "visual review contains no usable, validated findings" }); }
+    if (!findings.length) return reply.code(409).send({ error: "visual review contains no findings to address" });
+    const task = typeof body.task === "string" ? body.task.trim() : undefined;
+    const requestSha256 = createHash("sha256").update(JSON.stringify({ reviewId, fileName: body.fileName, sourceSha256, task: task ?? null })).digest("hex");
+    return withIdempotencyLock(codeProposalLocks, `${orgId}:${idempotencyKey}`, async () => {
+      const duplicate = await pool.query("SELECT id,project_id AS \"projectId\",visual_review_id AS \"visualReviewId\",request_sha256 AS \"requestSha256\",status,result,error FROM code_proposals WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
+      if (duplicate.rowCount) {
+        const previous = duplicate.rows[0];
+        if (previous.projectId !== projectId || previous.visualReviewId !== reviewId || previous.requestSha256 !== requestSha256) return reply.code(409).send({ error: "idempotency-key was already used for a different code proposal" });
+        return reply.code(200).send({ proposal: previous });
+      }
+      const quota = await pool.query(
+        "INSERT INTO code_proposal_usage(organization_id,usage_date,request_count) VALUES($1,(now() AT TIME ZONE 'UTC')::date,1) ON CONFLICT(organization_id,usage_date) DO UPDATE SET request_count=code_proposal_usage.request_count+1 WHERE code_proposal_usage.request_count < $2 RETURNING request_count",
+        [orgId, codeProposalDailyLimit],
+      );
+      if (!quota.rowCount) return reply.code(429).send({ error: `this organization has reached the daily code proposal limit (${codeProposalDailyLimit})` });
+
+      const requestedModel = process.env.ATLAS_GROQ_CODE_MODEL ?? GROQ_CODE_MODEL_DEFAULT;
+      let result;
+      let failure;
+      try {
+        result = await codeProposer({
+          source: body.source,
+          fileName: body.fileName,
+          findings: JSON.stringify(findings),
+          ...(task ? { task } : {}),
+          apiKey,
+          model: requestedModel,
+          consentToSendCode: true,
+        });
+      } catch (providerError) { failure = safeCodeProviderError(providerError); }
+      const proposalResult = result ?? {
+        provider: "groq", requestedModel, returnedModel: null, fileName: body.fileName, sourceSha256,
+        summary: "No code proposal is available because model review was inconclusive.", unifiedDiff: "",
+        status: "inconclusive", applied: false, testsRun: false, verdictEffect: "none",
+        limitations: ["The source was not retained by Atlas.", "No patch was applied or tested."],
+      };
+      const proposal = {
+        kind: "atlas.code-proposal", schemaVersion: 1, generatedAtIso: new Date().toISOString(),
+        visualReviewId: reviewId, sourceConsent: { provider: "groq", explicitlyConfirmed: true },
+        ...proposalResult,
+      };
+      const proposalId = newId();
+      const record = await inTransaction(pool, async (client) => {
+        const inserted = await client.query(
+          "INSERT INTO code_proposals(id,organization_id,project_id,visual_review_id,status,provider,requested_model,returned_model,file_name,source_sha256,request_sha256,idempotency_key,result,error,requested_by,retention_expires_at) VALUES($1,$2,$3,$4,$5,'groq',$6,$7,$8,$9,$10,$11,$12,$13,$14,now()+interval '30 days') RETURNING id,visual_review_id AS \"visualReviewId\",status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",file_name AS \"fileName\",source_sha256 AS \"sourceSha256\",result,error,created_at AS \"createdAt\"",
+          [proposalId, orgId, projectId, reviewId, failure ? "inconclusive" : proposal.status, requestedModel, proposal.returnedModel, body.fileName, sourceSha256, requestSha256, idempotencyKey, proposal, failure ?? null, user.id],
+        );
+        await audit(client, orgId, user.id, failure ? "code-proposal.inconclusive" : "code-proposal.created", "code-proposal", proposalId, { visualReviewId: reviewId, fileName: body.fileName, sourceSha256, requestedModel, sourceEgressConsent: true });
+        return inserted.rows[0];
+      });
+      return reply.code(201).send({ proposal: record });
     });
   });
 
@@ -394,6 +482,13 @@ function safeProviderError(error) {
   if (status) return `Groq visual review returned HTTP ${status[1]}`;
   return "Groq visual review returned an invalid or unsupported response";
 }
+function safeCodeProviderError(error) {
+  const message = error instanceof Error ? error.message : "";
+  if (message === "Groq code-proposal request timed out" || message === "Groq code-proposal request failed; check network and provider availability") return message;
+  const status = /^Groq code proposal returned HTTP (\d{3})$/.exec(message);
+  if (status) return `Groq code proposal returned HTTP ${status[1]}`;
+  return "Groq code proposal returned an invalid or unsupported response";
+}
 async function withIdempotencyLock(locks, key, callback) {
   const previous = locks.get(key);
   if (previous) await previous;
@@ -423,6 +518,12 @@ const OPENAPI = {
       parameters: [{ in: "header", name: "Idempotency-Key", required: true, schema: { type: "string", minLength: 8, maxLength: 128 } }, { in: "header", name: "x-atlas-organization", required: true, schema: { type: "string", format: "uuid" } }],
       requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["providerConsent", "imageBase64"], properties: { providerConsent: { const: true }, imageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png", description: "Maximum decoded size 10 MiB; PNG dimensions capped." }, referenceImageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png" }, criteria: { type: "string", maxLength: 1200 } } } } } },
       responses: { "201": { description: "Review report stored for 30 days" }, "400": { description: "Invalid PNG, dimensions, criteria, or missing egress consent" }, "429": { description: "Daily organization quota reached" }, "503": { description: "Groq model is not configured" } },
+    } },
+    "/v1/projects/{projectId}/visual-reviews/{reviewId}/code-proposals": { post: {
+      summary: "Create a separate-consent, single-file code proposal from one completed visual review; never apply or test it",
+      parameters: [{ in: "header", name: "Idempotency-Key", required: true, schema: { type: "string", minLength: 8, maxLength: 128 } }, { in: "header", name: "x-atlas-organization", required: true, schema: { type: "string", format: "uuid" } }],
+      requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["sourceConsent", "fileName", "source"], properties: { sourceConsent: { const: true }, fileName: { type: "string", maxLength: 128 }, source: { type: "string", maxLength: 65536 }, task: { type: "string", maxLength: 1200 } } } } } },
+      responses: { "201": { description: "Unapplied, untested proposal stored for 30 days" }, "400": { description: "Invalid source or missing code-egress consent" }, "409": { description: "Review is inconclusive or has no findings" }, "429": { description: "Daily organization quota reached" }, "503": { description: "Groq code model is not configured" } },
     } },
     "/v1/targets/{targetId}/verify": { post: { summary: "Verify DNS TXT ownership", responses: { "200": { description: "Verified" } } } },
     "/v1/targets/{targetId}/runs": { post: { summary: "Queue a run record (Idempotency-Key required)", responses: { "202": { description: "Queued; execution disabled" }, "200": { description: "Existing idempotent run" } } } },

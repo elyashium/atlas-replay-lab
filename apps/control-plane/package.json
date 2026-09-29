@@ -9,6 +9,7 @@
     "start": "node src/server.js",
     "migrate": "node src/migrate.js",
     "preview:screenshots": "node scripts/capture-preview.js",
+    "verify:worker-boundary": "node ../worker/scripts/verify-network-boundary.js",
     "test": "node --test"
   },
   "dependencies": {

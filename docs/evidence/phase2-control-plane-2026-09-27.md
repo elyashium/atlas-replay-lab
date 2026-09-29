@@ -193,6 +193,39 @@ Verification on Windows x64 / Node 20.18.0 / local PostgreSQL 17:
 - Root `npm test`: **388/388 passed**; root/core dependency posture unchanged.
 - `node --check` passed for the API and browser UI JavaScript. `git diff --check`
   passed after the final documentation and UI changes.
+
+## 2026-09-29 continuation: isolated Chromium network prototype
+
+Added `apps/worker/Dockerfile`, a pinned, non-root Chromium image; a per-job
+proxy entry point; a restrictive seccomp profile derived from the licensed Moby
+default profile; and a local Docker boundary verifier. The verifier puts the
+browser on an internal network with DNS unavailable and no direct external
+interface, connects a proxy to a separate synthetic HTTPS fixture network, and
+applies read-only root, bounded temp filesystems, dropped capabilities,
+`no-new-privileges`, CPU/memory/process limits, and the Chromium user namespace
+sandbox. No credentials are provided to containers.
+
+Verification on Windows x64 / Node 20.18.0 / Docker Desktop 29.6.2:
+
+- `npm run verify:worker-boundary --prefix apps/control-plane`: **passed**.
+  Chromium loaded the synthetic HTTPS fixture through the proxy. Worker DNS,
+  direct TCP to the fixture, direct TCP to `1.1.1.1:443`, and direct TCP to
+  `169.254.169.254:80` failed; an unlisted CONNECT was refused. The verifier
+  removed its temporary containers and networks.
+- `npm test`: **390/390 passed**.
+- `npm test --prefix apps/control-plane` without `DATABASE_URL`: **25 passed,
+  2 Postgres tests skipped**. Then migrations were checked and
+  `npm test --prefix apps/control-plane` with the loopback-only local PostgreSQL
+  17 container: **27/27 passed**.
+- `git diff --check`: passed.
+
+This demonstrates one local path on one Docker Desktop setup with a synthetic
+origin. It does not cover the complete DNS/redirect/subresource/alternate-egress
+attack matrix, real staging journeys, CI runtime differences, queue dispatch,
+cancellation, artifact extraction/retention, or a hosted security boundary. The
+API still leaves queued runs queued. Keep public execution disabled. Worker
+implementation notes and limitations are in [`../../apps/worker/README.md`](../../apps/worker/README.md)
+and [`../threat-model-worker-egress.md`](../threat-model-worker-egress.md).
 - `npm run preview:screenshots --prefix apps/control-plane` started a disposable
   local API on a loopback ephemeral port, created a test account/project, and
   submitted a synthetic component PNG through the actual browser form and API
@@ -205,11 +238,51 @@ Verification on Windows x64 / Node 20.18.0 / local PostgreSQL 17:
   quota or pricing tier. A process-local lock serializes concurrent retries
   inside one server instance; distributed idempotency is not established.
 
-The UI requires visual inspection after adding the new form. The prior live
-provider smoke used synthetic images and returned inconclusive; no post-fix
-live analysis, accuracy, latency, or cost measurement exists. The daily limit
-default of ten is an initial local abuse-control ceiling, not a pricing or
-customer entitlement decision; choose the hosted setting before opening access. The feature
-still lacks managed key storage, distributed quotas, request cancellation,
-private report shares, browser capture, object storage, public-service security
-review, and queue isolation. Do not host it publicly.
+The prior live visual-provider smoke used synthetic images and returned
+inconclusive; no post-fix live analysis, accuracy, latency, or cost measurement
+exists. The visual review daily limit of ten is an initial local abuse-control
+ceiling, not a pricing or customer entitlement decision. The feature still
+lacks managed key storage, distributed quotas, request cancellation, private
+report shares, browser capture, object storage, public-service security review,
+and queue isolation. Do not host it publicly.
+
+## 2026-09-29 continuation: guarded code proposals
+
+The project view can submit one source file for an advisory proposal based on
+a completed component visual review. The request requires a separate source
+egress checkbox, editor role, a completed review with validated findings, and
+an idempotency key. Source is capped at 64 KiB; common credential patterns are
+rejected. The source is sent to Groq for processing and is not retained. The
+database keeps its SHA-256, filename, validated result/diff, request metadata,
+and explicit-consent audit record for 30 days. Proposed diffs can contain
+unchanged source lines. They are not applied or tested and cannot affect a
+release verdict. The local abuse ceiling defaults to five requests per
+organization per UTC day. Provider calls are mocked in tests; no live source
+was sent to Groq.
+
+Verification on Windows x64 / Node 20.18.0 / local PostgreSQL 17:
+
+- Migration 004 applied after migrations 001–003.
+- `npm test --prefix apps/control-plane` with `DATABASE_URL`: **27/27 passed**.
+  Coverage includes explicit consent, rejection of common credential patterns,
+  filename and size limits, validated finding linkage, idempotency, quota and
+  role checks, sanitized provider failure, Postgres tenant isolation, source
+  non-retention, consent audit, and retention deletion/audit. The retention
+  integration test asserts persisted end state because the separate maintenance
+  test process may perform the same idempotent purge first.
+- Root `npm test`: **388/388 passed**. No live Groq request was made; provider
+  adapters were mocked, and the supplied key was not written to disk.
+- `npm run preview:screenshots --prefix apps/control-plane` completed with a
+  synthetic visual finding and synthetic code proposal at desktop 1440px and
+  mobile 390px. Document and body widths matched each viewport. The visual
+  finding, source consent, diff, source hash, and unapplied/untested notice were
+  visually inspected at both sizes. No model call or customer data left the
+  workspace.
+- `node --check` passed for the API, client script, preview script, and shared
+  proposal adapter; `git diff --check` passed.
+
+The control-plane provider call is still synchronous. Its idempotency lock is
+process-local, and a provider timeout can consume quota without a durable job
+record. Secret-pattern scanning is incomplete; a returned diff can repeat
+source lines. Do not host this endpoint publicly. Live quality, latency, and
+cost remain unmeasured.

@@ -17,6 +17,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import net from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -71,6 +72,27 @@ export function findBrowser() {
   );
 }
 
+/** Build Chromium's network confinement flags for the isolated worker lane. */
+export function egressProxyChromeArgs(rawProxy) {
+  if (!rawProxy) return [];
+  let proxy;
+  try { proxy = new URL(rawProxy); } catch { throw new Error("ATLAS_EGRESS_PROXY must be an absolute local HTTP proxy URL"); }
+  if (proxy.protocol !== "http:" || proxy.username || proxy.password || proxy.pathname !== "/" || proxy.search || proxy.hash || !proxy.port || !Number.isInteger(Number(proxy.port)) || Number(proxy.port) < 1 || Number(proxy.port) > 65535) {
+    throw new Error("ATLAS_EGRESS_PROXY must be a plain HTTP proxy address with an explicit port");
+  }
+  if (!net.isIP(proxy.hostname)) throw new Error("ATLAS_EGRESS_PROXY must use a numeric address so the browser performs no proxy DNS lookup");
+  return [
+    `--proxy-server=${proxy.origin}`,
+    "--proxy-bypass-list=<-loopback>",
+    // The worker runtime enables Chromium's user-namespace sandbox and drops
+    // all container capabilities. Do not replace this with --no-sandbox.
+    "--disable-setuid-sandbox",
+    "--disable-quic",
+    "--disable-features=DnsOverHttps",
+    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+  ];
+}
+
 /* ── launch ──────────────────────────────────────────────────────────────── */
 
 /**
@@ -122,6 +144,7 @@ export async function launchBrowser(opts = {}) {
     "--disable-lcd-text",
     ...(headless ? ["--headless=new"] : []),
     ...(opts.extraArgs ?? []),
+    ...egressProxyChromeArgs(process.env.ATLAS_EGRESS_PROXY),
     "about:blank",
   ];
 
@@ -137,6 +160,7 @@ export async function launchBrowser(opts = {}) {
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (d) => {
       stderr += d;
+      if (process.env.ATLAS_DEBUG_CHROME === "1") process.stderr.write(d);
       const m = /DevTools listening on (ws:\/\/\S+)/.exec(stderr);
       if (m) {
         clearTimeout(timer);

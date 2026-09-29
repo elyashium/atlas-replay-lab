@@ -143,7 +143,7 @@ async function loadProject(projectId) {
     card.append(strong, pill, note); projectDetail.append(card);
   }
   renderVisualReviewForm();
-  renderVisualReviewHistory(data.visualReviews ?? []);
+  renderVisualReviewHistory(data.visualReviews ?? [], data.codeProposals ?? []);
 }
 
 function renderVisualReviewForm() {
@@ -239,17 +239,17 @@ async function refreshSelectedProject() {
   if (selectedProject) await loadProject(selectedProject);
 }
 
-function renderVisualReviewHistory(reviews) {
+function renderVisualReviewHistory(reviews, proposals) {
   const section = document.createElement("section"); section.className = "visual-review-history";
   const title = document.createElement("p"); title.className = "section-title"; title.textContent = "RECENT VISUAL REVIEWS · REPORTS RETAINED FOR 30 DAYS"; section.append(title);
   if (!reviews.length) {
     const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No component visual reviews yet."; section.append(empty);
   }
-  for (const review of reviews) renderReviewResult(review, section, true);
+  for (const review of reviews) renderReviewResult(review, section, true, proposals.filter((proposal) => proposal.visualReviewId === review.id));
   projectDetail.append(section);
 }
 
-function renderReviewResult(review, container, compact = false) {
+function renderReviewResult(review, container, compact = false, proposals = []) {
   const card = document.createElement("article"); card.className = "visual-review-result";
   const heading = document.createElement("div"); heading.className = "panel-heading";
   const title = document.createElement("strong"); title.textContent = `${review.result?.requestedModel ?? review.requestedModel ?? "Groq visual review"} · ${review.createdAt ? new Date(review.createdAt).toLocaleString() : "just now"}`;
@@ -270,9 +270,60 @@ function renderReviewResult(review, container, compact = false) {
     const confidence = document.createElement("small"); confidence.textContent = `Model confidence: ${issue.confidence} (self-reported, not calibrated)${issue.region ? ` · region ${issue.region.x}, ${issue.region.y}, ${issue.region.width}, ${issue.region.height} / 1000` : " · no region supplied"}`;
     item.append(label, observation, suggestion, confidence); card.append(item);
   }
+  if (review.status === "complete" && issues.length) renderCodeProposalForm(review, card, proposals);
+  for (const proposal of proposals) renderCodeProposal(proposal, card);
   if (review.error) { const error = document.createElement("p"); error.className = "review-note"; error.textContent = review.error; card.append(error); }
   const hashes = document.createElement("small"); hashes.className = "review-hashes"; hashes.textContent = `Screenshot SHA-256 ${review.screenshotSha256 ?? review.result?.imageSha256 ?? "unavailable"}${review.referenceSha256 ?? review.result?.referenceSha256 ? ` · reference SHA-256 ${review.referenceSha256 ?? review.result.referenceSha256}` : ""} · verdict effect none`;
   card.append(hashes); container.append(card);
+}
+
+function renderCodeProposalForm(review, container) {
+  const form = document.createElement("form"); form.className = "code-proposal-form";
+  const heading = document.createElement("p"); heading.className = "section-title"; heading.textContent = "GUARDED CODE SUGGESTION";
+  const sourceLabel = document.createElement("label"); sourceLabel.textContent = "One component source file (up to 64 KiB)";
+  const source = document.createElement("input"); source.type = "file"; source.accept = ".css,.html,.js,.jsx,.mjs,.svelte,.ts,.tsx,.vue"; source.required = true; sourceLabel.append(source);
+  const taskLabel = document.createElement("label"); taskLabel.textContent = "Bounded change request (optional, up to 1200 characters)";
+  const task = document.createElement("textarea"); task.maxLength = 1200; task.rows = 2; task.placeholder = "Address this visual finding while preserving behavior."; taskLabel.append(task);
+  const consentLabel = document.createElement("label"); consentLabel.className = "check-option";
+  const consent = document.createElement("input"); consent.type = "checkbox"; consent.required = true;
+  const consentText = document.createElement("span"); consentText.textContent = "I reviewed this file and authorize sending its source and these visual findings to Groq. Atlas checks for common secrets, but that scan is not complete. The proposal will not be applied or tested.";
+  consentLabel.append(consent, consentText);
+  const status = document.createElement("p"); status.className = "notice code-proposal-status"; status.setAttribute("role", "status");
+  const submit = document.createElement("button"); submit.className = "text-button"; submit.type = "submit"; submit.textContent = "Suggest a code change";
+  form.append(heading, sourceLabel, taskLabel, consentLabel, submit, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    status.textContent = "";
+    submit.disabled = true;
+    try {
+      const selected = source.files[0];
+      if (!selected || selected.size > 64 * 1024) throw new Error("Choose one source file no larger than 64 KiB.");
+      if (task.value.trim().length > 1200) throw new Error("Keep the change request under 1200 characters.");
+      const sourceText = await selected.text();
+      const payload = { fileName: selected.name, source: sourceText, sourceConsent: consent.checked, ...(task.value.trim() ? { task: task.value.trim() } : {}) };
+      const idempotencyKey = await visualRequestKey(payload);
+      await api(`/v1/projects/${encodeURIComponent(selectedProject)}/visual-reviews/${encodeURIComponent(review.id)}/code-proposals`, {
+        method: "POST", headers: { "idempotency-key": idempotencyKey }, body: JSON.stringify(payload),
+      });
+      await refreshSelectedProject();
+    } catch (error) { status.textContent = error.message; }
+    finally { submit.disabled = false; }
+  });
+  container.append(form);
+}
+
+function renderCodeProposal(proposal, container) {
+  const result = proposal.result ?? {};
+  const article = document.createElement("section"); article.className = "code-proposal-result";
+  const heading = document.createElement("div"); heading.className = "panel-heading";
+  const label = document.createElement("strong"); label.textContent = `${proposal.fileName ?? result.fileName ?? "Source file"} · ${result.requestedModel ?? proposal.requestedModel ?? "Code model"}`;
+  const status = document.createElement("span"); status.className = `pill${proposal.status === "proposal" ? "" : " pending"}`; status.textContent = proposal.status.toUpperCase();
+  heading.append(label, status); article.append(heading);
+  const summary = document.createElement("p"); summary.className = "review-note"; summary.textContent = result.summary ?? proposal.error ?? "No proposal was returned."; article.append(summary);
+  if (result.unifiedDiff) { const diff = document.createElement("pre"); diff.className = "code-diff"; diff.textContent = result.unifiedDiff; article.append(diff); }
+  const warning = document.createElement("p"); warning.className = "review-note"; warning.textContent = "Proposal only: Atlas did not apply it, run it, or test it. Review and verify it against the same component and target contract."; article.append(warning);
+  const hash = document.createElement("small"); hash.className = "review-hashes"; hash.textContent = `Source SHA-256 ${proposal.sourceSha256 ?? result.sourceSha256 ?? "unavailable"} · source bytes are not retained.`; article.append(hash);
+  container.append(article);
 }
 
 function formatBytes(value) { return value < 1024 * 1024 ? `${(value / 1024).toFixed(0)} KiB` : `${(value / (1024 * 1024)).toFixed(1)} MiB`; }

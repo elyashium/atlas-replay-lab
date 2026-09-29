@@ -84,6 +84,16 @@ small { font-weight: 400; color: var(--muted); }
 .visual-issue small, .review-hashes { color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .review-note, .review-criteria { font-size: 11px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
 .review-hashes { display: block; margin-top: 12px; }
+.code-proposal-form { min-width: 0; display: grid; gap: 11px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.code-proposal-form .section-title { margin: 0; }
+.code-proposal-form input[type=file] { display: block; padding: 8px; font-size: 12px; }
+.code-proposal-form textarea { font: 13px/1.5 Inter,system-ui,sans-serif; resize: vertical; }
+.code-proposal-form .text-button { justify-self: start; min-height: 40px; padding: 9px 12px; border: 1px solid #bdcec7; border-radius: 7px; }
+.code-proposal-form .text-button:disabled { opacity: .55; cursor: wait; }
+.code-proposal-result { min-width: 0; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.code-proposal-result .panel-heading { align-items: center; }
+.code-proposal-result .panel-heading strong { min-width: 0; font-size: 11px; overflow-wrap: anywhere; }
+.code-diff { max-width: 100%; overflow: auto; padding: 11px; border: 1px solid var(--line); border-radius: 7px; background: #f7faf8; color: #263a35; font: 11px/1.55 ui-monospace,monospace; white-space: pre; }
 .target-card strong, .run-card strong { font-size: 13px; }
 .verification-record { margin: 12px 0; padding: 11px 12px; background: #f8faf8; border: 1px solid var(--line); border-radius: 8px; }
 .verification-record summary { cursor: pointer; color: var(--green); font-size: 12px; font-weight: 700; }

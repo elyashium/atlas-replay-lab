@@ -9,12 +9,17 @@ export async function purgeExpiredRecords(pool) {
     for (const run of runs.rows) {
       await client.query("INSERT INTO audit_events(organization_id,action,resource_type,resource_id,details) VALUES($1,'run.retention.purged','run',$2,'{}'::jsonb)", [run.organization_id, run.id]);
     }
+    const codeProposals = await client.query("DELETE FROM code_proposals WHERE retention_expires_at <= now() RETURNING organization_id,id");
+    for (const proposal of codeProposals.rows) {
+      await client.query("INSERT INTO audit_events(organization_id,action,resource_type,resource_id,details) VALUES($1,'code-proposal.retention.purged','code-proposal',$2,'{}'::jsonb)", [proposal.organization_id, proposal.id]);
+    }
+    const proposalUsage = await client.query("DELETE FROM code_proposal_usage WHERE usage_date < (now() AT TIME ZONE 'UTC')::date - 30");
     const visualReviews = await client.query("DELETE FROM visual_reviews WHERE retention_expires_at <= now() RETURNING organization_id,id");
     for (const review of visualReviews.rows) {
       await client.query("INSERT INTO audit_events(organization_id,action,resource_type,resource_id,details) VALUES($1,'visual-review.retention.purged','visual-review',$2,'{}'::jsonb)", [review.organization_id, review.id]);
     }
     const reviewUsage = await client.query("DELETE FROM visual_review_usage WHERE usage_date < (now() AT TIME ZONE 'UTC')::date - 30");
-    return { sessions: sessions.rowCount ?? 0, shares: shares.rowCount ?? 0, runs: runs.rowCount ?? 0, visualReviews: visualReviews.rowCount ?? 0, reviewUsage: reviewUsage.rowCount ?? 0 };
+    return { sessions: sessions.rowCount ?? 0, shares: shares.rowCount ?? 0, runs: runs.rowCount ?? 0, visualReviews: visualReviews.rowCount ?? 0, reviewUsage: reviewUsage.rowCount ?? 0, codeProposals: codeProposals.rowCount ?? 0, proposalUsage: proposalUsage.rowCount ?? 0 };
   });
 }
 

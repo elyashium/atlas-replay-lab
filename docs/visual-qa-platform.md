@@ -178,12 +178,21 @@ and criteria are retained in Postgres for 30 days with an audit event. A hard
 limit of ten requests per organization per UTC day is enforced in Postgres.
 This is synchronous local control-plane execution, not an isolated worker.
 
+A completed review with findings can also start a separate-consent code
+proposal. The route sends one source file (up to 64 KiB), validated findings,
+and an optional task to Groq. Common credential patterns are blocked, but this
+does not guarantee secret detection. Source text is not retained; the filename,
+hash, result, and unapplied diff are retained for 30 days and purged with an
+audit event. Diffs may reproduce source lines. The default local abuse ceiling
+is five proposals per organization per UTC day. Proposals are never applied,
+executed, tested, or allowed to change SHIP/HOLD. This synchronous flow has a
+process-local idempotency lock and is not ready for public hosting.
+
 The system still lacks hosted browser execution, private object storage,
 component URL preview, a persistent reference library, DOM-level visual checks,
 a versioned rubric editor, reviewer dispositions, a managed secret vault,
-distributed egress/rate controls, sandboxed patch application and test
-execution, PR integration, and a visual model evaluation corpus. It is not a
-production service.
+distributed egress/rate controls, isolated patch evaluation, PR integration,
+and a visual model evaluation corpus. It is not a production service.
 
 ## Build order
 

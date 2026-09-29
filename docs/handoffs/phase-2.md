@@ -18,10 +18,15 @@ A per-job CONNECT-only egress proxy now exists at
 all DNS answers with the shared destination classifier, rejects mixed public
 and private answers, and dials the checked numeric address without resolving
 the hostname again. Six local tests include a TCP tunnel proving the numeric
-address is the one dialed. This is a tested component, **not an enforced worker
-boundary**: it is not connected to a job consumer, Chrome, or a network
-namespace. A browser could bypass it today; hosted execution remains disabled.
-See [ADR-0008](../adr/0008-connection-pinned-egress-proxy.md).
+address is the one dialed. A pinned Chromium image and Docker boundary verifier
+now exercise this proxy with the browser on an internal network with DNS
+disabled, no direct external interface, dropped capabilities, seccomp,
+read-only root filesystem, and CPU/memory/process limits. One synthetic HTTPS
+run passed, including blocked direct sockets to the fixture, a public IP, and
+metadata, plus an allowlisted browser load through the proxy. This is partial
+local evidence, **not** a full adversarial suite or production boundary; hosted
+execution remains disabled. See [ADR-0008](../adr/0008-connection-pinned-egress-proxy.md)
+and [the worker prototype notes](../../apps/worker/README.md).
 
 Architecture decision: [`../adr/0007-phase2-control-plane-boundary.md`](../adr/0007-phase2-control-plane-boundary.md).
 Measured local setup: [`../evidence/phase2-control-plane-2026-09-27.md`](../evidence/phase2-control-plane-2026-09-27.md).
@@ -35,6 +40,8 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
 - URL/public-address helpers: `apps/control-plane/src/security.js`.
 - Per-job HTTPS CONNECT proxy component (not integrated):
   `apps/control-plane/src/egress-proxy.js`.
+- Pinned isolated Chromium prototype and local Docker boundary check:
+  `apps/worker/`; no queue dispatch or hosted execution.
 - Versioned schema/up migrations: `apps/control-plane/migrations/001_initial.sql`
   and `002_immutable_run_binding.sql`; the second cancels legacy unbound queue
   rows and adds required run binding. Down migrations are destructive and only
@@ -56,15 +63,20 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
   suite: 369/369; `doctor` passed on Node 20.18.0 and Chrome 154.0.8037.58.
 - Egress proxy suite: 6/6 passed with synthetic DNS and a local fake tunnel.
   These tests do not exercise Docker network isolation or a browser.
+- `npm run verify:worker-boundary --prefix apps/control-plane`: **passed** on
+  Docker Desktop 29.6.2. Chromium reached one synthetic HTTPS origin through
+  the proxy; worker DNS and direct connections to sampled fixture, public, and
+  metadata addresses failed; unlisted CONNECT was denied. This test is local,
+  single-fixture evidence and is not in CI.
 - DNS verification card and guided target form visually inspected at 1440 px
   desktop and 390 px emulated mobile; no horizontal overflow.
 - These tests do not prove full tenant isolation or hosted safety. DNS is
   onboarding validation, not protection against rebinding when a browser later
   connects.
 
-## Recommended next work (keep workers disabled)
+## Recommended next work (keep hosted workers disabled)
 
-1. Implement and adversarially test an isolated ephemeral worker network
+1. Expand and adversarially test the isolated ephemeral worker network
    namespace that forces browser traffic through the per-job proxy, including
    direct-socket and alternate-proxy bypass attempts, QUIC, DNS, WebSockets,
    redirects, frames, downloads, and service workers. Add DNS rebinding and
