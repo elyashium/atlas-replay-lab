@@ -97,6 +97,8 @@ export async function runSession(opts) {
   const startedAt = process.hrtime.bigint();
   /** @type {Record<string, string>} */
   const screenshots = {};
+  /** @type {{componentId: string; checkpointId: string; reason: string}[]} */
+  const componentScreenshotErrors = [];
   /** @type {string[]} */
   const pageErrors = [];
   /** @type {string | null} */
@@ -131,7 +133,7 @@ export async function runSession(opts) {
         return;
       }
       if (msg?.type !== "checkpoint" || typeof msg.id !== "string") return;
-      captureChain = captureChain.then(() => captureCheckpoint(session, msg.id, opts.screenshotDir, screenshots, opts));
+      captureChain = captureChain.then(() => captureCheckpoint(session, msg.id, opts.screenshotDir, screenshots, { ...opts, componentScreenshotErrors }));
     });
 
     // Page-side errors are collected as evidence, not swallowed. A trace whose
@@ -232,6 +234,7 @@ export async function runSession(opts) {
       await attachCheckpointMeasurements(trace, screenshots);
       attachHeapSample(trace, heapMB);
       for (const note of harnessNotes) trace.notes.push(note);
+      for (const failure of componentScreenshotErrors) trace.notes.push(`component screenshot ${failure.componentId} withheld at ${failure.checkpointId}: ${failure.reason}`);
       for (const err of pageErrors.slice(0, 20)) trace.notes.push(err);
 
       const cpFirstFrame = screenshots["cp-first-frame"];
@@ -247,6 +250,7 @@ export async function runSession(opts) {
       trace,
       traceId: opts.traceId,
       screenshots,
+      componentScreenshotErrors,
       pageErrors,
       error: harnessError,
       wallMs: elapsed(startedAt),
@@ -262,6 +266,7 @@ export async function runSession(opts) {
       attachHeapSample(trace, null);
       trace.notes.push(`harness error: ${harnessError}`);
       for (const note of harnessNotes) trace.notes.push(note);
+      for (const failure of componentScreenshotErrors) trace.notes.push(`component screenshot ${failure.componentId} withheld at ${failure.checkpointId}: ${failure.reason}`);
       for (const e of pageErrors.slice(0, 20)) trace.notes.push(e);
       finalizeTrace(trace, opts.manifest);
     }
@@ -269,6 +274,7 @@ export async function runSession(opts) {
       trace,
       traceId: opts.traceId,
       screenshots,
+      componentScreenshotErrors,
       pageErrors,
       error: harnessError,
       wallMs: elapsed(startedAt),
@@ -317,6 +323,7 @@ async function captureCheckpoint(session, id, dir, out, opts = {}) {
     await writeFileEnsured(file, png);
     out[id] = file;
     log.debug(`checkpoint ${id} → ${png.length} bytes`);
+    if (id === "cp-final") await captureComponentScreenshots(session, dir, out, opts);
   } catch (err) {
     log.warn(`checkpoint ${id} capture failed: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
@@ -327,6 +334,35 @@ async function captureCheckpoint(session, id, dir, out, opts = {}) {
     await session
       .evaluate(`globalThis.__atlasCheckpointAck = ${JSON.stringify(id)}; true`)
       .catch(() => {});
+  }
+}
+
+async function captureComponentScreenshots(session, dir, out, opts) {
+  for (const item of opts.targetComponentSelectors ?? []) {
+    let reason = "capture-failed";
+    try {
+      const measured = await session.evaluate(`(() => {
+        let matches;
+        try { matches = [...document.querySelectorAll(${JSON.stringify(item.selector)})]; }
+        catch { return { reason: "selector-invalid" }; }
+        if (matches.length === 0) return { reason: "not-found" };
+        if (matches.length !== 1) return { reason: "not-unique" };
+        const element = matches[0], rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden" || rect.width <= 0 || rect.height <= 0) return { reason: "not-visible" };
+        if (rect.x < 0 || rect.y < 0 || rect.right > innerWidth || rect.bottom > innerHeight) return { reason: "outside-viewport" };
+        if (rect.width > 4096 || rect.height > 4096 || rect.width * rect.height > 8000000) return { reason: "over-dimension-limit" };
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      })()`);
+      if (!measured || measured.reason) { reason = measured?.reason ?? reason; throw new Error("component screenshot unavailable"); }
+      const png = await session.screenshot({ clip: { ...measured, scale: 1 } });
+      if (png.length > 10 * 1024 * 1024) { reason = "over-file-size-limit"; throw new Error("component screenshot too large"); }
+      const file = path.join(dir, `component-${item.id}.png`);
+      await writeFileEnsured(file, png);
+      out[`component-${item.id}`] = file;
+      log.debug(`component screenshot ${item.id} → ${png.length} bytes`);
+    } catch {
+      opts.componentScreenshotErrors?.push({ componentId: item.id, checkpointId: "cp-final", reason });
+    }
   }
 }
 
@@ -492,6 +528,7 @@ async function attachCheckpointMeasurements(trace, screenshots) {
   // Screenshots captured for checkpoints the trace never declared are a finding
   // for the gate, so record their presence explicitly.
   for (const id of Object.keys(screenshots)) {
+    if (id.startsWith("component-")) continue;
     if (!trace.checkpoints.some((c) => c.id === id)) {
       trace.notes.push(`screenshot captured for unknown checkpoint "${id}"`);
     }

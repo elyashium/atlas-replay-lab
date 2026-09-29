@@ -66,7 +66,8 @@ export async function proposeCodePatch(opts) {
   if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw new Error("Groq code proposal must be a JSON object");
   if (typeof decoded.summary !== "string" || decoded.summary.trim().length < 1 || decoded.summary.length > 1200) throw new Error("Groq code proposal summary must be 1..1200 characters");
   if (typeof decoded.unifiedDiff !== "string" || decoded.unifiedDiff.length > CODE_PATCH_LIMIT_CHARS) throw new Error("Groq code proposal diff exceeds the 24 KiB limit");
-  validateSingleFileDiff(decoded.unifiedDiff, opts.fileName);
+  const hunks = parseSingleFileDiff(decoded.unifiedDiff, opts.fileName);
+  const proposedSource = applyDiffHunks(opts.source, hunks);
 
   const sourceSha256 = createHash("sha256").update(opts.source, "utf8").digest("hex");
   return {
@@ -75,6 +76,8 @@ export async function proposeCodePatch(opts) {
     returnedModel: typeof body.model === "string" ? body.model : null,
     fileName: opts.fileName,
     sourceSha256,
+    proposedSourceSha256: createHash("sha256").update(proposedSource, "utf8").digest("hex"),
+    patchAppliesToSource: true,
     summary: decoded.summary.trim(),
     unifiedDiff: decoded.unifiedDiff,
     status: decoded.unifiedDiff.trim() ? "proposal" : "no-change",
@@ -83,26 +86,110 @@ export async function proposeCodePatch(opts) {
     verdictEffect: "none",
     limitations: [
       "The source and visual findings were sent to Groq only after explicit source-code egress consent.",
-      "This proposal was not applied, executed, or tested by Atlas.",
+      "Patch hunks were matched against the supplied source, but the candidate was not written, executed, or tested by Atlas.",
       "A human must inspect the patch and test it against the original target contract before use.",
     ],
   };
 }
 
-function validateSingleFileDiff(diff, fileName) {
-  if (!diff.trim()) return;
-  const lines = diff.split(/\r?\n/);
+function parseSingleFileDiff(diff, fileName) {
+  if (!diff.trim()) return [];
+  const lines = diff.replaceAll("\r\n", "\n").split("\n");
+  if (lines.at(-1) === "") lines.pop();
   const hunkStart = lines.findIndex((line) => line.startsWith("@@ "));
   if (hunkStart < 0) throw new Error("proposal diff must contain a unified diff hunk");
-  const headerLines = lines.slice(0, hunkStart < 0 ? lines.length : hunkStart);
-  const gitHeaders = headerLines.filter((line) => line.startsWith("diff --git "));
-  const allGitHeaders = lines.filter((line) => line.startsWith("diff --git "));
+  const headerLines = lines.slice(0, hunkStart);
+  const gitHeaders = lines.filter((line) => line.startsWith("diff --git "));
   const oldFiles = headerLines.filter((line) => line.startsWith("--- "));
   const newFiles = headerLines.filter((line) => line.startsWith("+++ "));
-  if (allGitHeaders.length > 1 || oldFiles.length !== 1 || newFiles.length !== 1 || oldFiles[0] !== `--- a/${fileName}` || newFiles[0] !== `+++ b/${fileName}`) {
+  if (
+    gitHeaders.length > 1 ||
+    (gitHeaders.length === 1 && (headerLines[0] !== `diff --git a/${fileName} b/${fileName}` || gitHeaders[0] !== headerLines[0])) ||
+    oldFiles.length !== 1 || newFiles.length !== 1 ||
+    oldFiles[0] !== `--- a/${fileName}` || newFiles[0] !== `+++ b/${fileName}` ||
+    headerLines.indexOf(oldFiles[0]) < 0 || headerLines.indexOf(newFiles[0]) <= headerLines.indexOf(oldFiles[0])
+  ) {
     throw new Error("proposal must be a unified diff for the supplied file only");
   }
-  if (gitHeaders.length && gitHeaders[0] !== `diff --git a/${fileName} b/${fileName}`) throw new Error("proposal contains an unexpected file path");
+
+  for (const [index, line] of headerLines.entries()) {
+    if (index === 0 && gitHeaders.length) continue;
+    if (line === `--- a/${fileName}` || line === `+++ b/${fileName}` || /^index [0-9a-f]+\.\.[0-9a-f]+(?: [0-7]{6})?$/.test(line)) continue;
+    throw new Error("proposal contains unsupported diff metadata");
+  }
+
+  let cursor = hunkStart;
+  let previousOldEnd = 0;
+  let previousNewEnd = 0;
+  const hunks = [];
+  while (cursor < lines.length) {
+    const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$/.exec(lines[cursor]);
+    if (!header) throw new Error("proposal contains malformed or unexpected diff content");
+    const oldStart = Number(header[1]);
+    const oldCount = header[2] === undefined ? 1 : Number(header[2]);
+    const newStart = Number(header[3]);
+    const newCount = header[4] === undefined ? 1 : Number(header[4]);
+    if (oldCount + newCount === 0 || oldStart < previousOldEnd || newStart < previousNewEnd) {
+      throw new Error("proposal contains invalid or overlapping diff hunks");
+    }
+    previousOldEnd = oldStart + oldCount;
+    previousNewEnd = newStart + newCount;
+    cursor += 1;
+    let consumedOld = 0;
+    let consumedNew = 0;
+    const operations = [];
+    while (consumedOld < oldCount || consumedNew < newCount) {
+      const line = lines[cursor];
+      if (line === undefined) throw new Error("proposal diff hunk is truncated");
+      if (line.startsWith("\\")) {
+        if (line !== "\\ No newline at end of file") throw new Error("proposal contains unsupported diff content");
+        throw new Error("proposal changes a file's final-newline marker, which Atlas does not support");
+      }
+      const marker = line[0];
+      if (marker === " ") { consumedOld += 1; consumedNew += 1; operations.push({ type: "context", text: line.slice(1) }); }
+      else if (marker === "-") { consumedOld += 1; operations.push({ type: "delete", text: line.slice(1) }); }
+      else if (marker === "+") { consumedNew += 1; operations.push({ type: "add", text: line.slice(1) }); }
+      else throw new Error("proposal diff hunk contains an invalid line");
+      if (consumedOld > oldCount || consumedNew > newCount) throw new Error("proposal diff hunk line counts do not match its header");
+      cursor += 1;
+    }
+    hunks.push({ oldStart, oldCount, newStart, newCount, operations });
+    if (cursor === lines.length) break;
+    if (lines[cursor].startsWith("@@ ")) continue;
+    if (/^(?:diff --git |--- |\+\+\+ )/.test(lines[cursor])) throw new Error("proposal must be a unified diff for the supplied file only");
+    throw new Error("proposal contains unexpected content after its diff hunk");
+  }
+  if (!hunks.length) throw new Error("proposal diff must contain at least one valid hunk");
+  return hunks;
+}
+
+function applyDiffHunks(source, hunks) {
+  if (!hunks.length) return source;
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const hasFinalNewline = source.endsWith("\n");
+  const sourceLines = source.split(/\r?\n/);
+  if (hasFinalNewline) sourceLines.pop();
+  let sourceCursor = 0;
+  const outputLines = [];
+
+  for (const hunk of hunks) {
+    const hunkSourceStart = hunk.oldCount === 0 ? hunk.oldStart : hunk.oldStart - 1;
+    if (!Number.isSafeInteger(hunkSourceStart) || hunkSourceStart < sourceCursor || hunkSourceStart > sourceLines.length) {
+      throw new Error("proposal hunk starts outside the supplied source");
+    }
+    outputLines.push(...sourceLines.slice(sourceCursor, hunkSourceStart));
+    sourceCursor = hunkSourceStart;
+    const expectedNewStart = hunk.newCount === 0 ? outputLines.length : outputLines.length + 1;
+    if (hunk.newStart !== expectedNewStart) throw new Error("proposal hunk new-file range does not match the supplied source and preceding hunks");
+    for (const operation of hunk.operations) {
+      if (operation.type === "add") { outputLines.push(operation.text); continue; }
+      if (sourceLines[sourceCursor] !== operation.text) throw new Error("proposal hunk context does not match the supplied source");
+      if (operation.type === "context") outputLines.push(operation.text);
+      sourceCursor += 1;
+    }
+  }
+  outputLines.push(...sourceLines.slice(sourceCursor));
+  return outputLines.join(newline) + (hasFinalNewline ? newline : "");
 }
 
 export function containsCredentialLikeText(source) {

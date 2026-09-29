@@ -305,12 +305,13 @@ function targetJourneySection(matrix, href) {
   const rows = m.runs.map((r) => {
     const journey = r.drive?.journeyOutcome ?? "inconclusive";
     const shots = Object.entries(r.screenshots ?? {}).map(([id, file]) => `<a href="${esc(href(file) ?? "")}">${esc(id)}</a>`).join(" · ");
+    const screenshotErrors = (r.screenshotCaptureErrors ?? []).map((item) => `${esc(item.componentId)}: ${esc(item.reason)}`).join(" · ");
     const steps = (r.drive?.steps ?? []).map((step) => `${esc(step.type)}: ${esc(step.selector ?? step.reason ?? "")} — ${esc(step.outcome)}`).join("<br>");
     return `<tr>
       <td class="mono">${esc(r.profileId)}<div class="small dim">${esc(r.label)}</div></td>
       <td><span class="pill ${journey === "pass" ? "ok" : journey === "fail" ? "block" : "warn"}">${esc(journey)}</span><div class="small">${steps || esc(r.drive?.error ?? "No journey evidence")}</div></td>
       <td class="num">${r.targetScore ?? "—"}</td><td class="num">${ms(r.metrics?.firstFrameMs)}</td><td class="num">${ms(r.metrics?.p95InteractionMs)}</td>
-      <td>${shots || `<span class="dim">screenshots withheld/not captured</span>`}</td>
+      <td>${shots || `<span class="dim">screenshots withheld/not captured</span>`}${screenshotErrors ? `<div class="small warning">component capture unavailable: ${screenshotErrors}</div>` : ""}</td>
       <td>${r.tracePath ? `<a href="${esc(href(r.tracePath) ?? "")}">trace</a>` : `<span class="dim">none</span>`}</td>
     </tr>`;
   });
@@ -321,7 +322,7 @@ function targetJourneySection(matrix, href) {
     <span class="verdict-counts">policy ${esc(decision?.policyVersion ?? "?")} · required ${esc((decision?.requiredProfiles ?? []).join(", "))}</span>
   </div>
   <p class="rule">${esc(contract.name)} · ${esc(contract.id)} · ${esc(contract.environment)} · target ${esc(m.target.url)} · app build ${esc(contract.buildId ?? "not supplied")} · Atlas build ${esc(m.runnerBuildId ?? "not supplied")}</p>
-  <p class="note">Authorization was attested by the local operator, not independently verified. Page media consent: ${contract.mediaConsent ? "yes" : "no"}; camera/microphone APIs are denied unless opted in. Screenshot consent: ${contract.screenshotConsent ? "yes" : "no"}. Configured redaction selectors are blurred before capture; inspect images before sharing.</p>
+  <p class="note">Authorization was attested by the local operator, not independently verified. Page media consent: ${contract.mediaConsent ? "yes" : "no"}; camera/microphone APIs are denied unless opted in. Screenshot consent: ${contract.screenshotConsent ? "yes" : "no"}. Configured redaction selectors are blurred before capture; component crops are taken at the final declared journey checkpoint and must be inspected before sharing.</p>
   <div class="target-table-wrap"><table><thead><tr><th>profile</th><th>declared journey evidence</th><th>score</th><th>first frame</th><th>p95 input</th><th>screenshots</th><th>trace</th></tr></thead><tbody>${rows.join("")}</tbody></table></div>
   <p class="note">Chromium/CDP emulation only. Top-level navigation origins are checked; subresource egress is not constrained by this local runner. Selector journeys are repeatable, not captured customer-input replay.</p>
   <p class="source">Contract schema ${contract.schemaVersion} · budgets ${contract.budgets?.journeyTimeoutMs ?? "?"}ms total / ${contract.budgets?.stepTimeoutMs ?? "?"}ms per step · source <code>${esc(rel(matrix.path))}</code></p>

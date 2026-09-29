@@ -160,9 +160,12 @@ opt-in text-model proposal pass. It accepts one UTF-8 source file under
 `artifacts/` (up to 64 KiB), blocks several common credential patterns, reads
 analyzed findings from the local visual-review JSON, and writes a
 single-file unified-diff proposal. The report labels it unapplied and untested.
-The diff is not applied, executed, checked with the customer's test suite, or
-sent to a PR. Tests mock the provider; no source was sent to Groq and the
-quality of its changes has not been evaluated.
+The adapter validates the single-file path, hunk structure and line counts, then
+matches every context/deleted line against the supplied source in memory. It
+records source and proposed-candidate hashes but does not persist the candidate
+source. The diff is not written into a repository, executed, checked with the
+customer's test suite, or sent to a PR. Tests mock the provider; no source was
+sent to Groq and the quality of its changes has not been evaluated.
 
 `atlas visual-compare --baseline <png> --actual <png>` computes an exact
 pixel-difference ratio and a coarse 16-by-16 luminance similarity, then writes

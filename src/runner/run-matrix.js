@@ -474,6 +474,7 @@ export async function runMatrix(opts = {}) {
         target: targetHref ?? undefined,
         captureScreenshots: targetContract ? targetContract.screenshots.consent : undefined,
         screenshotRedactSelectors: targetContract?.screenshots.redactSelectors,
+        targetComponentSelectors: targetContract?.screenshots.componentSelectors,
         redactPageErrorDetails: Boolean(targetContract),
         extraScripts: extraScripts.length ? extraScripts : undefined,
         // A third-party HTTPS page cannot POST to our loopback control plane
@@ -597,6 +598,7 @@ export async function runMatrix(opts = {}) {
         screenshots: Object.fromEntries(
           Object.entries(result.screenshots).map(([id, file]) => [id, rel(file)]),
         ),
+        screenshotCaptureErrors: result.componentScreenshotErrors,
         pageErrors: result.pageErrors,
         error: result.error,
         wallMs: result.wallMs,
@@ -669,6 +671,7 @@ export async function runMatrix(opts = {}) {
               mediaConsent: targetContract.mediaConsent,
               screenshotConsent: targetContract.screenshots.consent,
               redactionSelectors: targetContract.screenshots.redactSelectors,
+              componentSelectors: targetContract.screenshots.componentSelectors ?? [],
               screenshotScope: targetContract.screenshots.consent
                 ? "configured selectors blurred before capture; review before sharing"
                 : "disabled by default",

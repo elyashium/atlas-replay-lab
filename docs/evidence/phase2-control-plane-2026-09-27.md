@@ -620,3 +620,51 @@ Verification: `node --check` passed for the three changed worker scripts;
 build passed; `npm run verify:worker-boundary --prefix apps/control-plane`
 passed. Root `npm test`, a Postgres-backed integration run, and CI execution
 were not repeated in this continuation.
+
+## 2026-09-30 continuation: fail-closed runtime topology and gate summary
+
+The local worker now inspects Docker's resulting network state before starting
+a browser. It refuses a job unless the job network is marked internal, the
+browser worker has exactly that one attachment, and the egress proxy has only
+the default bridge plus that job network. The synthetic verifier checks the
+same invariants (with its additional synthetic fixture network) and requires
+the stored job verdict to match the gate report; SHIP with a blocking finding
+fails the verification.
+
+That consistency check exposed a real bug: the target-contract branch could
+record `decision: ship` while `shipped: false` and a blocking Atlas score-floor
+finding existed. The gate now reports the effective decision after applying
+its own blocking rules, so a raw customer-policy SHIP can be tightened to HOLD.
+A regression test uses a customer score floor below Atlas's floor and verifies
+the final report is HOLD while preserving the raw target-policy decision as
+separate evidence.
+
+Verification on Docker Desktop 29.6.2: worker image build passed; boundary
+verifier passed with **6** failed forbidden browser requests, **21** proxy
+refusals, **5** same-network UDP trap packets, and **0** server-reflexive ICE
+candidates. The synthetic full worker completed **1/1** profile at score **99**
+with consistent **SHIP** and no gate findings. This score varies across runs;
+an earlier run scored 45 and exposed the mismatch (raw target SHIP plus a
+blocking floor finding); the new regression fixture verifies that pattern now
+yields HOLD. Root
+`npm test` passed **397/397**; control-plane tests without Postgres passed **34**,
+failed **0**, skipped **3**; focused worker topology tests passed **6/6**.
+Postgres-backed integrations and CI were not repeated. External UDP and
+production network-policy behavior remain unverified.
+
+## 2026-09-30 continuation: full Postgres-backed control-plane suite
+
+The checked-in local Compose database was already healthy on loopback. Migration
+status confirmed all nine migrations (001 through 009) are applied. Running the
+complete control-plane suite with `DATABASE_URL` set exercised the Postgres
+onboarding, cross-instance visual-review idempotency, and retention-backed
+visual-review flows that skip when the database is absent.
+
+- `npm run migrate --prefix apps/control-plane`: passed; all nine migrations
+  already applied.
+- `npm test --prefix apps/control-plane` with local Postgres 17:
+  **37/37 passed, 0 failed, 0 skipped**.
+
+This is a local single-database integration run. It does not establish hosted
+database availability, backup/restore, multi-region operation, production
+secrets management, or customer tenant isolation under deployment conditions.

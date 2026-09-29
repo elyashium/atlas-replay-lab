@@ -59,8 +59,15 @@ then, remediation is planned, not shipped.
   it.
 - No repository write token, coding-agent account, auto-fix flow, or patch
   success evidence exists now.
-- `findings.json` and the report's `Diagnosis` section are the only remediation
-  surface that exists. They state a cause only when a named rule fired, and the
+- `findings.json` and the report's `Diagnosis` section remain the deterministic
+  diagnosis surface. A separate local `suggest-code-fix` flow can create an
+  optional model-authored one-file proposal from explicitly consented source
+  and visual findings. Its adapter validates the diff path and hunk structure,
+  matches context/deleted lines to the supplied source, and records a candidate
+  hash. It does not write the candidate, run tests, verify behavior, or change a
+  release verdict. See `src/visual/groq-patch.js` and
+  `docs/evidence/local-visual-qa-2026-09-29.md`.
+- Deterministic diagnosis states a cause only when a named rule fired, and the
   attribution field is a tri-state on purpose: the target application's problem,
   the Atlas harness's own (a denied capability or a lost run), or nobody's to
   claim. Do not aggregate those into a single "root cause" number.

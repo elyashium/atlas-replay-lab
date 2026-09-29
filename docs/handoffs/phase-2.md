@@ -284,3 +284,32 @@ completed the bounded synthetic Atlas job (1/1 high-wifi, explicit SHIP under
 the fixture's zero score floor). Control-plane tests without DATABASE_URL were
 32 passed, 0 failed, 3 skipped. Root tests and Postgres integration were not
 repeated in this follow-up.
+
+### Runtime topology and gate consistency follow-up (2026-09-30)
+
+Local worker startup now inspects Docker's resulting network attachments before
+starting the browser: the job network must be internal, the worker may attach
+only to that network, and the proxy may attach only to the default bridge and
+the job network. The boundary verifier checks this topology (plus its isolated
+fixture network) and ensures the persisted worker verdict matches the gate
+report.
+
+That check exposed a real target-gate inconsistency: a raw target-policy SHIP
+could coexist with a blocking Atlas score-floor finding while the report's
+`decision` remained `ship`. The gate now reports HOLD in that case and keeps
+the raw target-policy decision as separate evidence. A regression test covers
+a target score floor below Atlas's floor. Root tests pass **397/397**;
+control-plane tests without Postgres pass **34**, fail **0**, skip **3**;
+focused local-worker tests pass **6/6**. The latest Docker verifier run scored
+99 and produced consistent SHIP with no findings. An earlier 45 score exposed
+the inconsistent raw SHIP plus blocking finding; the regression fixture now
+checks that condition yields HOLD. External UDP, Postgres integrations, CI, and
+production network enforcement remain unverified.
+
+### Postgres-backed suite follow-up (2026-09-30)
+
+The checked-in local Compose Postgres was healthy and migrations 001–009 were
+already applied. `npm test --prefix apps/control-plane` with loopback
+`DATABASE_URL` passed **37/37**, including the previously skipped integration
+tests. This verifies the local database path only; production DB operations,
+backup/restore, and hosted isolation remain open.

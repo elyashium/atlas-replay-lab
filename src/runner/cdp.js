@@ -418,11 +418,12 @@ export class CdpSession {
     return res.result?.value;
   }
 
-  /** @returns {Promise<Buffer>} */
-  async screenshot() {
+  /** @param {{clip?: {x: number; y: number; width: number; height: number; scale?: number}}} [options] @returns {Promise<Buffer>} */
+  async screenshot(options = {}) {
     const { data } = await this.send("Page.captureScreenshot", {
       format: "png",
-      captureBeyondViewport: false,
+      captureBeyondViewport: Boolean(options.clip),
+      ...(options.clip ? { clip: options.clip } : {}),
       optimizeForSpeed: false,
     }, 60000);
     return Buffer.from(data, "base64");

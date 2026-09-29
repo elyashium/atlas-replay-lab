@@ -365,7 +365,7 @@ function renderVisualReviewForm(runs) {
   const advisory = document.createElement("span"); advisory.className = "pill pending"; advisory.textContent = "ADVISORY"; heading.append(advisory);
   section.append(heading);
   const explainer = document.createElement("p"); explainer.className = "visual-review-explainer";
-  explainer.textContent = "Review a PNG you upload or a screenshot artifact from a completed staging run. Run screenshots are only captured when the target contract enables capture consent and redaction selectors; inspect every image before separate Groq egress consent. Only the selected PNG, optional approved reference, and criteria are sent. Findings are advisory and never change the release verdict. Reports are retained for 30 days. This server must be configured with GROQ_API_KEY; the key never reaches your browser.";
+  explainer.textContent = "Review a PNG you upload or a screenshot artifact from a completed staging run. Owned staging contracts can capture selector-scoped component crops at the final journey state when screenshot consent and redaction selectors are configured. Inspect every image before separate Groq egress consent. Only the selected PNG, optional approved reference, and criteria are sent. Findings are advisory and never change the release verdict. Reports are retained for 30 days. This server must be configured with GROQ_API_KEY; the key never reaches your browser.";
   section.append(explainer);
 
   const form = document.createElement("form"); form.className = "visual-review-form";
@@ -696,8 +696,13 @@ function renderCodeProposal(proposal, container) {
   heading.append(label, status); article.append(heading);
   const summary = document.createElement("p"); summary.className = "review-note"; summary.textContent = result.summary ?? proposal.error ?? "No proposal was returned."; article.append(summary);
   if (result.unifiedDiff) { const diff = document.createElement("pre"); diff.className = "code-diff"; diff.textContent = result.unifiedDiff; article.append(diff); }
-  const warning = document.createElement("p"); warning.className = "review-note"; warning.textContent = "Proposal only: Atlas did not apply it, run it, or test it. Review and verify it against the same component and target contract."; article.append(warning);
-  const hash = document.createElement("small"); hash.className = "review-hashes"; hash.textContent = `Source SHA-256 ${proposal.sourceSha256 ?? result.sourceSha256 ?? "unavailable"} · source bytes are not retained.`; article.append(hash);
+  const warning = document.createElement("p"); warning.className = "review-note"; warning.textContent = result.patchAppliesToSource === true
+    ? "Proposal only: hunk context matched the supplied source, but Atlas did not write, run, or test the candidate. Review and verify it against the same component and target contract."
+    : "Proposal only: Atlas did not apply, run, or test this change. Review and verify it against the same component and target contract."; article.append(warning);
+  const hashes = [`Source SHA-256 ${proposal.sourceSha256 ?? result.sourceSha256 ?? "unavailable"}`];
+  if (result.proposedSourceSha256) hashes.push(`proposed candidate SHA-256 ${result.proposedSourceSha256}`);
+  hashes.push("source and candidate bytes are not retained");
+  const hash = document.createElement("small"); hash.className = "review-hashes"; hash.textContent = hashes.join(" · "); article.append(hash);
   container.append(article);
 }
 
@@ -764,6 +769,7 @@ function renderTargetForm() {
     </fieldset>
     <label class="check-option"><input type="checkbox" name="screenshotConsent"> Allow page screenshots for this target</label>
     <label>Selectors to redact in screenshots<input name="redactSelectors" value="[data-private]" placeholder="[data-private], #email"><small>Required if screenshot capture is enabled. Review still applies.</small></label>
+    <label>Component CSS selectors to crop at the final journey state<textarea name="componentSelectors" rows="2" placeholder="[data-product-viewer]&#10;.ar-product-card"></textarea><small>Optional; one selector per line, at most five. Each selector must match exactly one visible element inside the viewport.</small></label>
     <details class="advanced-contract"><summary>Advanced · edit the versioned target contract</summary><label>Contract JSON<textarea name="contract" spellcheck="false" aria-label="Advanced target contract JSON"></textarea></label></details>
   `;
   const textarea = form.elements.contract;
@@ -776,6 +782,9 @@ function renderTargetForm() {
     const slug = `studio-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 54) || "staging"}`;
     const screenshots = values.get("screenshotConsent") === "on";
     const redactSelectors = String(values.get("redactSelectors") ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+    const componentSelectors = screenshots
+      ? String(values.get("componentSelectors") ?? "").split(/\r?\n/).map((selector) => selector.trim()).filter(Boolean).map((selector, index) => ({ id: `component-${index + 1}`, selector }))
+      : [];
     return {
       schemaVersion: 1,
       id: slug,
@@ -792,7 +801,7 @@ function renderTargetForm() {
       budgets: { journeyTimeoutMs: 45000, stepTimeoutMs: 12000 },
       mediaConsent: false,
       policy: { version: "1", criticalProfiles: profiles, minimumScore: 50 },
-      screenshots: { consent: screenshots, redactSelectors: screenshots ? redactSelectors : [] },
+      screenshots: { consent: screenshots, redactSelectors: screenshots ? redactSelectors : [], componentSelectors },
     };
   };
   const refreshContract = () => {

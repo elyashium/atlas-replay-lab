@@ -151,7 +151,11 @@ the same internal job network and gathered no server-reflexive candidate. This
 shows same-network UDP reachability; it does not test external STUN/TURN, and
 must not be described as blocked external UDP. The local deployment still needs
 host/runtime-enforced default-deny UDP egress and an environment-specific
-verification. It does not test all redirect/subresource/alternate-egress cases,
+verification. The local executor now inspects Docker state before starting the
+browser: the job segment must be internal, the worker may attach only to that
+segment, and the proxy may attach only to the default bridge and that job
+segment. This catches configuration drift in the local Docker path, but does
+not substitute for production runtime/network-policy verification. It does not test all redirect/subresource/alternate-egress cases,
 the full destination list, alternate proxies, downloads, external WebRTC/STUN,
 resource-exhaustion handling, cancellation, artifact cleanup, or CI execution.
 Until 1 through 7 exist with passing tests, the operating rule is the one in

@@ -63,6 +63,34 @@ Environment: Windows x64, Node 20.18.0, Chrome 154.0.8037.58.
 - Synthetic model fixtures and the one inconclusive live smoke do not establish
   visual-review accuracy or commercial demand.
 
+## 2026-09-30 continuation: guarded diff validation
+
+The code-proposal adapter now parses every unified-diff hunk rather than only
+checking the first file headers. It rejects appended second-file headers,
+unsupported trailing content, malformed/overlapping hunks, mismatched line
+counts, and context/deleted lines that do not match the consented source. It
+computes the proposed candidate's SHA-256 in memory while retaining neither
+source nor candidate content in the result. `applied` and `testsRun` remain
+false; this does not prove a change is behaviorally correct or apply-able in
+every toolchain.
+
+Verification: `node --test tests/groq-patch.test.js` passed **4/4**, including
+multi-file/trailing-path, truncated-hunk and mismatched-source-context cases.
+It also verifies multiple valid hunks produce a candidate hash. The full root
+suite passed **398/398**; control-plane tests with local Postgres
+17.11 passed **37/37**; `doctor` and `git diff --check` passed. All provider
+calls were mocked. No source was sent to Groq and no proposal quality or patch
+execution was measured.
+
+The synthetic UI preview (`npm run preview:screenshots --prefix
+apps/control-plane`, with local Postgres) passed at **1440 px** and **390 px**.
+The code proposal view displayed the source and candidate hashes, said that
+hunks matched supplied source, and clearly stated Atlas did not write, run, or
+test the candidate. Both viewports had no horizontal overflow. I inspected the
+generated desktop and mobile proposal screenshots. The preview injected a
+synthetic proposal; it made no provider request and is not a model-result
+measurement.
+
 ## Reproduce local checks
 
 ```powershell

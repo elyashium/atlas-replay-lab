@@ -31,6 +31,7 @@ const app = buildApp({
   codeProposer: async ({ fileName }) => ({
     provider: "groq", requestedModel: "synthetic-fixture", returnedModel: "synthetic-fixture",
     fileName, sourceSha256: "b".repeat(64), summary: "Illustrative diff; no provider request was made.",
+    proposedSourceSha256: "c".repeat(64), patchAppliesToSource: true,
     unifiedDiff: `--- a/${fileName}\n+++ b/${fileName}\n@@ -1 +1 @@\n-old visual treatment\n+new visual treatment`,
     status: "proposal", applied: false, testsRun: false, verdictEffect: "none",
   }),
@@ -168,7 +169,7 @@ try {
     await page.send("DOM.setFileInputFiles", { nodeId: sourceInput.nodeId, files: [sourceFixture] });
     await page.evaluate("document.querySelector('.code-proposal-form input[type=checkbox]').checked = true; document.querySelector('.code-proposal-form input[type=checkbox]').dispatchEvent(new Event('change',{bubbles:true})); document.querySelector('.code-proposal-form').requestSubmit()");
     await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if (document.querySelector('.code-proposal-result')) resolve(true); else if (Date.now()-started>8000) reject(new Error('synthetic code proposal preview did not finish')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
-    reports.push({ viewport: viewport.name, state: "code-proposal-result", proposalCount: await page.evaluate("document.querySelectorAll('.code-proposal-result').length"), unappliedLabel: await page.evaluate("document.body.innerText.includes('did not apply it, run it, or test it')") });
+    reports.push({ viewport: viewport.name, state: "code-proposal-result", proposalCount: await page.evaluate("document.querySelectorAll('.code-proposal-result').length"), unappliedLabel: await page.evaluate("document.body.innerText.includes('did not write, run, or test the candidate')"), candidateHashVisible: await page.evaluate("document.body.innerText.includes('c'.repeat(64))") });
     await new Promise((resolve) => setTimeout(resolve, 200));
     const visualLayout = await page.evaluate("({innerWidth, clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, bodyScrollWidth: document.body.scrollWidth})");
     const clip = await page.evaluate("(() => { const target=document.querySelector('.visual-review-history'); const pageHeight=Math.max(document.documentElement.scrollHeight,document.body.scrollHeight); const height=Math.min(window.innerHeight,pageHeight); const top=target.getBoundingClientRect().top+window.scrollY-80; const y=Math.max(0,Math.min(top,pageHeight-height)); return {x:0,y,width:window.innerWidth,height,scale:1}; })()");
@@ -201,7 +202,7 @@ try {
     reports.push({ viewport: viewport.name, state: "anonymous-shared-report", ...shareView, screenshot: `artifacts/control-plane-shared-report-${viewport.name}.png` });
   }
   console.log(JSON.stringify(reports, null, 2));
-  if (reports.some((item) => item.scrollWidth > item.clientWidth || (item.state === "visual-review-result" && item.findingOverlayCount !== 1) || (item.state === "clear-local-screenshot" && !item.passed) || (item.state === "share-link-created" && (!item.activeShare || !item.shareTokenInUrl || !item.artifactSelected)) || (item.state === "anonymous-shared-report" && (!item.tokenRemoved || item.artifactCount !== 1 || item.screenshotPreviewCount !== 1)))) process.exitCode = 1;
+  if (reports.some((item) => item.scrollWidth > item.clientWidth || (item.state === "visual-review-result" && item.findingOverlayCount !== 1) || (item.state === "clear-local-screenshot" && !item.passed) || (item.state === "code-proposal-result" && (!item.unappliedLabel || !item.candidateHashVisible)) || (item.state === "share-link-created" && (!item.activeShare || !item.shareTokenInUrl || !item.artifactSelected)) || (item.state === "anonymous-shared-report" && (!item.tokenRemoved || item.artifactCount !== 1 || item.screenshotPreviewCount !== 1)))) process.exitCode = 1;
 } finally {
   await browser.close();
   await app.close();

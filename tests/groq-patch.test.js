@@ -36,8 +36,26 @@ test("code model returns a validated single-file proposal and never claims appli
   assert.equal(proposal.applied, false);
   assert.equal(proposal.testsRun, false);
   assert.equal(proposal.verdictEffect, "none");
+  assert.equal(proposal.patchAppliesToSource, true);
+  assert.match(proposal.proposedSourceSha256, /^[a-f0-9]{64}$/);
   assert.equal(proposal.unifiedDiff, diff);
   assert.match(proposal.sourceSha256, /^[a-f0-9]{64}$/);
+});
+
+test("multiple hunks are checked against the correct source and candidate line positions", async () => {
+  const multiHunkSource = "alpha\nbeta\ngamma\ndelta\n";
+  const multiHunkDiff = [
+    "--- a/Component.js", "+++ b/Component.js",
+    "@@ -1 +1 @@", "-alpha", "+ALPHA",
+    "@@ -4 +4 @@", "-delta", "+DELTA",
+  ].join("\n");
+  const proposal = await proposeCodePatch({
+    source: multiHunkSource, fileName: "Component.js", findings: "two text differences",
+    apiKey: "test-key", consentToSendCode: true,
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => response(multiHunkDiff) }),
+  });
+  assert.equal(proposal.patchAppliesToSource, true);
+  assert.notEqual(proposal.proposedSourceSha256, proposal.sourceSha256);
 });
 
 test("source egress, secret-like text, path segments, and multi-file diffs fail closed", async () => {
@@ -49,6 +67,14 @@ test("source egress, secret-like text, path segments, and multi-file diffs fail 
   await assert.rejects(proposeCodePatch({ ...base, fileName: "../Button.jsx", consentToSendCode: true }), /simple source file name/);
   const multiFile = `${diff}\ndiff --git a/Other.jsx b/Other.jsx\n--- a/Other.jsx\n+++ b/Other.jsx`;
   await assert.rejects(proposeCodePatch({ ...base, consentToSendCode: true, fetchImpl: async () => ({ ok: true, json: async () => response(multiFile) }) }), /supplied file only/);
+  const appendedFileHeaders = `${diff}\n--- a/../../outside.js\n+++ b/../../outside.js\n@@ -1 +1 @@\n-old\n+new`;
+  await assert.rejects(proposeCodePatch({ ...base, consentToSendCode: true, fetchImpl: async () => ({ ok: true, json: async () => response(appendedFileHeaders) }) }), /supplied file only/);
+  const truncatedHunk = diff.replace("@@ -1 +1 @@", "@@ -1,2 +1 @@");
+  await assert.rejects(proposeCodePatch({ ...base, consentToSendCode: true, fetchImpl: async () => ({ ok: true, json: async () => response(truncatedHunk) }) }), /line counts do not match|truncated/);
+  const mismatchedContext = diff.replace('className="blue"', 'className="green"');
+  await assert.rejects(proposeCodePatch({ ...base, consentToSendCode: true, fetchImpl: async () => ({ ok: true, json: async () => response(mismatchedContext) }) }), /context does not match/);
+  const invalidNewRange = diff.replace("@@ -1 +1 @@", "@@ -1 +2 @@");
+  await assert.rejects(proposeCodePatch({ ...base, consentToSendCode: true, fetchImpl: async () => ({ ok: true, json: async () => response(invalidNewRange) }) }), /new-file range/);
   assert.equal(calls, 0);
 });
 

@@ -68,6 +68,21 @@ export function validateTargetContract(value) {
   if (typeof c.mediaConsent !== "boolean") issues.push("mediaConsent must explicitly allow or deny page camera/microphone APIs");
   if (typeof c.screenshots?.consent !== "boolean") issues.push("screenshots.consent must be explicitly true or false");
   if (c.screenshots?.consent === true && (!Array.isArray(c.screenshots?.redactSelectors) || !c.screenshots.redactSelectors.length)) issues.push("screenshots.redactSelectors must include at least one selector when screenshot consent is enabled");
+  if (c.screenshots?.componentSelectors !== undefined) {
+    if (!Array.isArray(c.screenshots.componentSelectors) || c.screenshots.componentSelectors.length > 5) {
+      issues.push("screenshots.componentSelectors must be an array of at most five selector objects");
+    } else {
+      if (c.screenshots.componentSelectors.length && c.screenshots.consent !== true) issues.push("component selector capture requires screenshot consent");
+      const componentIds = new Set();
+      for (const [index, item] of c.screenshots.componentSelectors.entries()) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) { issues.push(`screenshots.componentSelectors[${index}] must be an object`); continue; }
+        if (typeof item.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(item.id)) issues.push(`screenshots.componentSelectors[${index}].id must be a simple 1..32 character artifact label`);
+        else if (componentIds.has(item.id)) issues.push(`screenshots.componentSelectors[${index}].id must be unique`);
+        else componentIds.add(item.id);
+        if (typeof item.selector !== "string" || !item.selector.trim() || item.selector.length > 256) issues.push(`screenshots.componentSelectors[${index}].selector must be 1..256 characters`);
+      }
+    }
+  }
   if (issues.length) return { ok: false, issues };
   return { ok: true, issues, contract: c };
 }
