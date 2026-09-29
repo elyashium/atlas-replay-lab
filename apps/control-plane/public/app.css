@@ -82,7 +82,8 @@ small { font-weight: 400; color: var(--muted); }
 .visual-review-result .panel-heading { align-items: center; }
 .visual-review-result .panel-heading strong { min-width: 0; font-size: 11px; overflow-wrap: anywhere; }
 .visual-finding-preview { margin: 12px 0; }
-.visual-finding-preview figcaption { color: var(--muted); font-size: 11px; line-height: 1.45; margin-bottom: 6px; }
+.visual-finding-preview figcaption { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; color: var(--muted); font-size: 11px; line-height: 1.45; margin-bottom: 6px; }
+.visual-finding-preview figcaption .text-button { flex: 0 0 auto; white-space: nowrap; font-size: 11px; }
 .visual-finding-frame { position: relative; width: 100%; aspect-ratio: 4 / 3; overflow: hidden; border: 1px solid var(--line); border-radius: 7px; background: #f8faf8; }
 .visual-finding-frame img { display: block; width: 100%; height: 100%; object-fit: fill; }
 .visual-finding-region { position: absolute; display: grid; place-items: start; border: 2px solid #bd3e32; background: rgba(207,65,49,.12); color: #fff; text-shadow: 0 1px 2px #182427; font: 700 11px/1 ui-monospace,monospace; padding: 3px; }

@@ -141,7 +141,7 @@ try {
     await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if (document.querySelector('.visual-review-form .visual-previews img') && document.querySelector('.visual-review-status').innerText.includes('Preview the run screenshot')) resolve(true); else if (Date.now()-started>8000) reject(new Error('captured screenshot preview did not load through the artifact API')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
     const referenceInput = await page.send("DOM.querySelector", { nodeId: documentNode.root.nodeId, selector: ".visual-review-form input[name=reference]" });
     await page.send("DOM.setFileInputFiles", { nodeId: referenceInput.nodeId, files: [referenceFixture] });
-    await page.evaluate("(() => { const criteria=document.querySelector('.visual-review-form textarea[name=criteria]'); criteria.value='Preserve the approved component composition.'; criteria.dispatchEvent(new Event('input',{bubbles:true})); })()");
+    await page.evaluate("(() => { const criteria=document.querySelector('.visual-review-form textarea[name=criteria]'); criteria.value='Preserve the approved component composition at '+innerWidth+'px.'; criteria.dispatchEvent(new Event('input',{bubbles:true})); })()");
     await page.evaluate("document.querySelector('.visual-review-form button[type=button]').click()");
     await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if (document.querySelector('.local-pixel-comparison .pixel-comparison') && document.querySelector('.visual-review-status').innerText.includes('No images or comparison data were sent')) resolve(true); else if (Date.now()-started>10000) reject(new Error('local pixel comparison did not complete in the browser worker')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
     await page.evaluate("document.querySelector('.visual-review-tool').scrollIntoView({block:'start'})");
@@ -150,8 +150,7 @@ try {
     await writeFile(path.join(output, `control-plane-capture-preview-${viewport.name}.png`), await page.screenshot());
     reports.push({ viewport: viewport.name, state: "local-only-captured-screenshot-comparison", ...capturePreviewState, screenshot: `artifacts/control-plane-capture-preview-${viewport.name}.png` });
     await page.evaluate("document.querySelector('.visual-review-form input[name=consent]').checked = true; document.querySelector('.visual-review-form input[name=consent]').dispatchEvent(new Event('change',{bubbles:true})); document.querySelector('.visual-review-form').requestSubmit()");
-    await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if (document.querySelector('.visual-review-history .visual-review-result')) resolve(true); else if (Date.now()-started>8000) reject(new Error('synthetic review preview did not finish')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
-    await page.evaluate("new Promise((resolve, reject) => { const image=document.querySelector('.visual-finding-preview img'); if(!image) return resolve(true); if(image.complete && image.naturalWidth) return resolve(true); image.addEventListener('load',resolve,{once:true}); image.addEventListener('error',()=>reject(new Error('synthetic finding overlay image did not load')),{once:true}); })", { awaitPromise: true });
+    await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { const image=document.querySelector('.visual-review-history .visual-finding-preview img'); if(image?.complete && image.naturalWidth) resolve(true); else if(Date.now()-started>8000) reject(new Error('synthetic finding overlay did not finish: '+JSON.stringify({history:document.querySelectorAll('.visual-review-history .visual-review-result').length,overlay:Boolean(image)}))); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
     const previewState = await page.evaluate("({reviewCount:document.querySelectorAll('.visual-review-history .visual-review-result').length, fixtureLabel:document.body.innerText.includes('SYNTHETIC FIXTURE'), pixelComparisonVisible:document.body.innerText.includes('DETERMINISTIC REFERENCE COMPARISON'), findingOverlayCount:document.querySelectorAll('.visual-finding-region').length, findingOverlayLabel:document.querySelector('.visual-finding-preview figcaption')?.innerText, status:document.querySelector('.visual-review-status')?.innerText, scrollY})");
     reports.push({ viewport: viewport.name, state: "visual-review-result", ...previewState });
     const sourceInput = await page.send("DOM.querySelector", { nodeId: documentNode.root.nodeId, selector: ".code-proposal-form input[type=file]" });
@@ -166,13 +165,15 @@ try {
     const visualScreenshot = Buffer.from(visualCapture.data, "base64");
     await writeFile(path.join(output, `control-plane-visual-review-${viewport.name}.png`), visualScreenshot);
     reports.push({ viewport: viewport.name, state: "visual-review", ...visualLayout, screenshot: `artifacts/control-plane-visual-review-${viewport.name}.png` });
+    const localImageCleared = await page.evaluate("(() => { const button=document.querySelector('.visual-finding-preview button[aria-label=\"Clear local screenshot from this page\"]'); if(!button) return false; button.click(); return !document.querySelector('.visual-finding-preview img'); })()");
+    reports.push({ viewport: viewport.name, state: "clear-local-screenshot", passed: localImageCleared });
     await page.evaluate("document.querySelector('.code-proposal-result').scrollIntoView({block:'center'})");
     await new Promise((resolve) => setTimeout(resolve, 150));
     await writeFile(path.join(output, `control-plane-code-proposal-${viewport.name}.png`), await page.screenshot());
     reports.push({ viewport: viewport.name, state: "code-proposal", screenshot: `artifacts/control-plane-code-proposal-${viewport.name}.png` });
   }
   console.log(JSON.stringify(reports, null, 2));
-  if (reports.some((item) => item.scrollWidth > item.clientWidth)) process.exitCode = 1;
+  if (reports.some((item) => item.scrollWidth > item.clientWidth || (item.state === "visual-review-result" && item.findingOverlayCount !== 1) || (item.state === "clear-local-screenshot" && !item.passed))) process.exitCode = 1;
 } finally {
   await browser.close();
   await app.close();

@@ -107,6 +107,12 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
   comparison is deterministic pixel-change evidence, not design/accessibility
   quality. See the dated continuation in the evidence log for exact current
   suite results.
+- For an active visual review, the selected screenshot can be shown with
+  numbered model-supplied regions matched to numbered findings. The screenshot
+  stays in the current page's memory only, has a clear control, and is not
+  restored from stored review history after reload. Coordinates are uncalibrated
+  model suggestions, not pixel segmentation. Desktop/mobile preview verifies
+  synthetic wiring only.
 
 ## Recommended next work (keep hosted workers disabled)
 

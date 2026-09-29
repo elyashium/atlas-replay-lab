@@ -12,6 +12,7 @@ let organizations = [];
 let selectedOrg = localStorage.getItem("atlas.org") ?? "";
 let selectedProject = "";
 let runRefreshTimer;
+let activeVisualPreview = null;
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers ?? {});
@@ -51,6 +52,7 @@ authForm.addEventListener("submit", async (event) => {
 });
 
 orgPicker.addEventListener("change", async () => {
+  activeVisualPreview = null;
   selectedOrg = orgPicker.value;
   localStorage.setItem("atlas.org", selectedOrg);
   selectedProject = "";
@@ -63,6 +65,7 @@ document.querySelector("#logout").addEventListener("click", async () => {
   organizations = [];
   selectedOrg = "";
   selectedProject = "";
+  activeVisualPreview = null;
   authSection.hidden = false;
   workspace.hidden = true;
   localStorage.removeItem("atlas.org");
@@ -121,6 +124,7 @@ function showProjectPlaceholder() {
 }
 
 async function loadProject(projectId) {
+  if (selectedProject !== projectId) activeVisualPreview = null;
   selectedProject = projectId;
   const data = await api(`/v1/projects/${encodeURIComponent(projectId)}`);
   clearTimeout(runRefreshTimer);
@@ -294,6 +298,7 @@ function renderVisualReviewForm(runs) {
       const result = await api(`/v1/projects/${encodeURIComponent(selectedProject)}/visual-reviews`, {
         method: "POST", headers: { "idempotency-key": idempotencyKey }, body: JSON.stringify(payload),
       });
+      activeVisualPreview = { reviewId: result.review.id, file: currentFile };
       form.reset();
       capturedFile = null;
       preview.replaceChildren();
@@ -303,9 +308,6 @@ function renderVisualReviewForm(runs) {
       status.dataset.state = result.review.status === "complete" ? "success" : "warning";
       renderReviewResult(result.review, section);
       await refreshSelectedProject();
-      const storedCard = [...document.querySelectorAll(".visual-review-history .visual-review-result")]
-        .find((item) => item.dataset.reviewId === result.review.id);
-      if (storedCard) renderFindingOverlay(currentFile, result.review.result?.issues ?? [], storedCard);
     } catch (error) { status.dataset.state = "error"; status.textContent = error.message; }
     finally { submit.disabled = false; }
   });
@@ -384,7 +386,10 @@ function renderVisualReviewHistory(reviews, proposals) {
   if (!reviews.length) {
     const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No component visual reviews yet."; section.append(empty);
   }
-  for (const review of reviews) renderReviewResult(review, section, true, proposals.filter((proposal) => proposal.visualReviewId === review.id));
+  for (const review of reviews) {
+    const card = renderReviewResult(review, section, true, proposals.filter((proposal) => proposal.visualReviewId === review.id));
+    if (activeVisualPreview?.reviewId === review.id) renderFindingOverlay(activeVisualPreview.file, review.result?.issues ?? [], card);
+  }
   projectDetail.append(section);
 }
 
@@ -416,6 +421,7 @@ function renderReviewResult(review, container, compact = false, proposals = []) 
   if (review.error) { const error = document.createElement("p"); error.className = "review-note"; error.textContent = review.error; card.append(error); }
   const hashes = document.createElement("small"); hashes.className = "review-hashes"; hashes.textContent = `Screenshot SHA-256 ${review.screenshotSha256 ?? review.result?.imageSha256 ?? "unavailable"}${review.referenceSha256 ?? review.result?.referenceSha256 ? ` · reference SHA-256 ${review.referenceSha256 ?? review.result.referenceSha256}` : ""} · verdict effect none`;
   card.append(hashes); container.append(card);
+  return card;
 }
 
 function renderFindingOverlay(file, issues, card) {
@@ -423,9 +429,13 @@ function renderFindingOverlay(file, issues, card) {
   const figure = document.createElement("figure"); figure.className = "visual-finding-preview";
   const caption = document.createElement("figcaption");
   const localizedCount = issues.filter((issue) => issue.region).length;
-  caption.textContent = localizedCount
+  const captionText = document.createElement("span");
+  captionText.textContent = localizedCount
     ? `Current screenshot · ${localizedCount} model-supplied finding region${localizedCount === 1 ? "" : "s"} (illustrative coordinates, not pixel segmentation)`
     : "Current screenshot · model supplied no finding coordinates";
+  const clearButton = document.createElement("button"); clearButton.type = "button"; clearButton.className = "text-button"; clearButton.textContent = "Clear"; clearButton.setAttribute("aria-label", "Clear local screenshot from this page");
+  clearButton.addEventListener("click", () => { activeVisualPreview = null; figure.remove(); });
+  caption.append(captionText, clearButton);
   const frame = document.createElement("div"); frame.className = "visual-finding-frame";
   const image = document.createElement("img"); image.alt = localizedCount ? "Current screenshot with numbered model-supplied finding regions" : "Current screenshot; the model supplied no finding regions";
   const objectUrl = URL.createObjectURL(file); image.src = objectUrl;

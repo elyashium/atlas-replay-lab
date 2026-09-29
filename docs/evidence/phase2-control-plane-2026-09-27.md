@@ -422,3 +422,25 @@ judgment, visual regression policy, accessibility assessment, arbitrary-URL
 capture, or hosted provider-call durability. Visual model findings remain
 advisory, and screenshot capture still depends on target consent and configured
 redaction selectors.
+
+## 2026-09-29 continuation: visual finding locations
+
+The active browser session now shows the selected screenshot alongside numbered
+model-supplied finding regions, with matching numbers on each finding. Region
+coordinates remain explicitly illustrative and model-supplied; they are not
+pixel segmentation or verified defect boundaries. The selected screenshot is
+held in browser memory only for this view, can be cleared with the visible
+control, is not copied into the report row, and is unavailable after a fresh
+page load. This makes a review more inspectable without extending screenshot
+retention on the server.
+
+- `npm run preview:screenshots --prefix apps/control-plane` completed with exit
+  0 at desktop 1440px and mobile 390px. The synthetic review displayed one
+  numbered finding region at each size, and the clear-local-image action
+  removed it at both sizes; all measured document/body widths matched the
+  viewport.
+- The desktop and mobile report screenshots were visually inspected. The
+  numbered box aligns with the synthetic 16-by-16 screenshot; the corresponding
+  finding is numbered, and the mobile clear control remains readable.
+- The preview model response and image are synthetic. This checks UI wiring,
+  not model localization quality or a real customer defect.
