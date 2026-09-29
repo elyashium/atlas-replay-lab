@@ -127,7 +127,7 @@ criteria passed.
 
 The Phase 1 implementation landed in commit `9662ee1` (`Complete local Phase 1
 staging target QA`). Later commits add Phase 2 control-plane scaffolding; they
-do not close Phase 1's outside-team acceptance gap. The root test suite most
-recently passed **264/264** tests on Node 20.18.0. The repository has no separate
-lint, typecheck, or build script; see `AGENTS.md` for the current test and CLI
-commands.
+do not close Phase 1's outside-team acceptance gap. The current root test suite
+passed **363/363** on Node 20.18.0; this validates core tests, not the external
+target acceptance. The repository has no separate lint, typecheck, or build
+script; see `AGENTS.md` for the current test and CLI commands.

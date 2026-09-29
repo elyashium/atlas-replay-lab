@@ -41,7 +41,7 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
       name: "Owned staging target",
       environment: "staging",
       authorization: { authorized: true, note: "Authorized owned staging check" },
-      target: { url: "https://studio-owned.example.org/", allowedOrigins: ["https://studio-owned.example.org"], buildId: "commit-a1b2c3" },
+      target: { url: "https://studio-owned.example.org/", allowedOrigins: ["https://studio-owned.example.org"], buildId: "a1b2c3d4" },
       journey: { steps: [{ type: "waitForVisible", selector: "[data-ready]", timeoutMs: 2000 }], success: { selector: "[data-ready]" }, fallback: { selector: "[data-fallback]", requiredOn: ["webgl-unavailable"] } },
       profiles: ["high-wifi", "low-cpu-3g", "webgl-unavailable"],
       budgets: { journeyTimeoutMs: 5000, stepTimeoutMs: 2000 },
@@ -54,6 +54,9 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
     const target = targetResponse.json();
     challenge = target.dnsVerification.value;
     const targetId = target.target.id;
+    const projectDetail = await runningApp.inject({ method: "GET", url: `/v1/projects/${projectId}`, headers: { cookie: cookieA, "x-atlas-organization": orgA } });
+    assert.equal(projectDetail.statusCode, 200, projectDetail.body);
+    assert.equal(projectDetail.json().targets[0].verificationToken, challenge);
 
     const runUrl = `/v1/targets/${targetId}/runs`;
     const notVerified = await write(runUrl, { cookie: cookieA, organizationId: orgA, headers: { "idempotency-key": "release-build-a1b2c3" } });
@@ -61,6 +64,9 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
     const verified = await write(`/v1/targets/${targetId}/verify`, { cookie: cookieA, organizationId: orgA });
     assert.equal(verified.statusCode, 200, verified.body);
     assert.equal(verified.json().verified, true);
+    const verifiedDetail = await runningApp.inject({ method: "GET", url: `/v1/projects/${projectId}`, headers: { cookie: cookieA, "x-atlas-organization": orgA } });
+    assert.equal(verifiedDetail.statusCode, 200, verifiedDetail.body);
+    assert.equal(verifiedDetail.json().targets[0].verificationToken, null);
 
     const firstRun = await write(runUrl, { cookie: cookieA, organizationId: orgA, headers: { "idempotency-key": "release-build-a1b2c3" } });
     assert.equal(firstRun.statusCode, 202, firstRun.body);
@@ -73,6 +79,9 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
     const privateReport = await runningApp.inject({ method: "GET", url: `/v1/runs/${runId}`, headers: { cookie: cookieA, "x-atlas-organization": orgA } });
     assert.equal(privateReport.statusCode, 200);
     assert.equal(privateReport.json().evidenceStatus, "not-run");
+    assert.equal(privateReport.json().run.binding.build.id, "a1b2c3d4");
+    assert.equal(privateReport.json().run.binding.build.immutable, true);
+    assert.ok(privateReport.json().run.binding.releasePolicy.contentHash);
 
     const accountB = await write("/v1/auth/register", { body: { email: emailB, password: "another sufficiently long test password", organizationName: "QA Org B" } });
     assert.equal(accountB.statusCode, 201, accountB.body);

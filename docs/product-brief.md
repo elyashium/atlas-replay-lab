@@ -81,12 +81,16 @@ enabled.** The separate `apps/control-plane` package has a same-origin web UI
 and JSON API for account/organization creation, project records, DNS TXT
 ownership challenges for HTTPS targets, and tenant-scoped run records in
 Postgres. Target contracts are validated by the existing CLI contract module
-and snapshotted into run records. A requested run remains `queued`; the API
-states that no browser execution has happened and does not produce a verdict.
-API retries use an idempotency key, and the server purges expired Postgres run
-and session metadata; blob/backups deletion is not yet connected. A local
-Postgres integration test covers one cross-organization access path and this
-metadata purge, not a full security audit.
+and snapshotted into run records. The UI exposes pending DNS TXT instructions,
+requires an immutable target build ID for queued release evidence, and shows
+the critical emulation profiles and screenshot consent. Each queued record
+stores a versioned binding with the exact release-policy hash and Atlas engine
+identity. A requested run remains `queued`; the API states that no browser
+execution has happened and does not produce a verdict. API retries use
+organization-scoped idempotency and reject key reuse across targets; the server purges expired Postgres run and
+session metadata; blob/backups deletion is not connected. Local Postgres tests
+exercise DNS challenge visibility, immutable binding, one cross-organization
+access path, and metadata purge, not a full security audit.
 See [`evidence/phase2-control-plane-2026-09-27.md`](evidence/phase2-control-plane-2026-09-27.md).
 
 Still required before hosted execution or launch: isolated ephemeral Chrome

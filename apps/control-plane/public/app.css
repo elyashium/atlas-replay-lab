@@ -64,6 +64,13 @@ small { font-weight: 400; color: var(--muted); }
 .target-form textarea { font: 12px/1.5 ui-monospace,monospace; min-height: 230px; resize: vertical; }
 .target-card, .run-card { border-top: 1px solid var(--line); padding: 13px 0; font-size: 12px; }
 .target-card strong, .run-card strong { font-size: 13px; }
+.verification-record { margin: 12px 0; padding: 11px 12px; background: #f8faf8; border: 1px solid var(--line); border-radius: 8px; }
+.verification-record summary { cursor: pointer; color: var(--green); font-size: 12px; font-weight: 700; }
+.verification-record p { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.verification-record dl { display: grid; grid-template-columns: 54px minmax(0,1fr); gap: 6px 10px; margin: 10px 0 0; }
+.verification-record dt { color: var(--muted); font-size: 11px; }
+.verification-record dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.verification-record code { color: var(--ink); font: 11px/1.5 ui-monospace,monospace; }
 .pill { display: inline-block; margin-left: 8px; padding: 4px 7px; border-radius: 99px; background: var(--pale); color: var(--green); font: 500 10px ui-monospace,monospace; }
 .pill.pending { background: #fff3df; color: #8b5b17; }
 .mono { font: 11px ui-monospace,monospace; overflow-wrap: anywhere; color: #465854; }

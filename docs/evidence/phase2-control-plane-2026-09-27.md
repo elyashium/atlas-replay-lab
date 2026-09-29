@@ -1,4 +1,4 @@
-# Phase 2 local control-plane slice — 2026-09-27–28
+# Phase 2 local control-plane slice — 2026-09-27–29
 
 ## Current architecture boundary
 
@@ -22,12 +22,16 @@ the existing versioned target contract (with an advanced JSON view); an
 explicit staging authorization attestation; critical emulation profile
 selection; screenshot consent defaulted off with redaction selectors; an HTTPS
 staging target onboarding record with a DNS TXT ownership challenge; and
-organization-scoped project, target, and run status API routes. A target must pass the DNS challenge before
-the API will create a queued run record. Each run stores a snapshot of the
-validated contract, selected policy version, requestor, and a 30-day expiry
-timestamp. A required idempotency key maps request retries back to the same run
-row. The server purges expired sessions, share-link records, and non-running
-run rows hourly. The integration test exercised deletion of expired run and
+organization-scoped project, target, and run status API routes. The project UI
+shows an unverified target's DNS TXT record and stops returning its token once
+verified. A target must pass the DNS challenge before the API will create a
+queued run record. Run submission requires an immutable target build ID and
+stores a versioned binding snapshot with the contract, release policy hash,
+Atlas rule-engine version, requestor, and a 30-day expiry timestamp. A required
+idempotency key maps request retries back to the same run row. Migration 002
+cancels legacy unbound queue entries before adding the required binding column.
+The server purges expired sessions, share-link records, and non-running run
+rows hourly. The integration test exercised deletion of expired run and
 artifact metadata rows against PostgreSQL. The run stays `queued` and has no
 verdict because no worker is connected.
 
@@ -69,27 +73,32 @@ database, or this setup to the public internet.
 
 ## Verification performed
 
-- `npm test` (repository root): **264/264 CLI tests passed**, using the
+- `npm test` (repository root): **363/363 CLI tests passed**, using the
   dependency-free `scripts/test-core.js` runner. Node 20.18.0, Windows x64.
-- `npm test` (in `apps/control-plane` with local `DATABASE_URL`): **13/13
+- `npm test` (in `apps/control-plane` with local `DATABASE_URL`): **17/17
   tests passed**, including one real Postgres flow across account/org/project,
-  mocked DNS ownership verification, idempotent queued records, cross-org read
-  denial, and retention deletion of run/artifact metadata. Other tests cover
+  mocked DNS ownership verification, challenge visibility, mixed public/private
+  DNS refusal, immutable build and policy binding, idempotent queued records,
+  cross-org read denial, and
+  retention deletion of run/artifact metadata. Other tests cover
   password/cookie helpers, same-origin writes, project scoping, and health.
 - `npm ci --offline` (in `apps/control-plane`): **passed**, installed the locked
   dependency tree and reported **0 known vulnerabilities** from the local npm
   advisory cache.
-- `node bin/atlas.js doctor`: **passed**; Node 20.18.0 and Chrome 154.0.8037.57
+- `node bin/atlas.js doctor`: **passed**; Node 20.18.0 and Chrome 154.0.8037.58
   were found and CDP connected.
 - `npm run preview:screenshots` (in `apps/control-plane`): **passed** through
   the existing CDP harness after creating and cleaning up a disposable local
-  account/project. Captures show the guided target form at desktop 1440×1100
-  and emulated mobile 390×844 CSS px (DPR 2); document widths matched their
-  viewports, with no horizontal overflow. Both captures were visually
-  inspected. Artifacts are ignored under
-  `artifacts/control-plane-wizard-{desktop,mobile}.png`.
-- `npm run migrate` (in `apps/control-plane`): **passed** against the local
-  PostgreSQL 17 container and applied `001_initial`. The real integration test
+  account/project and inserted a synthetic, unverified DNS challenge row
+  directly into local Postgres. Captures show both the challenge card and the
+  guided target form at desktop 1440×1100 and emulated mobile 390×844 CSS px
+  (DPR 2); document widths matched their viewports, with no horizontal
+  overflow. Both states were visually inspected. Artifacts are ignored under
+  `artifacts/control-plane-{verification,wizard}-{desktop,mobile}.png`.
+- `npm run migrate` (in `apps/control-plane`): **passed** against the existing
+  local PostgreSQL 17 database (no-op for applied migrations) and a fresh
+  disposable database (applied `001_initial` and `002_immutable_run_binding`).
+  Migration application is serialized by a transaction advisory lock. The real integration test
   proves the tested query paths, not a comprehensive tenant-isolation audit or
   the hosted network boundary. DNS answers/TXT were stubbed to avoid contacting
   or running an outside studio target.

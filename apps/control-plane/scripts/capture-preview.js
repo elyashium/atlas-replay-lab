@@ -30,6 +30,21 @@ try {
     body: JSON.stringify({ name: "Owned Web3D staging" }),
   });
   if (!projectResponse.ok) throw new Error(`preview project setup failed (${projectResponse.status})`);
+  const project = (await projectResponse.json()).project;
+  const targetId = randomUUID();
+  const verificationToken = "atlas-verify=preview-only-proof";
+  const targetContract = {
+    schemaVersion: 1, id: "preview-staging", name: "Owned Web3D staging", environment: "staging",
+    authorization: { authorized: true, note: "Preview fixture only" },
+    target: { url: "https://stage.example.test/", allowedOrigins: ["https://stage.example.test"], buildId: "a1b2c3d4" },
+    journey: { steps: [{ type: "waitForVisible", selector: "[data-ready]", timeoutMs: 5000 }], success: { selector: "[data-ready]" }, fallback: { selector: "[data-fallback]", requiredOn: [] } },
+    profiles: ["high-wifi"], budgets: { journeyTimeoutMs: 10000, stepTimeoutMs: 5000 }, mediaConsent: false,
+    policy: { version: "1", criticalProfiles: ["high-wifi"], minimumScore: 50 }, screenshots: { consent: false, redactSelectors: [] },
+  };
+  await pool.query(
+    "INSERT INTO targets(id,organization_id,project_id,base_url,hostname,verification_token,contract,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+    [targetId, organizationId, project.id, "https://stage.example.test/", "stage.example.test", verificationToken, targetContract, userId],
+  );
 
   const page = await browser.connection.newPage();
   await page.send("Page.enable");
@@ -54,12 +69,19 @@ try {
     if (readyState !== "ready") throw new Error(`preview workspace did not load: ${JSON.stringify(readyState)}`);
     await page.evaluate("document.querySelector('.project-item').click()");
     await page.evaluate("new Promise((resolve) => { const check = () => document.querySelector('.target-form') ? resolve(true) : setTimeout(check, 25); check(); })", { awaitPromise: true });
+    await page.evaluate("document.querySelector('.target-card').scrollIntoView({block:'start'})");
+    await page.evaluate("document.querySelector('.verification-record').open = true");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const verificationScreenshot = await page.screenshot();
+    await writeFile(path.join(output, `control-plane-verification-${viewport.name}.png`), verificationScreenshot);
+    const verificationLayout = await page.evaluate("({innerWidth, clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, bodyScrollWidth: document.body.scrollWidth})");
+    reports.push({ viewport: viewport.name, state: "verification", ...verificationLayout, screenshot: `artifacts/control-plane-verification-${viewport.name}.png` });
     await page.evaluate("document.querySelector('.target-form').scrollIntoView({block:'start'})");
     await new Promise((resolve) => setTimeout(resolve, 250));
     const layout = await page.evaluate("({innerWidth, clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, bodyScrollWidth: document.body.scrollWidth})");
     const screenshot = await page.screenshot();
     await writeFile(path.join(output, `control-plane-wizard-${viewport.name}.png`), screenshot);
-    reports.push({ viewport: viewport.name, ...layout, screenshot: `artifacts/control-plane-wizard-${viewport.name}.png` });
+    reports.push({ viewport: viewport.name, state: "wizard", ...layout, screenshot: `artifacts/control-plane-wizard-${viewport.name}.png` });
   }
   console.log(JSON.stringify(reports, null, 2));
   if (reports.some((item) => item.scrollWidth > item.clientWidth)) process.exitCode = 1;

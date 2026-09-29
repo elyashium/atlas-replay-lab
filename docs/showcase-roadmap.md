@@ -35,7 +35,8 @@ for the product, not a complete customer workflow.
 ## Phase 0 — trustworthy local proof
 
 **Current status: local proof measured; phase evidence still incomplete.** The
-latest environment passed 260/260 unit tests and `doctor`. The seven-profile
+recorded Sep 27 Phase 0 environment passed 260/260 unit tests and `doctor`; the
+current root suite has since grown to 363 tests. The seven-profile
 Orbital run produced SHIP under the severe-only timing policy: the forced-high
 baseline failed, the adaptive low-CPU run was degraded-but-acceptable, the
 camera-denied and WebGL-unavailable fallbacks passed, and both replay runs

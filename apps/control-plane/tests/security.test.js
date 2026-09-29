@@ -32,12 +32,13 @@ test("target onboarding URL accepts only clean HTTPS public hostnames", () => {
   assert.equal(parseOwnedTargetUrl("https://stage.example.org/web/scene").hostname, "stage.example.org");
   for (const url of [
     "http://stage.example.org/", "https://u:p@stage.example.org/", "https://stage.example.org/?token=x",
-    "https://127.0.0.1/", "https://localhost/", "https://stage.example.org:8443/",
+    "https://127.0.0.1/", "https://2130706433/", "https://[::1]/", "https://localhost/",
+    "https://preview.local/", "https://service.internal/", "https://stage.example.org:8443/",
   ]) assert.throws(() => parseOwnedTargetUrl(url), url);
 });
 
 test("public address filter denies private, local and reserved network ranges", () => {
-  for (const address of ["0.1.2.3", "10.1.2.3", "100.64.0.1", "127.0.0.1", "169.254.1.1", "172.20.1.1", "192.168.1.1", "224.0.0.1", "::1", "fc00::1", "fe80::1", "::ffff:127.0.0.1", "2001:db8::1"]) {
+  for (const address of ["0.1.2.3", "10.1.2.3", "100.64.0.1", "127.0.0.1", "169.254.1.1", "172.20.1.1", "192.0.2.1", "192.31.196.1", "192.168.1.1", "198.19.0.1", "224.0.0.1", "240.0.0.1", "::", "::1", "::ffff:127.0.0.1", "64:ff9b::127.0.0.1", "fc00::1", "fe80::1", "2001:db8::1", "ff02::1"]) {
     assert.equal(isPublicAddress(address), false, address);
   }
   for (const address of ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"]) assert.equal(isPublicAddress(address), true, address);

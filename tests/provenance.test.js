@@ -9,7 +9,7 @@ import {
   provenanceFor,
   provenanceSummary,
 } from "../src/runner/provenance.js";
-import { PROFILES } from "../src/runner/profiles.js";
+import { ALL_PROFILES, PROFILES } from "../src/runner/profiles.js";
 
 test("every profile in the runner lands in a lane, and none lands in device", () => {
   for (const profile of PROFILES) {
@@ -23,7 +23,7 @@ test("every profile in the runner lands in a lane, and none lands in device", ()
 
 test("the xr profiles are synthetic-xr and the rest are emulation", () => {
   const byLane = {};
-  for (const profile of PROFILES) {
+  for (const profile of ALL_PROFILES) {
     const lane = provenanceFor(profile).lane;
     (byLane[lane] ??= []).push(profile.id);
   }

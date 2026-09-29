@@ -7,7 +7,11 @@ challenge, versioned target contract storage, tenant-scoped run records,
 idempotency, and Postgres metadata retention. Guided setup asks for success and
 fallback selectors, critical emulation profiles, screenshot consent (off by
 default), redaction selectors, and an authorization attestation. Run records
-stay `queued`; there is no consumer, browser run, report, or verdict.
+stay `queued`; there is no consumer, browser run, report, or verdict. The UI
+displays a pending DNS TXT record and the API suppresses its token after
+verification. Queue requests require an immutable target build ID and snapshot
+the current release-policy hash and Atlas rule-engine identity. Legacy unbound
+queued rows are cancelled by migration 002.
 
 Architecture decision: [`../adr/0007-phase2-control-plane-boundary.md`](../adr/0007-phase2-control-plane-boundary.md).
 Measured local setup: [`../evidence/phase2-control-plane-2026-09-27.md`](../evidence/phase2-control-plane-2026-09-27.md).
@@ -19,8 +23,10 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
 - SQL pool: `apps/control-plane/src/db.js`.
 - Retention maintenance: `apps/control-plane/src/maintenance.js`.
 - URL/public-address helpers: `apps/control-plane/src/security.js`.
-- Versioned schema/up migration: `apps/control-plane/migrations/001_initial.sql`;
-  down migration is destructive and must only be used for a disposable DB.
+- Versioned schema/up migrations: `apps/control-plane/migrations/001_initial.sql`
+  and `002_immutable_run_binding.sql`; the second cancels legacy unbound queue
+  rows and adds required run binding. Down migrations are destructive and only
+  for a disposable DB.
 - UI: `apps/control-plane/public/{index.html,app.js,app.css}`.
 - Tests: `apps/control-plane/tests/`; Postgres integration requires local
   PostgreSQL and `DATABASE_URL`.
@@ -30,14 +36,14 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
 
 ## Verified locally
 
-- Control-plane suite: 13/13 passed with PostgreSQL 17, including account/org/
-  project creation, mocked DNS TXT ownership, unverified-run rejection,
-  idempotent queue record, cross-org read denial, and expired run/artifact
-  metadata deletion.
-- Root suite: 264/264 passed; `doctor` passed on Node 20.18.0 and Chrome
-  154.0.8037.57.
-- Guided target form visually inspected at 1440 px desktop and 390 px emulated
-  mobile; no horizontal overflow.
+- Control-plane suite: 17/17 passed with PostgreSQL 17, including account/org/
+  project creation, mocked DNS TXT ownership and visibility, unverified-run
+  rejection, immutable policy binding, idempotent queue record and key-reuse
+  rejection, cross-org read denial, and expired run/artifact metadata deletion.
+- Root suite: 363/363 passed; `doctor` passed on Node 20.18.0 and Chrome
+  154.0.8037.58.
+- DNS verification card and guided target form visually inspected at 1440 px
+  desktop and 390 px emulated mobile; no horizontal overflow.
 - These tests do not prove full tenant isolation or hosted safety. DNS is
   onboarding validation, not protection against rebinding when a browser later
   connects.

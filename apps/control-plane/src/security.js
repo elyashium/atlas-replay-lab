@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { isIP } from "node:net";
+import { canonicalHost, isPublicAddress } from "../../../src/net/destination-policy.js";
 
 const scrypt = promisify(scryptCallback);
 const PASSWORD_BYTES = 64;
@@ -51,32 +51,9 @@ export function clearSessionCookie({ secure = false } = {}) {
   return `atlas_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure ? "; Secure" : ""}`;
 }
 
-/** Strictly rejects special-use IPv4/IPv6 destinations before DNS verification. */
-export function isPublicAddress(address) {
-  const version = isIP(address);
-  if (version === 4) {
-    const octets = address.split(".").map(Number);
-    const [a, b] = octets;
-    if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
-    if (a === 100 && b >= 64 && b <= 127) return false;
-    if (a === 169 && b === 254) return false;
-    if (a === 172 && b >= 16 && b <= 31) return false;
-    if (a === 192 && b === 0) return false;
-    if (a === 192 && b === 168) return false;
-    if (a === 198 && (b === 18 || b === 19 || b === 51)) return false;
-    if (a === 203 && b === 0) return false;
-    return true;
-  }
-  if (version === 6) {
-    const normalized = address.toLowerCase();
-    if (normalized === "::" || normalized === "::1") return false;
-    if (normalized.startsWith("::ffff:")) return false;
-    if (/^(fc|fd|fe[89ab])/.test(normalized)) return false;
-    if (normalized.startsWith("2001:db8:")) return false;
-    return normalized.startsWith("2") || normalized.startsWith("3");
-  }
-  return false;
-}
+// Share one special-address policy between CLI preflight and control-plane
+// onboarding so the less complete classifier cannot become the active one.
+export { isPublicAddress };
 
 export function parseOwnedTargetUrl(input) {
   let url;
@@ -84,8 +61,9 @@ export function parseOwnedTargetUrl(input) {
   if (url.protocol !== "https:") throw new Error("hosted targets must use HTTPS");
   if (url.username || url.password || url.search || url.hash) throw new Error("target URL cannot contain credentials, query strings, or fragments");
   if (url.port && url.port !== "443") throw new Error("hosted targets must use HTTPS on the standard port");
-  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || isIP(hostname)) {
+  const parsedHost = canonicalHost(url.hostname);
+  const hostname = parsedHost.value.replace(/\.$/, "");
+  if (!hostname || parsedHost.kind !== "dns" || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") || hostname.endsWith(".internal")) {
     throw new Error("target must use an owned public DNS hostname");
   }
   return { url, hostname };

@@ -151,6 +151,19 @@ function renderTarget(target) {
   const pill = document.createElement("span"); pill.className = `pill${target.verified ? "" : " pending"}`; pill.textContent = target.verified ? "OWNERSHIP VERIFIED" : "VERIFY OWNERSHIP";
   heading.append(strong, pill); card.append(heading);
   const url = document.createElement("p"); url.className = "mono"; url.textContent = target.baseUrl; card.append(url);
+  if (!target.verified && target.verificationToken && target.hostname) {
+    const details = document.createElement("details"); details.className = "verification-record";
+    const summary = document.createElement("summary"); summary.textContent = "Publish DNS TXT ownership record";
+    const instructions = document.createElement("p"); instructions.textContent = "Add this TXT record at your DNS provider, wait for it to propagate, then check verification.";
+    const record = document.createElement("dl");
+    for (const [label, value] of [["Name", `_atlas-verify.${target.hostname}`], ["Type", "TXT"], ["Value", target.verificationToken]]) {
+      const term = document.createElement("dt"); term.textContent = label;
+      const data = document.createElement("dd");
+      const code = document.createElement("code"); code.textContent = value; data.append(code);
+      record.append(term, data);
+    }
+    details.append(summary, instructions, record); card.append(details);
+  }
   if (target.verified) {
     const run = document.createElement("button"); run.type = "button"; run.className = "primary"; run.textContent = "Queue run record";
     run.addEventListener("click", async () => {
@@ -181,7 +194,7 @@ function renderTargetForm() {
     <p class="section-title">DEFINE THE RELEASE CHECK</p>
     <label>Experience name<input name="targetName" value="Owned Web3D staging" maxlength="120" required></label>
     <label>Owned staging URL<input name="targetUrl" type="url" value="https://staging.example.com/" autocomplete="url" required><small>HTTPS only. No credentials, query tokens, or fragments.</small></label>
-    <label>Build or deployment ID<input name="buildId" value="replace-with-deployment-id" maxlength="128" required></label>
+    <label>Immutable build or deployment ID<input name="buildId" value="" maxlength="128" placeholder="Commit SHA, release version, or build number" required><small>Release runs require an immutable identifier; branch names such as main/latest are refused.</small></label>
     <label>Success selector<input name="successSelector" value="[data-experience-ready]" required><small>Visible evidence that the declared experience is ready.</small></label>
     <label>Safe fallback selector<input name="fallbackSelector" value="[data-static-fallback]" required><small>Checked on the selected WebGL-unavailable profile.</small></label>
     <label class="check-option"><input type="checkbox" name="authorizationConsent" required> I own this staging target or have permission to test it</label>

@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { lookup, resolveTxt } from "node:dns/promises";
 import { validateTargetContract } from "../../../src/targets/contract.js";
+import { buildBinding, requireImmutableBuild } from "../../../src/targets/build-binding.js";
+import { policyStamp } from "../../../src/gate/policy.js";
 import { createPool, inTransaction } from "./db.js";
 import { startRetentionMaintenance } from "./maintenance.js";
 import { clearSessionCookie, hashPassword, hashToken, newId, newSecret, parseCookies, parseOwnedTargetUrl, sessionCookie, verifyPassword, isPublicAddress } from "./security.js";
@@ -150,7 +152,7 @@ export function buildApp({
     const { projectId } = request.params;
     const result = await pool.query("SELECT id,name,created_at AS \"createdAt\" FROM projects WHERE organization_id=$1 AND id=$2", [orgId, projectId]);
     if (!result.rowCount) return reply.code(404).send({ error: "project not found" });
-    const targets = await pool.query("SELECT id,base_url AS \"baseUrl\",verified_at IS NOT NULL AS verified,contract->>'name' AS name,created_at AS \"createdAt\" FROM targets WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC", [orgId, projectId]);
+    const targets = await pool.query("SELECT id,base_url AS \"baseUrl\",hostname,verified_at IS NOT NULL AS verified,CASE WHEN verified_at IS NULL THEN verification_token ELSE NULL END AS \"verificationToken\",contract->>'name' AS name,created_at AS \"createdAt\" FROM targets WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC", [orgId, projectId]);
     const runs = await pool.query("SELECT id,target_id AS \"targetId\",status,verdict,contract_version AS \"contractVersion\",created_at AS \"createdAt\",finished_at AS \"finishedAt\" FROM runs WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
     return { project: result.rows[0], targets: targets.rows, runs: runs.rows };
   });
@@ -222,16 +224,24 @@ export function buildApp({
     if (typeof idempotencyKey !== "string" || idempotencyKey.length < 8 || idempotencyKey.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)) {
       return reply.code(400).send({ error: "idempotency-key header (8 to 128 safe characters) is required" });
     }
+    const binding = buildBinding({
+      contract: target.contract,
+      policy: policyStamp(),
+      engine: { name: "RuleBasedDecisionEngine", version: process.env.ATLAS_ENGINE_VERSION ?? "0.1.0" },
+    });
+    const bindingCheck = requireImmutableBuild(binding);
+    if (!bindingCheck.ok) return reply.code(409).send({ error: "target is not bound to immutable release evidence", issues: bindingCheck.issues });
     const id = newId();
     const queued = await inTransaction(pool, async (client) => {
-      const inserted = await client.query("INSERT INTO runs(id,organization_id,project_id,target_id,status,contract_version,contract_snapshot,requested_by,idempotency_key,retention_expires_at) VALUES($1,$2,$3,$4,'queued',$5,$6,$7,$8,now()+interval '30 days') ON CONFLICT (organization_id,idempotency_key) DO NOTHING RETURNING id,status,verdict", [id, orgId, target.project_id, targetId, String(target.contract.schemaVersion), target.contract, user.id, idempotencyKey]);
+      const inserted = await client.query("INSERT INTO runs(id,organization_id,project_id,target_id,status,contract_version,contract_snapshot,binding_snapshot,requested_by,idempotency_key,retention_expires_at) VALUES($1,$2,$3,$4,'queued',$5,$6,$7,$8,$9,now()+interval '30 days') ON CONFLICT (organization_id,idempotency_key) DO NOTHING RETURNING id,target_id AS \"targetId\",status,verdict,binding_snapshot AS binding", [id, orgId, target.project_id, targetId, String(target.contract.schemaVersion), target.contract, binding, user.id, idempotencyKey]);
       if (!inserted.rowCount) {
-        const existing = await client.query("SELECT id,status,verdict FROM runs WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
-        return { run: existing.rows[0], created: false };
+        const existing = await client.query("SELECT id,target_id AS \"targetId\",status,verdict,binding_snapshot AS binding FROM runs WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
+        return { run: existing.rows[0], created: false, conflict: existing.rows[0]?.targetId !== targetId };
       }
-      await audit(client, orgId, user.id, "run.queued", "run", id, { targetId });
-      return { run: inserted.rows[0], created: true };
+      await audit(client, orgId, user.id, "run.queued", "run", id, { targetId, bindingHash: binding.bindingHash });
+      return { run: inserted.rows[0], created: true, conflict: false };
     });
+    if (queued.conflict) return reply.code(409).send({ error: "idempotency-key was already used for a different target" });
     return reply.code(queued.created ? 202 : 200).send({ run: { ...queued.run, message: "Run accepted. Browser execution is not enabled in this deployment." } });
   });
 
@@ -239,7 +249,7 @@ export function buildApp({
     const { orgId, error } = await organizationContext(request, pool);
     if (error) return reply.code(error.status).send({ error: error.message });
     const { runId } = request.params;
-    const found = await pool.query("SELECT id,status,verdict,contract_version AS \"contractVersion\",created_at AS \"createdAt\",started_at AS \"startedAt\",finished_at AS \"finishedAt\",contract_snapshot AS contract FROM runs WHERE organization_id=$1 AND id=$2", [orgId, runId]);
+    const found = await pool.query("SELECT id,status,verdict,contract_version AS \"contractVersion\",created_at AS \"createdAt\",started_at AS \"startedAt\",finished_at AS \"finishedAt\",contract_snapshot AS contract,binding_snapshot AS binding FROM runs WHERE organization_id=$1 AND id=$2", [orgId, runId]);
     if (!found.rowCount) return reply.code(404).send({ error: "run not found" });
     const artifacts = await pool.query("SELECT id,media_type AS \"mediaType\",byte_length AS \"byteLength\",sha256,created_at AS \"createdAt\" FROM artifacts WHERE organization_id=$1 AND run_id=$2 ORDER BY created_at", [orgId, runId]);
     return { run: found.rows[0], artifacts: artifacts.rows, evidenceStatus: "not-run" };
