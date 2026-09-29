@@ -33,8 +33,8 @@ test("Postgres stores consented visual findings by tenant and purges the report 
     },
   });
   try {
-    const write = (path, { body = {}, cookie = "", org = "", headers = {} } = {}) => app.inject({
-      method: "POST", url: path, payload: body,
+    const write = (path, { method = "POST", body = {}, cookie = "", org = "", headers = {} } = {}) => app.inject({
+      method, url: path, payload: body,
       headers: { origin, "content-type": "application/json", ...(cookie ? { cookie } : {}), ...(org ? { "x-atlas-organization": org } : {}), ...headers },
     });
     const created = await write("/v1/auth/register", { body: { email, password: "a sufficiently long visual test password", organizationName: "Visual QA Integration" } });
@@ -56,6 +56,18 @@ test("Postgres stores consented visual findings by tenant and purges the report 
     assert.equal(retry.json().review.id, reviewId);
     assert.equal(visualCalls, 1);
 
+    const findingDisposition = await write(`${route}/${reviewId}/findings/0/disposition`, {
+      method: "PUT", cookie, org: organizationId, body: { disposition: "confirmed" },
+    });
+    assert.equal(findingDisposition.statusCode, 200, findingDisposition.body);
+    assert.equal(findingDisposition.json().disposition, "confirmed");
+    assert.equal(findingDisposition.json().verdictEffect, "none");
+    const sameDisposition = await write(`${route}/${reviewId}/findings/0/disposition`, {
+      method: "PUT", cookie, org: organizationId, body: { disposition: "confirmed" },
+    });
+    assert.equal(sameDisposition.json().changed, false);
+    assert.equal((await pool.query("SELECT id FROM audit_events WHERE resource_id=$1 AND action='visual-finding.disposition-set'", [reviewId])).rowCount, 1);
+
     const source = "export function Button(){ return 'private source note'; }\n";
     const codePath = `${route}/${reviewId}/code-proposals`;
     const codeBody = { sourceConsent: true, fileName: "Button.jsx", source, task: "Adjust visual hierarchy." };
@@ -74,6 +86,7 @@ test("Postgres stores consented visual findings by tenant and purges the report 
     const detail = await app.inject({ method: "GET", url: `/v1/projects/${projectId}`, headers: { cookie, "x-atlas-organization": organizationId } });
     assert.equal(detail.statusCode, 200, detail.body);
     assert.equal(detail.json().visualReviews[0].id, reviewId);
+    assert.equal(detail.json().visualReviews[0].findingDispositions[0].disposition, "confirmed");
     assert.equal(detail.json().codeProposals[0].id, proposalId);
     const persisted = await pool.query("SELECT result::text, screenshot_sha256, request_sha256 FROM visual_reviews WHERE id=$1", [reviewId]);
     assert.equal(persisted.rowCount, 1);
@@ -87,6 +100,10 @@ test("Postgres stores consented visual findings by tenant and purges the report 
     const egressAudit = await pool.query("SELECT details FROM audit_events WHERE resource_id=$1 AND action='visual-review.completed'", [reviewId]);
     assert.equal(egressAudit.rowCount, 1);
     assert.equal(egressAudit.rows[0].details.egressConsent, true);
+    const dispositionAudit = await pool.query("SELECT details FROM audit_events WHERE resource_id=$1 AND action='visual-finding.disposition-set'", [reviewId]);
+    assert.equal(dispositionAudit.rowCount, 1);
+    assert.equal(dispositionAudit.rows[0].details.findingIndex, 0);
+    assert.equal(dispositionAudit.rows[0].details.disposition, "confirmed");
     const sourceAudit = await pool.query("SELECT details FROM audit_events WHERE resource_id=$1 AND action='code-proposal.created'", [proposalId]);
     assert.equal(sourceAudit.rowCount, 1);
     assert.equal(sourceAudit.rows[0].details.sourceEgressConsent, true);
@@ -101,10 +118,23 @@ test("Postgres stores consented visual findings by tenant and purges the report 
     assert.equal(otherCodeProposal.statusCode, 404);
 
     await pool.query("UPDATE code_proposals SET retention_expires_at=now()-interval '1 second' WHERE id=$1", [proposalId]);
+    const expiredProposalRetry = await write(codePath, { cookie, org: organizationId, body: codeBody, headers: codeHeaders });
+    assert.equal(expiredProposalRetry.statusCode, 410, expiredProposalRetry.body);
     await pool.query("UPDATE visual_reviews SET retention_expires_at=now()-interval '1 second' WHERE id=$1", [reviewId]);
+    const expiredDetail = await app.inject({ method: "GET", url: `/v1/projects/${projectId}`, headers: { cookie, "x-atlas-organization": organizationId } });
+    assert.equal(expiredDetail.statusCode, 200, expiredDetail.body);
+    assert.equal(expiredDetail.json().visualReviews.some((item) => item.id === reviewId), false);
+    assert.equal(expiredDetail.json().findingDispositions.some((item) => item.reviewId === reviewId), false);
+    assert.equal(expiredDetail.json().codeProposals.some((item) => item.id === proposalId), false);
+    const expiredReviewRetry = await write(route, { cookie, org: organizationId, body: payload, headers });
+    assert.equal(expiredReviewRetry.statusCode, 410, expiredReviewRetry.body);
+    const newProposalFromExpiredReview = await write(codePath, { cookie, org: organizationId, body: codeBody, headers: { "idempotency-key": "expired-review-code-proposal" } });
+    assert.equal(newProposalFromExpiredReview.statusCode, 404, newProposalFromExpiredReview.body);
+    assert.equal(codeCalls, 1, "expired findings cannot trigger fresh source-code provider egress");
     await purgeExpiredRecords(pool);
     assert.equal((await pool.query("SELECT id FROM code_proposals WHERE id=$1", [proposalId])).rowCount, 0);
     assert.equal((await pool.query("SELECT id FROM visual_reviews WHERE id=$1", [reviewId])).rowCount, 0);
+    assert.equal((await pool.query("SELECT visual_review_id FROM visual_finding_dispositions WHERE visual_review_id=$1", [reviewId])).rowCount, 0);
     assert.equal((await pool.query("SELECT id FROM audit_events WHERE resource_id=$1 AND action='visual-review.retention.purged'", [reviewId])).rowCount, 1);
     assert.equal((await pool.query("SELECT id FROM audit_events WHERE resource_id=$1 AND action='code-proposal.retention.purged'", [proposalId])).rowCount, 1);
   } finally {

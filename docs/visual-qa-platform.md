@@ -202,6 +202,13 @@ Uploaded PNGs remain explicitly marked as unlinked. This improves provenance
 for local review, but it is not a calibrated visual evaluation or a release
 gate.
 
+Teams can label each model suggestion as confirmed, accepted-risk,
+false-positive, or needs-follow-up. These labels are organization-role scoped,
+stored without free-text comments, and audited with actor and update time. They
+are evaluation inputs, not model ground truth and not release-policy inputs.
+Labels are retained with the review and deleted when its 30-day record expires;
+the minimal audit event remains under the existing audit-retention policy.
+
 A completed review with findings can also start a separate-consent code
 proposal. The route sends one source file (up to 64 KiB), validated findings,
 and an optional task to Groq. Common credential patterns are blocked, but this

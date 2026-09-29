@@ -94,6 +94,12 @@ small { font-weight: 400; color: var(--muted); }
 .visual-issue p { margin: 5px 0; color: #43534f; line-height: 1.5; overflow-wrap: anywhere; }
 .visual-issue small, .review-hashes { color: var(--muted); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .review-note, .review-criteria { font-size: 11px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.finding-disposition { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; margin-top: 9px; }
+.finding-disposition label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
+.finding-disposition select { min-height: 36px; max-width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--ink); }
+.finding-disposition .text-button { min-height: 36px; padding: 7px 10px; border: 1px solid #bdcec7; border-radius: 7px; }
+.finding-disposition .disposition-status { flex-basis: 100%; color: var(--muted); }
+.finding-disposition .disposition-note { flex-basis: 100%; color: var(--muted); }
 .review-hashes { display: block; margin-top: 12px; }
 .code-proposal-form { min-width: 0; display: grid; gap: 11px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
 .code-proposal-form .section-title { margin: 0; }

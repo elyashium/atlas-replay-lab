@@ -173,11 +173,13 @@ export function buildApp({
     if (!result.rowCount) return reply.code(404).send({ error: "project not found" });
     const targets = await pool.query("SELECT id,base_url AS \"baseUrl\",hostname,verified_at IS NOT NULL AS verified,CASE WHEN verified_at IS NULL THEN verification_token ELSE NULL END AS \"verificationToken\",contract->>'name' AS name,created_at AS \"createdAt\" FROM targets WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC", [orgId, projectId]);
     const runs = await pool.query("SELECT r.id,r.target_id AS \"targetId\",r.status,r.verdict,r.error_code AS \"errorCode\",r.contract_version AS \"contractVersion\",r.created_at AS \"createdAt\",r.started_at AS \"startedAt\",r.finished_at AS \"finishedAt\",r.result_snapshot AS result,COALESCE((SELECT json_agg(json_build_object('id',a.id,'mediaType',a.media_type,'byteLength',a.byte_length,'sha256',a.sha256,'name',regexp_replace(a.object_key,'^.*/','')) ORDER BY a.object_key) FROM artifacts a WHERE a.organization_id=r.organization_id AND a.run_id=r.id),'[]'::json) AS artifacts FROM runs r WHERE r.organization_id=$1 AND r.project_id=$2 ORDER BY r.created_at DESC LIMIT 50", [orgId, projectId]);
-    const visualReviews = await pool.query("SELECT id,status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",screenshot_sha256 AS \"screenshotSha256\",reference_sha256 AS \"referenceSha256\",source_run_id AS \"sourceRunId\",source_artifact_id AS \"sourceArtifactId\",source_artifact_name AS \"sourceArtifactName\",result,error,created_at AS \"createdAt\" FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
-    const codeProposals = await pool.query("SELECT id,visual_review_id AS \"visualReviewId\",status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",file_name AS \"fileName\",source_sha256 AS \"sourceSha256\",result,error,created_at AS \"createdAt\" FROM code_proposals WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
+    const visualReviews = await pool.query("SELECT id,status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",screenshot_sha256 AS \"screenshotSha256\",reference_sha256 AS \"referenceSha256\",source_run_id AS \"sourceRunId\",source_artifact_id AS \"sourceArtifactId\",source_artifact_name AS \"sourceArtifactName\",result,error,created_at AS \"createdAt\" FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 AND retention_expires_at>now() ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
+    const findingDispositions = await pool.query("SELECT d.visual_review_id AS \"reviewId\",d.finding_index AS \"index\",d.disposition,d.updated_at AS \"updatedAt\" FROM visual_finding_dispositions d JOIN visual_reviews v ON v.organization_id=d.organization_id AND v.id=d.visual_review_id AND v.retention_expires_at>now() WHERE d.organization_id=$1 AND v.project_id=$2 ORDER BY d.visual_review_id,d.finding_index", [orgId, projectId]);
+    const codeProposals = await pool.query("SELECT id,visual_review_id AS \"visualReviewId\",status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",file_name AS \"fileName\",source_sha256 AS \"sourceSha256\",result,error,created_at AS \"createdAt\" FROM code_proposals WHERE organization_id=$1 AND project_id=$2 AND retention_expires_at>now() ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
     const shares = await pool.query("SELECT s.id,s.run_id AS \"runId\",s.include_summary AS \"includeSummary\",s.artifact_scope AS \"artifactIds\",s.expires_at AS \"expiresAt\",s.revoked_at AS \"revokedAt\",s.created_at AS \"createdAt\",s.access_count AS \"accessCount\",s.last_accessed_at AS \"lastAccessedAt\",COALESCE((SELECT json_agg(json_build_object('action',e.action,'createdAt',e.created_at,'artifactId',e.details->>'artifactId') ORDER BY e.created_at DESC) FROM (SELECT action,created_at,details FROM audit_events WHERE organization_id=s.organization_id AND resource_type='share-link' AND resource_id=s.id AND action IN ('share-link.opened','share-link.artifact-downloaded') ORDER BY created_at DESC LIMIT 25) e),'[]'::json) AS \"accessLog\" FROM share_links s JOIN runs r ON r.organization_id=s.organization_id AND r.id=s.run_id WHERE s.organization_id=$1 AND r.project_id=$2 ORDER BY s.created_at DESC", [orgId, projectId]);
     for (const run of runs.rows) run.clientShares = shares.rows.filter((share) => share.runId === run.id);
-    return { project: result.rows[0], targets: targets.rows, runs: runs.rows, visualReviews: visualReviews.rows, codeProposals: codeProposals.rows };
+    for (const review of visualReviews.rows) review.findingDispositions = findingDispositions.rows.filter((item) => item.reviewId === review.id);
+    return { project: result.rows[0], targets: targets.rows, runs: runs.rows, visualReviews: visualReviews.rows, findingDispositions: findingDispositions.rows, codeProposals: codeProposals.rows };
   });
 
   app.post("/v1/projects/:projectId/visual-reviews", { bodyLimit: 28 * 1024 * 1024 }, async (request, reply) => {
@@ -237,9 +239,10 @@ export function buildApp({
       sourceArtifact: sourceArtifact ? { runId: sourceArtifact.runId, artifactId: sourceArtifact.artifactId } : null,
     })).digest("hex");
     return withIdempotencyLock(visualReviewLocks, idempotencyPool, `${orgId}:${idempotencyKey}`, async () => {
-      const duplicate = await pool.query("SELECT id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\",status,result,error FROM visual_reviews WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
+      const duplicate = await pool.query("SELECT id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\",status,result,error,retention_expires_at>now() AS active FROM visual_reviews WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
       if (duplicate.rowCount) {
         const previous = duplicate.rows[0];
+        if (previous.active === false) return reply.code(410).send({ error: "this idempotent visual review has expired" });
         if (previous.projectId !== projectId || previous.requestSha256 !== requestSha256) return reply.code(409).send({ error: "idempotency-key was already used for a different visual review" });
         return reply.code(200).send({ review: previous });
       }
@@ -292,6 +295,56 @@ export function buildApp({
     });
   });
 
+  app.put("/v1/projects/:projectId/visual-reviews/:reviewId/findings/:findingIndex/disposition", async (request, reply) => {
+    const { user, orgId, role, error } = await organizationContext(request, pool);
+    if (error) return reply.code(error.status).send({ error: error.message });
+    if (!canWrite(role)) return reply.code(403).send({ error: "organization editor role required" });
+    const { projectId, reviewId } = request.params;
+    const findingIndex = Number(request.params.findingIndex);
+    if (!UUID.test(projectId) || !UUID.test(reviewId) || !Number.isSafeInteger(findingIndex) || findingIndex < 0 || findingIndex > 4) {
+      return reply.code(400).send({ error: "project, review, and finding identifiers are invalid" });
+    }
+    const body = asObject(request.body);
+    const allowedDispositions = new Set(["confirmed", "accepted-risk", "false-positive", "needs-follow-up"]);
+    if (body.disposition !== null && !allowedDispositions.has(body.disposition)) {
+      return reply.code(400).send({ error: "disposition must be confirmed, accepted-risk, false-positive, needs-follow-up, or null to clear" });
+    }
+    const reviewed = await pool.query(
+      "SELECT status,result FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 AND id=$3 AND retention_expires_at>now()",
+      [orgId, projectId, reviewId],
+    );
+    if (!reviewed.rowCount) return reply.code(404).send({ error: "visual review not found" });
+    if (reviewed.rows[0].status !== "complete") return reply.code(409).send({ error: "inconclusive visual reviews cannot receive finding dispositions" });
+    const issues = reviewed.rows[0].result?.issues;
+    if (!Array.isArray(issues) || findingIndex >= issues.length) return reply.code(404).send({ error: "visual finding not found" });
+
+    const outcome = await inTransaction(pool, async (client) => {
+      const parent = await client.query("SELECT id FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 AND id=$3 AND retention_expires_at>now() FOR UPDATE", [orgId, projectId, reviewId]);
+      if (!parent.rowCount) return { disposition: null, changed: false, missing: true };
+      const current = await client.query(
+        "SELECT disposition FROM visual_finding_dispositions WHERE organization_id=$1 AND visual_review_id=$2 AND finding_index=$3 FOR UPDATE",
+        [orgId, reviewId, findingIndex],
+      );
+      const previous = current.rows[0]?.disposition ?? null;
+      if (previous === body.disposition) return { disposition: previous, changed: false };
+      if (body.disposition === null) {
+        await client.query(
+          "DELETE FROM visual_finding_dispositions WHERE organization_id=$1 AND visual_review_id=$2 AND finding_index=$3",
+          [orgId, reviewId, findingIndex],
+        );
+      } else {
+        await client.query(
+          "INSERT INTO visual_finding_dispositions(organization_id,visual_review_id,finding_index,disposition,actor_user_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT(organization_id,visual_review_id,finding_index) DO UPDATE SET disposition=EXCLUDED.disposition,actor_user_id=EXCLUDED.actor_user_id,updated_at=now()",
+          [orgId, reviewId, findingIndex, body.disposition, user.id],
+        );
+      }
+      await audit(client, orgId, user.id, body.disposition === null ? "visual-finding.disposition-cleared" : "visual-finding.disposition-set", "visual-review", reviewId, { findingIndex, previousDisposition: previous, disposition: body.disposition });
+      return { disposition: body.disposition, changed: true };
+    });
+    if (outcome.missing) return reply.code(404).send({ error: "visual review not found" });
+    return { reviewId, findingIndex, disposition: outcome.disposition, changed: outcome.changed, verdictEffect: "none" };
+  });
+
   app.post("/v1/projects/:projectId/visual-reviews/:reviewId/code-proposals", async (request, reply) => {
     const { user, orgId, role, error } = await organizationContext(request, pool);
     if (error) return reply.code(error.status).send({ error: error.message });
@@ -314,7 +367,7 @@ export function buildApp({
     if (body.task !== undefined && (typeof body.task !== "string" || body.task.trim().length > 1200)) return reply.code(400).send({ error: "code task must be text no longer than 1200 characters" });
     if (containsCredentialLikeText(body.source)) return reply.code(400).send({ error: "source contains common credential-like material; remove secrets before requesting a proposal" });
     const sourceSha256 = createHash("sha256").update(body.source, "utf8").digest("hex");
-    const reviewed = await pool.query("SELECT id,status,result FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 AND id=$3", [orgId, projectId, reviewId]);
+    const reviewed = await pool.query("SELECT id,status,result FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 AND id=$3 AND retention_expires_at>now()", [orgId, projectId, reviewId]);
     if (!reviewed.rowCount) return reply.code(404).send({ error: "visual review not found" });
     if (reviewed.rows[0].status !== "complete") return reply.code(409).send({ error: "an inconclusive visual review cannot drive a code proposal" });
     let findings;
@@ -324,9 +377,10 @@ export function buildApp({
     const task = typeof body.task === "string" ? body.task.trim() : undefined;
     const requestSha256 = createHash("sha256").update(JSON.stringify({ reviewId, fileName: body.fileName, sourceSha256, task: task ?? null })).digest("hex");
     return withIdempotencyLock(codeProposalLocks, idempotencyPool, `${orgId}:${idempotencyKey}`, async () => {
-      const duplicate = await pool.query("SELECT id,project_id AS \"projectId\",visual_review_id AS \"visualReviewId\",request_sha256 AS \"requestSha256\",status,result,error FROM code_proposals WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
+      const duplicate = await pool.query("SELECT id,project_id AS \"projectId\",visual_review_id AS \"visualReviewId\",request_sha256 AS \"requestSha256\",status,result,error,retention_expires_at>now() AS active FROM code_proposals WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
       if (duplicate.rowCount) {
         const previous = duplicate.rows[0];
+        if (previous.active === false) return reply.code(410).send({ error: "this idempotent code proposal has expired" });
         if (previous.projectId !== projectId || previous.visualReviewId !== reviewId || previous.requestSha256 !== requestSha256) return reply.code(409).send({ error: "idempotency-key was already used for a different code proposal" });
         return reply.code(200).send({ proposal: previous });
       }
@@ -780,6 +834,12 @@ const OPENAPI = {
       parameters: [{ in: "header", name: "Idempotency-Key", required: true, schema: { type: "string", minLength: 8, maxLength: 128 } }, { in: "header", name: "x-atlas-organization", required: true, schema: { type: "string", format: "uuid" } }],
       requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["providerConsent", "imageBase64"], properties: { providerConsent: { const: true }, imageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png", description: "Maximum decoded size 10 MiB; PNG dimensions capped." }, sourceArtifact: { type: "object", required: ["runId", "artifactId"], properties: { runId: { type: "string", format: "uuid" }, artifactId: { type: "string", format: "uuid" } }, description: "Optional exact run screenshot provenance; server verifies same-project PNG identity and SHA-256." }, referenceImageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png" }, criteria: { type: "string", maxLength: 1200 } } } } } },
       responses: { "201": { description: "Advisory review and optional deterministic pixel comparison stored for 30 days" }, "400": { description: "Invalid PNG, dimensions, criteria, or missing egress consent" }, "429": { description: "Daily organization quota reached" }, "503": { description: "Groq model is not configured" } },
+    } },
+    "/v1/projects/{projectId}/visual-reviews/{reviewId}/findings/{findingIndex}/disposition": { put: {
+      summary: "Record or clear an audited human disposition for one advisory finding; never affects release verdict",
+      parameters: [{ in: "header", name: "x-atlas-organization", required: true, schema: { type: "string", format: "uuid" } }],
+      requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["disposition"], properties: { disposition: { type: ["string", "null"], enum: ["confirmed", "accepted-risk", "false-positive", "needs-follow-up", null] } } } } } },
+      responses: { "200": { description: "Disposition saved; response explicitly declares verdictEffect none" }, "400": { description: "Unsupported disposition or index" }, "403": { description: "Organization editor role required" }, "404": { description: "Project, review, or finding not found" } },
     } },
     "/v1/projects/{projectId}/visual-reviews/{reviewId}/code-proposals": { post: {
       summary: "Create a separate-consent, single-file code proposal from one completed visual review; never apply or test it",

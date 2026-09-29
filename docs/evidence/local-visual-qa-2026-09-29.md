@@ -141,6 +141,32 @@ no horizontal overflow; both rendered histories showed the run and exact
 artifact basename as source provenance. The preview image/model remain
 synthetic fixtures, and no provider call was made.
 
+## 2026-09-30 continuation: human finding dispositions
+
+Migration `011_visual_finding_dispositions.sql` adds a reversible, tenant-scoped
+table for `confirmed`, `accepted-risk`, `false-positive`, and `needs-follow-up`
+labels. There is no free-text note. Only organization editors can update a
+finding from a completed visual review. Updates serialize on the review row,
+same-value retries create no duplicate audit entry, changed/cleared values are
+audited, and the labels cascade-delete with the review at its enforced expiry.
+The project endpoint returns current labels. The rule release decision remains
+separate and the UI says so beside each selector.
+
+The Postgres integration test applied a disposition, retried it, checked the
+single audit entry and project history, then exercised review retention cleanup.
+The browser preview saved a synthetic `confirmed` label and reloaded it at both
+1440 px and 390 px; neither viewport had horizontal overflow. I inspected both
+visual-review screenshots. `node --test
+apps/control-plane/tests/visual-review-api.test.js` passed **8/8** and the
+Postgres visual-review integration passed **1/1**. Provider calls remained
+mocked; these labels are not evaluated ground truth or a quality benchmark.
+
+After the final run-lock and retention checks were added,
+`npm test --prefix apps/control-plane` passed **39/39** and root `npm test`
+passed **399/399**. The local PostgreSQL database has migrations through 011.
+The synthetic browser preview again saved/reloaded `confirmed` at desktop and
+mobile widths without horizontal overflow; provider calls were mocked.
+
 ## Reproduce local checks
 
 ```powershell

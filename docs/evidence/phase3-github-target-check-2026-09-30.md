@@ -50,6 +50,21 @@ Atlas report.
   worker/browser outage, rerun history, and the deployed build identifier
   before calling this a validated release integration.
 
+## 2026-09-30 follow-up: incomplete profile evidence
+
+The verdict mapper now rejects a `HOLD` classification when any required
+profile row is absent, malformed, errored, missing a pass/fail journey, or lacks
+a finite score. This prevents a real failure on one profile from masking a
+harness failure on another profile; the Check Run becomes `INCONCLUSIVE` and
+fails even in advisory mode. The evidence count in the Check Run summary uses
+the same completeness test, so undefined journey/score fields cannot inflate
+the completed-profile count.
+
+`node --test tests/github-target-check.test.js` passed **6/6** with mocked
+GitHub and CLI calls, including a mixed failed-profile plus harness-error case.
+The integration remains a local preview: no real GitHub Check Run, controlled
+PR, or external owned staging target was exercised.
+
 ## Primary references
 
 - [GitHub Actions workflow permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions)

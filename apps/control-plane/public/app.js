@@ -604,6 +604,7 @@ function renderReviewResult(review, container, compact = false, proposals = []) 
     const suggestion = document.createElement("p"); suggestion.textContent = `Suggestion: ${issue.recommendation}`;
     const confidence = document.createElement("small"); confidence.textContent = `Model confidence: ${issue.confidence} (self-reported, not calibrated)${issue.region ? ` · region ${issue.region.x}, ${issue.region.y}, ${issue.region.width}, ${issue.region.height} / 1000` : " · no region supplied"}`;
     item.append(label, observation, suggestion, confidence); card.append(item);
+    if (review.status === "complete" && review.id) renderFindingDisposition(review, index, item);
   }
   if (review.status === "complete" && issues.length) renderCodeProposalForm(review, card, proposals);
   for (const proposal of proposals) renderCodeProposal(proposal, card);
@@ -611,6 +612,40 @@ function renderReviewResult(review, container, compact = false, proposals = []) 
   const hashes = document.createElement("small"); hashes.className = "review-hashes"; hashes.textContent = `Screenshot SHA-256 ${review.screenshotSha256 ?? review.result?.imageSha256 ?? "unavailable"}${review.referenceSha256 ?? review.result?.referenceSha256 ? ` · reference SHA-256 ${review.referenceSha256 ?? review.result.referenceSha256}` : ""} · verdict effect none`;
   card.append(hashes); container.append(card);
   return card;
+}
+
+function renderFindingDisposition(review, index, container) {
+  const saved = (review.findingDispositions ?? []).find((item) => item.index === index)?.disposition ?? "";
+  const form = document.createElement("form"); form.className = "finding-disposition";
+  const label = document.createElement("label"); label.textContent = `Team review for finding ${index + 1}`;
+  const select = document.createElement("select"); select.setAttribute("aria-label", `Team review for finding ${index + 1}`);
+  const choices = [
+    ["", "Not reviewed"],
+    ["confirmed", "Confirmed"],
+    ["accepted-risk", "Accepted risk"],
+    ["false-positive", "False positive"],
+    ["needs-follow-up", "Needs follow-up"],
+  ];
+  for (const [value, text] of choices) {
+    const option = document.createElement("option"); option.value = value; option.textContent = text; option.selected = value === saved; select.append(option);
+  }
+  label.append(select);
+  const submit = document.createElement("button"); submit.type = "submit"; submit.className = "text-button"; submit.textContent = "Save review";
+  const note = document.createElement("small"); note.className = "disposition-note"; note.textContent = "Team evaluation label only; it does not change the release verdict.";
+  const status = document.createElement("small"); status.setAttribute("role", "status"); status.className = "disposition-status";
+  form.append(label, submit, note, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault(); submit.disabled = true; status.textContent = "Saving team disposition…";
+    try {
+      await api(`/v1/projects/${encodeURIComponent(selectedProject)}/visual-reviews/${encodeURIComponent(review.id)}/findings/${index}/disposition`, {
+        method: "PUT", body: JSON.stringify({ disposition: select.value || null }),
+      });
+      status.textContent = "Saved. This label does not affect the release verdict.";
+      await refreshSelectedProject();
+    } catch (error) { status.textContent = error.message; }
+    finally { submit.disabled = false; }
+  });
+  container.append(form);
 }
 
 function renderFindingOverlay(file, issues, card) {

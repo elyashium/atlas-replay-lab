@@ -15,11 +15,20 @@ export function verdictFromEvidence({ gate, matrixExitCode, targetBuildId }) {
   const required = targetDecision?.requiredProfiles;
   const evidence = targetDecision?.evidence;
   if (!Array.isArray(required) || required.length === 0 || !Array.isArray(evidence) || evidence.length !== required.length) return "INCONCLUSIVE";
+  if (!evidence.every((row) => row && typeof row === "object" && !Array.isArray(row))) return "INCONCLUSIVE";
   if (new Set(required).size !== required.length || new Set(evidence.map((row) => row.profileId)).size !== required.length) return "INCONCLUSIVE";
   if (required.some((profileId) => !evidence.some((row) => row.profileId === profileId))) return "INCONCLUSIVE";
-  if (gate.decision === "ship" && gate.shipped === true && targetDecision.verdict === "SHIP" && evidence.every((row) => row.runId && !row.error && row.journey === "pass" && Number.isFinite(row.score))) return "SHIP";
+  if (!evidence.every(isCompleteProfileEvidence)) return "INCONCLUSIVE";
+  if (gate.decision === "ship" && gate.shipped === true && targetDecision.verdict === "SHIP" && evidence.every((row) => row.journey === "pass")) return "SHIP";
   if (gate.decision === "hold" && gate.shipped === false && targetDecision.verdict === "HOLD") return "HOLD";
   return "INCONCLUSIVE";
+}
+
+/** A gate result with any quarantined profile is inconclusive, even if another profile failed. */
+export function isCompleteProfileEvidence(row) {
+  return Boolean(row && typeof row === "object" && typeof row.profileId === "string" && row.profileId &&
+    typeof row.runId === "string" && row.runId && !row.error &&
+    (row.journey === "pass" || row.journey === "fail") && Number.isFinite(row.score));
 }
 
 /** @param {{ verdict: TargetVerdict, mode: "advisory" | "blocking", buildId: string, completedProfiles: number, requiredProfiles: number, reason?: string }} input */

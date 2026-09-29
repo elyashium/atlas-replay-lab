@@ -125,6 +125,14 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
   stored as unlinked. Migration `010_visual_review_provenance.sql` adds these
   optional fields; image bytes remain unpersisted. This is provenance for the
   synchronous local review feature, not a durable visual evaluation job.
+- Reviewers can set/replace/clear one of four bounded finding dispositions via
+  `PUT /v1/projects/{projectId}/visual-reviews/{reviewId}/findings/{index}/disposition`.
+  Only editor roles can write. Each actual change is audited; repeated identical
+  PUTs are idempotent. The project detail endpoint returns current labels, and
+  the UI states they do not affect the release verdict. Migration
+  `011_visual_finding_dispositions.sql` is reversible; labels cascade-delete
+  with their 30-day visual review record. No free-text reviewer comment is
+  collected. This does not yet make the labels a calibrated benchmark.
 
 ## Recommended next work (keep hosted workers disabled)
 

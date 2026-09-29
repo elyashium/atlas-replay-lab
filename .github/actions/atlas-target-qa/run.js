@@ -2,7 +2,7 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { checkRunConclusion, verdictFromEvidence } from "../../../src/github/target-check.js";
+import { checkRunConclusion, isCompleteProfileEvidence, verdictFromEvidence } from "../../../src/github/target-check.js";
 
 const SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i;
 
@@ -74,7 +74,7 @@ export async function runAction(env = process.env, dependencies = {}) {
 
   const evidence = Array.isArray(gate?.targetDecision?.evidence) ? gate.targetDecision.evidence : [];
   const requiredProfiles = Array.isArray(gate?.targetDecision?.requiredProfiles) ? gate.targetDecision.requiredProfiles.length : evidence.length;
-  const completedProfiles = evidence.filter((row) => row.runId && !row.error && row.journey !== null && row.score !== null).length;
+  const completedProfiles = evidence.filter(isCompleteProfileEvidence).length;
   const result = checkRunConclusion({ verdict, mode, buildId, completedProfiles, requiredProfiles, ...(reason ? { reason } : {}) });
   await completeCheck(env, token, repository, check.id, result, request);
   await writeStepSummary(env.GITHUB_STEP_SUMMARY, result.summary);

@@ -14,16 +14,22 @@ const png = encodePng({ width: 2, height: 2, data: Buffer.from([20, 30, 40, 255,
 
 function reviewPool({ role = "owner", sourceArtifact = null } = {}) {
   const reviews = new Map();
+  const reviewRecords = new Map();
+  const dispositions = new Map();
   const calls = [];
   let quota = 0;
   const pool = {
-    reviews, calls,
+    reviews, reviewRecords, dispositions, calls,
     async query(sql, params = []) {
       calls.push({ sql, params });
       if (sql.includes("SELECT u.id,u.email FROM sessions")) return { rows: [{ id: "user-1", email: "qa@example.org" }], rowCount: 1 };
       if (sql.includes("SELECT role FROM memberships")) return { rows: [{ role }], rowCount: 1 };
       if (sql.includes("SELECT id FROM projects WHERE organization_id=$1 AND id=$2")) return { rows: [{ id: projectId }], rowCount: 1 };
       if (sql.includes("SELECT a.sha256,regexp_replace")) return sourceArtifact && params[1] === projectId ? { rows: [sourceArtifact], rowCount: 1 } : { rows: [], rowCount: 0 };
+      if (sql.includes("SELECT status,result FROM visual_reviews")) {
+        const row = reviewRecords.get(params[2]);
+        return row && params[1] === projectId ? { rows: [row], rowCount: 1 } : { rows: [], rowCount: 0 };
+      }
       if (sql.includes("SELECT id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\"")) {
         const row = reviews.get(params[1]);
         return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
@@ -46,7 +52,21 @@ function reviewPool({ role = "owner", sourceArtifact = null } = {}) {
             createdAt: "2026-09-29T00:00:00.000Z",
           };
           reviews.set(params[9], row);
+          reviewRecords.set(params[0], row);
           return { rows: [row], rowCount: 1 };
+        }
+        if (sql.includes("SELECT id FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 AND id=$3 FOR UPDATE")) return { rows: [{ id: params[2] }], rowCount: 1 };
+        if (sql.includes("SELECT disposition FROM visual_finding_dispositions")) {
+          const value = dispositions.get(`${params[1]}:${params[2]}`);
+          return { rows: value ? [{ disposition: value }] : [], rowCount: value ? 1 : 0 };
+        }
+        if (sql.includes("INSERT INTO visual_finding_dispositions")) {
+          dispositions.set(`${params[1]}:${params[2]}`, params[3]);
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes("DELETE FROM visual_finding_dispositions")) {
+          dispositions.delete(`${params[1]}:${params[2]}`);
+          return { rows: [], rowCount: 1 };
         }
         return { rows: [], rowCount: 1 };
       }, release() {} };
@@ -79,6 +99,48 @@ test("visual review requires consent, valid capped PNGs, and an idempotency key 
     assert.equal(noKey.statusCode, 400);
     assert.equal(providerCalls, 0);
   } finally { await app.close(); }
+});
+
+test("team finding dispositions are authorized, auditable, replaceable, and verdict-neutral", async () => {
+  const pool = reviewPool();
+  const app = buildApp({ pool, appOrigin: origin, groqApiKey: "test-only", visualReviewer: async () => ({
+    provider: "groq", requestedModel: "qwen/test", returnedModel: "qwen/test",
+    issues: [{ category: "hierarchy", kind: "subjective", severity: "minor", confidence: "medium", observation: "Fixture finding.", recommendation: "Review visually.", region: null }], verdictEffect: "none",
+  }) });
+  try {
+    const created = await request(app, { providerConsent: true, imageBase64: png.toString("base64") });
+    const reviewId = created.json().review.id;
+    const set = (disposition) => app.inject({
+      method: "PUT", url: `/v1/projects/${projectId}/visual-reviews/${reviewId}/findings/0/disposition`,
+      headers: { origin, "content-type": "application/json", cookie, "x-atlas-organization": orgId },
+      payload: { disposition },
+    });
+    const confirmed = await set("confirmed");
+    assert.equal(confirmed.statusCode, 200, confirmed.body);
+    assert.equal(confirmed.json().disposition, "confirmed");
+    assert.equal(confirmed.json().verdictEffect, "none");
+    assert.equal(pool.dispositions.get(`${reviewId}:0`), "confirmed");
+    const repeated = await set("confirmed");
+    assert.equal(repeated.json().changed, false);
+    const replaced = await set("false-positive");
+    assert.equal(replaced.json().changed, true);
+    assert.equal(pool.dispositions.get(`${reviewId}:0`), "false-positive");
+    const invalid = await set("ship");
+    assert.equal(invalid.statusCode, 400);
+    const missing = await app.inject({ method: "PUT", url: `/v1/projects/${projectId}/visual-reviews/${reviewId}/findings/1/disposition`, headers: { origin, "content-type": "application/json", cookie, "x-atlas-organization": orgId }, payload: { disposition: "confirmed" } });
+    assert.equal(missing.statusCode, 404);
+    const clear = await set(null);
+    assert.equal(clear.json().disposition, null);
+    assert.equal(pool.dispositions.has(`${reviewId}:0`), false);
+    const audits = pool.calls.filter((call) => ["visual-finding.disposition-set", "visual-finding.disposition-cleared"].includes(call.params[2]));
+    assert.equal(audits.length, 3, "same-state retries do not add duplicate audit events");
+  } finally { await app.close(); }
+
+  const viewer = buildApp({ pool: reviewPool({ role: "viewer" }), appOrigin: origin, groqApiKey: "test-only" });
+  try {
+    const denied = await viewer.inject({ method: "PUT", url: `/v1/projects/${projectId}/visual-reviews/${runId}/findings/0/disposition`, headers: { origin, "content-type": "application/json", cookie, "x-atlas-organization": orgId }, payload: { disposition: "confirmed" } });
+    assert.equal(denied.statusCode, 403);
+  } finally { await viewer.close(); }
 });
 
 test("consented review stores hashes and advisory findings, not the uploaded screenshot, and retries are idempotent", async () => {
