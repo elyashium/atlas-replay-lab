@@ -65,7 +65,7 @@ export async function authorizeEgressConnect(authority, allowedOrigins, opts = {
  * have network policy that permits browser egress only to this proxy; otherwise
  * browser flags are defense in depth rather than an isolation boundary.
  *
- * @param {{ allowedOrigins: string[]; host?: string; port?: number; lookupAll?: (hostname: string) => Promise<string[]>; lookupTimeoutMs?: number; maxTunnels?: number; dial?: (address: string, port: number) => net.Socket }} opts
+ * @param {{ allowedOrigins: string[]; host?: string; port?: number; lookupAll?: (hostname: string) => Promise<string[]>; lookupTimeoutMs?: number; maxTunnels?: number; dial?: (address: string, port: number) => net.Socket; onDecision?: (allowed: boolean) => void }} opts
  */
 export async function startEgressProxy(opts) {
   if (!opts || !Array.isArray(opts.allowedOrigins) || !opts.allowedOrigins.length) throw new Error("a non-empty per-job HTTPS origin allowlist is required");
@@ -85,11 +85,15 @@ export async function startEgressProxy(opts) {
     socket.once("close", () => active.delete(socket));
   });
   server.on("connect", async (request, client, head) => {
-    if (tunnelCount >= maxTunnels) return rejectClient(client, 503, "worker tunnel limit reached");
+    if (tunnelCount >= maxTunnels) {
+      opts.onDecision?.(false);
+      return rejectClient(client, 503, "worker tunnel limit reached");
+    }
     tunnelCount += 1;
     client.once("close", () => { tunnelCount -= 1; });
     try {
       const destination = await authorizeEgressConnect(request.url ?? "", opts.allowedOrigins, opts);
+      opts.onDecision?.(destination.allowed);
       if (!destination.allowed || !destination.address) return rejectClient(client, 403, "destination refused by job policy");
       if (client.destroyed) return;
 

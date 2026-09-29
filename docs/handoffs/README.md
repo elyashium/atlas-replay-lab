@@ -6,7 +6,13 @@ These notes let a new coding agent pick up Atlas's release-QA roadmap without mi
 
 At the prior handoff commit `6f0fc48` (`Harden queued run provenance and onboarding`), the local CLI engine remained zero-dependency and the separate `apps/control-plane` was a local Fastify/PostgreSQL foundation. Hosted execution and browser workers remain disabled. The preceding verified slice had root tests passing 363/363, `doctor` passing on Node 20.18.0 / Chrome 154.0.8037.58, and control-plane tests passing 17/17 against PostgreSQL 17. This continuation adds a locally tested egress-proxy component; see Phase 2 and ADR-0008 for current status. None of these checks establish customer acceptance or hosted safety.
 
-The current working slice also uses the shared destination classifier for control-plane onboarding, requires immutable build and policy binding on queued requests, cancels legacy unbound rows in migration 002, and rejects idempotency key reuse across targets. It does not enable browser execution.
+Subsequent local work added report-link scope/expiry/revocation and a
+PostgreSQL-backed per-link share request limit. A preview GitHub Action now runs
+the CLI target matrix and gate on a GitHub Actions runner and posts a
+commit-scoped Check Run. Its API is tested with mocks only; no live GitHub PR or
+outside staging target has been run. Hosted worker execution remains disabled.
+See the dated Phase 2 and Phase 3 evidence notes for exact suite results and
+limits.
 
 ## Handoffs
 
@@ -30,4 +36,4 @@ The current working slice also uses the shared destination classifier for contro
 
 ## Roadmap sequence
 
-Finish Phase 0 evidence gaps, then close Phase 1 with an authorized outside-team staging target. Continue Phase 2 locally and behind disabled execution until its safety gates are real. Only then start Phase 3. Phase 4 and Phase 5 are later lanes; commercial and compliance work must remain evidence-based and cannot be inferred from product intent.
+Finish Phase 0 evidence gaps and close Phase 1 with an authorized outside-team staging target. Continue Phase 2 locally and behind disabled hosted execution until its safety gates are real. Phase 3 has a local runner-based preview; validate it only against a controlled owned staging PR and do not enable branch protection as production policy yet. Phase 4 and Phase 5 are later lanes; commercial and compliance work must remain evidence-based and cannot be inferred from product intent.

@@ -92,6 +92,36 @@ test("proxy refuses plain HTTP requests", async (t) => {
   assert.match(response, /^HTTP\/1\.1 403/);
 });
 
+test("optional boundary diagnostics report only allow/deny booleans, never authorities", async (t) => {
+  const decisions = [];
+  const proxy = await startEgressProxy({
+    allowedOrigins: allow,
+    lookupAll: async () => ["93.184.216.34"],
+    dial: () => {
+      const upstream = new PassThrough();
+      queueMicrotask(() => upstream.emit("connect"));
+      return upstream;
+    },
+    onDecision: (allowed) => decisions.push(allowed),
+  });
+  t.after(async () => proxy.close());
+  const request = (authority) => new Promise((resolve, reject) => {
+    const client = net.connect(proxy.port, proxy.host);
+    let response = "";
+    const timer = setTimeout(() => { client.destroy(); reject(new Error("proxy decision timed out")); }, 2000);
+    client.once("error", (error) => { clearTimeout(timer); reject(error); });
+    client.on("data", (chunk) => {
+      response += chunk.toString("latin1");
+      if (response.includes("\r\n\r\n")) { clearTimeout(timer); client.destroy(); resolve(response); }
+    });
+    client.once("connect", () => client.write(`CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\n\r\n`));
+  });
+  assert.match(await request("stage.example.test:443"), /^HTTP\/1\.1 200/);
+  assert.match(await request("metadata.internal:443"), /^HTTP\/1\.1 403/);
+  assert.deepEqual(decisions, [true, false]);
+  assert.equal(JSON.stringify(decisions).includes("metadata.internal"), false);
+});
+
 test("per-job tunnel limit returns 503 while an earlier tunnel is active", async (t) => {
   const proxy = await startEgressProxy({
     allowedOrigins: allow,

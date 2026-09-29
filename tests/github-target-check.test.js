@@ -1,11 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { checkRunConclusion, conclusionForTargetVerdict, verdictFromEvidence } from "../src/github/target-check.js";
+import { runAction } from "../.github/actions/atlas-target-qa/run.js";
 
 test("target check fails closed when the browser matrix or gate evidence is unavailable", () => {
-  assert.equal(verdictFromEvidence({ gate: { decision: "ship", shipped: true }, matrixExitCode: 1 }), "INCONCLUSIVE");
-  assert.equal(verdictFromEvidence({ gate: null, matrixExitCode: 0 }), "INCONCLUSIVE");
-  assert.equal(verdictFromEvidence({ gate: { decision: "inconclusive", shipped: false }, matrixExitCode: 0 }), "INCONCLUSIVE");
+  const gate = shippedGate("b".repeat(40));
+  assert.equal(verdictFromEvidence({ gate, matrixExitCode: 1, targetBuildId: "b".repeat(40) }), "INCONCLUSIVE");
+  assert.equal(verdictFromEvidence({ gate: null, matrixExitCode: 0, targetBuildId: "b".repeat(40) }), "INCONCLUSIVE");
+  assert.equal(verdictFromEvidence({ gate: { ...gate, decision: "inconclusive", shipped: false }, matrixExitCode: 0, targetBuildId: "b".repeat(40) }), "INCONCLUSIVE");
+  assert.equal(verdictFromEvidence({ gate, matrixExitCode: 0, targetBuildId: "c".repeat(40) }), "INCONCLUSIVE");
 });
 
 test("blocking and advisory checks preserve explicit policy semantics", () => {
@@ -19,7 +25,130 @@ test("blocking and advisory checks preserve explicit policy semantics", () => {
 });
 
 test("only a shipped gate with zero harness failure becomes SHIP", () => {
-  assert.equal(verdictFromEvidence({ gate: { decision: "ship", shipped: true }, matrixExitCode: 0 }), "SHIP");
-  assert.equal(verdictFromEvidence({ gate: { decision: "ship", shipped: false }, matrixExitCode: 0 }), "INCONCLUSIVE");
-  assert.equal(verdictFromEvidence({ gate: { decision: "hold", shipped: false }, matrixExitCode: 0 }), "HOLD");
+  const sha = "b".repeat(40);
+  assert.equal(verdictFromEvidence({ gate: shippedGate(sha), matrixExitCode: 0, targetBuildId: sha }), "SHIP");
+  assert.equal(verdictFromEvidence({ gate: { ...shippedGate(sha), shipped: false }, matrixExitCode: 0, targetBuildId: sha }), "INCONCLUSIVE");
+  assert.equal(verdictFromEvidence({ gate: heldGate(sha), matrixExitCode: 0, targetBuildId: sha }), "HOLD");
+  assert.equal(verdictFromEvidence({ gate: { ...shippedGate(sha), targetDecision: { ...shippedGate(sha).targetDecision, evidence: [] } }, matrixExitCode: 0, targetBuildId: sha }), "INCONCLUSIVE");
 });
+
+test("GitHub action runs the target gate, binds the actual build SHA, and completes a commit Check Run", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "atlas-gh-action-"));
+  const workspace = path.join(root, "workspace");
+  await mkdir(workspace);
+  const contractPath = path.join(workspace, "target.json");
+  await writeFile(contractPath, JSON.stringify({
+    schemaVersion: 1,
+    authorization: { authorized: true },
+    target: { url: "https://staging.example.org/scene", allowedOrigins: ["https://staging.example.org"], buildId: "mutable" },
+  }));
+  const calls = [];
+  const checkUpdates = [];
+  const sha = "a".repeat(40);
+  const env = {
+    ATLAS_ACTION_MODE: "blocking",
+    ATLAS_ACTION_CONTRACT_PATH: "target.json",
+    ATLAS_ACTION_TARGET_BUILD_ID: sha,
+    ATLAS_ACTION_GITHUB_TOKEN: "test-token-that-is-not-a-real-secret",
+    GITHUB_SHA: sha,
+    GITHUB_REPOSITORY: "studio/experience",
+    GITHUB_SERVER_URL: "https://github.com",
+    GITHUB_API_URL: "https://api.github.com",
+    GITHUB_RUN_ID: "1234",
+    GITHUB_RUN_ATTEMPT: "1",
+    GITHUB_WORKSPACE: workspace,
+    GITHUB_ACTION_PATH: path.join(process.cwd(), ".github", "actions", "atlas-target-qa"),
+    GITHUB_ACTION_REF: "test-action-ref",
+    GITHUB_STEP_SUMMARY: path.join(root, "summary.md"),
+    GITHUB_OUTPUT: path.join(root, "output.txt"),
+  };
+  try {
+    const result = await runAction(env, {
+      async request(_env, _token, route, options) {
+        calls.push({ route, options });
+        if (options.method === "POST") return { id: 99 };
+        checkUpdates.push(options.body);
+        return {};
+      },
+      async runCommand(_childEnv, cli, args) {
+        assert.equal(cli, path.join(process.cwd(), "bin", "atlas.js"));
+        const command = args[0];
+        const out = args.at(-1);
+        if (command === "matrix") {
+          await mkdir(out, { recursive: true });
+          await writeFile(path.join(out, "report.json"), "{}\n");
+          return 0;
+        }
+        await mkdir(out, { recursive: true });
+        await writeFile(path.join(out, "report.json"), JSON.stringify({
+          decision: "ship", shipped: true,
+    targetBinding: { buildId: sha },
+    targetDecision: { verdict: "SHIP", requiredProfiles: ["high-wifi"], evidence: [{ profileId: "high-wifi", runId: "run-1", error: null, journey: "pass", score: 91 }] },
+        }));
+        return 0;
+      },
+    });
+    assert.equal(result.verdict, "SHIP");
+    assert.equal(result.conclusion, "success");
+    assert.equal(calls[0].options.body.head_sha, sha);
+    assert.equal(calls[1].options.body.conclusion, "success");
+    assert.match(calls[1].options.body.output.summary, /1\/1 completed/);
+    const hydrated = JSON.parse(await readFile(path.join(result.artifactDir, "target-contract.json"), "utf8"));
+    assert.equal(hydrated.target.buildId, sha);
+    assert.equal((await readFile(env.GITHUB_OUTPUT, "utf8")).includes("verdict=SHIP"), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("advisory HOLD is neutral while harness failure stays failed and inconclusive", async () => {
+  for (const scenario of [
+    { mode: "advisory", matrixExit: 0, decision: "hold", expected: ["HOLD", "neutral"] },
+    { mode: "advisory", matrixExit: 1, decision: "ship", expected: ["INCONCLUSIVE", "failure"] },
+  ]) {
+    const root = await mkdtemp(path.join(os.tmpdir(), "atlas-gh-action-"));
+    const workspace = path.join(root, "workspace");
+    await mkdir(workspace);
+    await writeFile(path.join(workspace, "target.json"), JSON.stringify({ authorization: { authorized: true }, target: { url: "https://staging.example.org/", allowedOrigins: ["https://staging.example.org"] } }));
+    const env = {
+      ATLAS_ACTION_MODE: scenario.mode,
+      ATLAS_ACTION_CONTRACT_PATH: "target.json",
+      ATLAS_ACTION_TARGET_BUILD_ID: "b".repeat(40),
+      ATLAS_ACTION_GITHUB_TOKEN: "test-token-that-is-not-a-real-secret",
+      GITHUB_SHA: "c".repeat(40), GITHUB_REPOSITORY: "studio/experience", GITHUB_SERVER_URL: "https://github.com",
+      GITHUB_RUN_ID: "1234", GITHUB_RUN_ATTEMPT: "1", GITHUB_WORKSPACE: workspace,
+      GITHUB_ACTION_PATH: path.join(process.cwd(), ".github", "actions", "atlas-target-qa"), GITHUB_STEP_SUMMARY: path.join(root, "summary.md"), GITHUB_OUTPUT: path.join(root, "output.txt"),
+    };
+    try {
+      const result = await runAction(env, {
+        async request(_env, _token, _route, options) { return options.method === "POST" ? { id: 2 } : {}; },
+        async runCommand(_childEnv, _cli, args) {
+          const out = args.at(-1);
+          await mkdir(out, { recursive: true });
+          if (args[0] === "matrix") { await writeFile(path.join(out, "report.json"), "{}\n"); return scenario.matrixExit; }
+          const sha = "b".repeat(40);
+          const targetDecision = scenario.decision === "hold" ? { verdict: "HOLD", requiredProfiles: ["high-wifi"], evidence: [{ profileId: "high-wifi", runId: "run-1", error: null, journey: "fail", score: 90 }] } : shippedGate(sha).targetDecision;
+          await writeFile(path.join(out, "report.json"), JSON.stringify({ decision: scenario.decision, shipped: scenario.decision === "ship", targetBinding: { buildId: sha }, targetDecision }));
+          return scenario.decision === "ship" ? 0 : 1;
+        },
+      });
+      assert.deepEqual([result.verdict, result.conclusion], scenario.expected);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+});
+
+function shippedGate(buildId) {
+  return {
+    decision: "ship", shipped: true,
+    targetBinding: { buildId },
+    targetDecision: { verdict: "SHIP", requiredProfiles: ["high-wifi"], evidence: [{ profileId: "high-wifi", runId: "run-1", error: null, journey: "pass", score: 91 }] },
+  };
+}
+
+function heldGate(buildId) {
+  return {
+    decision: "hold", shipped: false,
+    targetBinding: { buildId },
+    targetDecision: { verdict: "HOLD", requiredProfiles: ["high-wifi"], evidence: [{ profileId: "high-wifi", runId: "run-1", error: null, journey: "fail", score: 91 }] },
+  };
+}

@@ -142,12 +142,15 @@ has an adversarial test:
 7. The adversarial suite covers rows 1.1–1.13, 2.1–2.3, 3.1–3.2 and a
    representative case from each of 4.1–4.9, and runs in CI.
 
-The prototype has not completed gates 1 through 7. It exercises one synthetic
-HTTPS origin, worker DNS failure, direct-socket failures to sampled public and
-private destinations, and an unlisted CONNECT refusal. It does not test all
+The prototype has not completed gates 1 through 7. The local verifier now
+exercises one synthetic HTTPS origin, worker DNS failure, direct-socket failures
+to sampled public/private destinations, and Chromium-originated fetch, image,
+redirect, iframe, WebSocket, service-worker, unlisted-host and unlisted-IP
+requests that the proxy refuses. It does not test all
 redirect/subresource/alternate-egress cases, the full destination list,
-resource-exhaustion handling, cancellation, artifact cleanup, or CI execution.
-Until 1 through 7 exist with passing tests, the operating rule is the one in
+alternate proxies, downloads, WebRTC/STUN, resource-exhaustion handling,
+cancellation, artifact cleanup, or CI execution. Until 1 through 7 exist with
+passing tests, the operating rule is the one in
 `docs/handoffs/phase-1.md`: run only targets the operator has permission to run.
 
 ## What the shipped preflight is honestly for

@@ -44,6 +44,7 @@ try {
     "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=32m", "--cap-drop", "ALL",
     "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "256m", "--cpus", "0.5",
     "--env", `ATLAS_ALLOWED_ORIGINS=${JSON.stringify([`https://${fixtureHost}`])}`,
+    "--env", "ATLAS_PROXY_TEST_DIAGNOSTICS=1",
     "--entrypoint", "node", image, "apps/worker/proxy-entry.js",
   ]);
   active.add(proxyName);
@@ -64,6 +65,10 @@ try {
     "--entrypoint", "node", image, "apps/worker/scripts/browser-network-check.js",
   ]);
   process.stdout.write(`${boundaryDetails.trim()}\n`);
+  const proxyLogs = run("logs", [proxyName]);
+  const refusedProxyTunnels = (proxyLogs.match(/ATLAS_PROXY_CONNECT_REFUSED/g) ?? []).length;
+  if (refusedProxyTunnels < 5) throw new Error(`browser adversarial cases did not produce enough per-origin proxy denials (${refusedProxyTunnels})`);
+  process.stdout.write(`PASS: per-origin proxy denied ${refusedProxyTunnels} browser egress attempts from fetch, redirect, image, WebSocket and service-worker probes\n`);
   process.stdout.write("PASS: isolated container could reach the synthetic HTTPS origin through the job proxy, while direct public/private sockets and worker DNS were blocked\n");
 
   const fixtureContract = {

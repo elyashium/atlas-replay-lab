@@ -121,12 +121,13 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
 
 ## Recommended next work (keep hosted workers disabled)
 
-1. Expand and adversarially test the isolated ephemeral worker network
-   namespace that forces browser traffic through the per-job proxy, including
-   direct-socket and alternate-proxy bypass attempts, QUIC, DNS, WebSockets,
-   redirects, frames, downloads, and service workers. Add DNS rebinding and
-   metadata/private-range tests at the actual network boundary. Proxy tests
-   alone do not close bypass paths.
+1. Continue adversarially testing the isolated ephemeral worker network
+   namespace. The local verifier now exercises direct sockets, worker DNS,
+   allowed HTTPS, unlisted origins, fetch, metadata redirects/iframes/images,
+   WebSockets, and service-worker fetches through Chromium. Still add alternate
+   proxy configuration, QUIC/WebRTC bypass, downloads, expanded destination
+   ranges, rebinding, and repeated/runtime-specific tests. Proxy and one-host
+   container tests alone do not close bypass paths.
 2. Exercise the local queue worker end to end against an owned HTTPS staging
    target with success and fallback journeys. Test timeout, stale lease,
    retries, concurrent workers, artifact retrieval and cleanup. Prove the
@@ -241,3 +242,32 @@ multi-instance throttling case. Full control-plane tests passed **35/35**;
 root tests passed **390/390**. Browser preview passed at desktop 1440 px and
 mobile 390 px with synthetic data and no horizontal overflow. These are local
 test results, not public load or abuse testing.
+
+## 2026-09-30 continuation: browser egress adversarial probes
+
+The local boundary verifier now drives Chromium beyond a single allowed page.
+It attempts metadata access through fetch, an image, a same-origin redirect,
+an iframe redirect, a secure WebSocket, and a service-worker install fetch; it
+also tries an unlisted hostname and an unlisted documentation IP. The browser
+reports the probes blocked, the CDP observer counts failed requests, and a
+verifier-only proxy diagnostic reports boolean allow/refuse decisions without
+target authorities. This diagnostic is opt-in and disabled in ordinary proxy
+operation.
+
+On the local Docker Desktop 29.6.2 run, **6** tracked browser requests to
+forbidden destinations failed and the proxy recorded **21** refusals. The same
+verifier then completed the full Atlas target matrix/gate/findings/report inside
+the bounded worker container: **1/1** synthetic `high-wifi` profile, explicit
+`SHIP` (the fixture intentionally sets its score floor to zero), outputs
+collected before container exit, and no matching verifier containers/networks
+left afterward. This remains one synthetic local run, not production or broad
+adversarial proof. `npm run verify:worker-boundary --prefix apps/control-plane`
+is still a manual verifier, not CI. See the dated Phase 2 evidence continuation
+and `docs/threat-model-worker-egress.md` for remaining bypass cases.
+
+Verification on 2026-09-30: worker image build passed; container-boundary
+verifier passed on Docker Desktop 29.6.2; `node --test
+tests/egress-proxy.test.js` **7/7**; root `npm test` **396/396**;
+control-plane tests with loopback PostgreSQL **35/35**; changed scripts passed
+`node --check`, and `git diff --check` passed. The Docker verifier is still a
+manual local check and no external staging target was involved.

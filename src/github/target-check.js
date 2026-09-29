@@ -7,11 +7,18 @@ export function conclusionForTargetVerdict(verdict, mode) {
   return "failure";
 }
 
-/** A missing result or harness failure is never advisory green. */
-export function verdictFromEvidence({ gate, matrixExitCode }) {
+/** A missing, stale, partial, or harness-failed result is never advisory green. */
+export function verdictFromEvidence({ gate, matrixExitCode, targetBuildId }) {
   if (matrixExitCode !== 0 || !gate || typeof gate !== "object") return "INCONCLUSIVE";
-  if (gate.decision === "ship" && gate.shipped === true) return "SHIP";
-  if (gate.decision === "hold") return "HOLD";
+  if (gate.targetBinding?.buildId !== targetBuildId) return "INCONCLUSIVE";
+  const targetDecision = gate.targetDecision;
+  const required = targetDecision?.requiredProfiles;
+  const evidence = targetDecision?.evidence;
+  if (!Array.isArray(required) || required.length === 0 || !Array.isArray(evidence) || evidence.length !== required.length) return "INCONCLUSIVE";
+  if (new Set(required).size !== required.length || new Set(evidence.map((row) => row.profileId)).size !== required.length) return "INCONCLUSIVE";
+  if (required.some((profileId) => !evidence.some((row) => row.profileId === profileId))) return "INCONCLUSIVE";
+  if (gate.decision === "ship" && gate.shipped === true && targetDecision.verdict === "SHIP" && evidence.every((row) => row.runId && !row.error && row.journey === "pass" && Number.isFinite(row.score))) return "SHIP";
+  if (gate.decision === "hold" && gate.shipped === false && targetDecision.verdict === "HOLD") return "HOLD";
   return "INCONCLUSIVE";
 }
 

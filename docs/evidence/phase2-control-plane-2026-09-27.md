@@ -547,3 +547,48 @@ limited by this layer and still need network-edge abuse protection.
 This proves local cross-instance database enforcement under a small test, not
 production throughput, edge filtering, invalid-token throttling, deployment
 logging, or general quota enforcement.
+
+## 2026-09-30 continuation: Chromium egress adversarial probes
+
+Expanded `apps/worker/scripts/browser-network-check.js` to drive the actual
+headless Chromium process inside the isolated Docker network. In addition to
+the existing direct socket/DNS tests and allowlisted page load, the page now
+attempts metadata requests through `fetch`, `img`, same-origin HTTP redirect,
+iframe redirect, secure WebSocket, and service-worker installation; it also
+tries an unlisted HTTPS hostname and a reserved documentation IP. CDP observes
+forbidden browser requests fail. A test-only proxy callback emits only boolean
+allow/refuse markers; it neither records nor prints the CONNECT authority.
+
+`npm run verify:worker-boundary --prefix apps/control-plane` passed on local
+Docker Desktop **29.6.2** using the pinned `atlas-worker:local` image. Observed
+in that run: DNS lookup failure; direct TCP failures to fixture, public, and
+metadata addresses; **6** tracked failed forbidden browser requests; **21**
+proxy refusals across the probes; allowed staging fixture loaded. The verifier
+then ran the actual target matrix, deterministic gate, findings, and report in
+the bounded worker container and collected output before exit: **1/1** synthetic
+`high-wifi` profile, explicit **SHIP** (score floor zero in the synthetic
+fixture), report/trace output collection passed. A Docker listing afterward
+found no remaining verifier containers or labeled networks.
+
+This is one local adversarial exercise, not a production boundary test. No
+alternate proxy or browser flags bypass matrix, DNS rebinding sequence,
+download, WebRTC/STUN, full destination-range sweep, resource-exhaustion,
+cancellation, or CI run was covered. Manual Docker verification is not wired
+into CI. `tests/egress-proxy.test.js` includes a check that optional boundary
+diagnostics contain only allow/deny booleans and no authority.
+
+Verification after this change:
+
+- `docker build -f apps/worker/Dockerfile -t atlas-worker:local .`: passed; pinned
+  Chromium image rebuilt from the existing pinned base/package versions.
+- `npm run verify:worker-boundary --prefix apps/control-plane`: passed on Docker
+  Desktop 29.6.2, including Chromium adversarial probes and the full synthetic
+  Atlas job described above.
+- `node --test tests/egress-proxy.test.js`: **7/7 passed**.
+- Root `npm test`: **396/396 passed**.
+- `npm test --prefix apps/control-plane` with loopback Postgres: **35/35 passed**.
+- `node --check` on the changed worker/proxy scripts and `git diff --check`:
+  passed.
+
+No verifier containers or labeled networks remained after the run. Manual Docker
+verification is not wired into CI.

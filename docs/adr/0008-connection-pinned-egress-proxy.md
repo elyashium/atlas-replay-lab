@@ -1,6 +1,6 @@
 # ADR-0008: connection-pinned per-job egress proxy
 
-- Status: proxy component accepted; local Docker network-boundary prototype verified; API queue integration and hosted worker remain deferred.
+- Status: proxy component accepted; local opt-in Docker worker and network-boundary prototype verified; hosted worker remains deferred.
 - Date: 2026-09-29.
 - Decision owners: product/engineering.
 
@@ -69,5 +69,17 @@ failed; direct TCP attempts to the fixture, `1.1.1.1:443`, and
 `169.254.169.254:80` failed; a non-allowlisted CONNECT was denied; Chromium
 loaded the fixture through the proxy. The verifier cleaned up its test
 containers and networks. This is one local environment and one synthetic
-fixture, not a production or comprehensive adversarial security test. Queue
-entries are still not executed by this worker.
+fixture, not a production or comprehensive adversarial security test. The
+opt-in local queue worker now uses the per-job proxy and isolated container;
+hosted orchestration remains deferred.
+
+## 2026-09-30 continuation
+
+The same verifier now runs browser-originated probes for fetch, image, redirects
+and iframe redirects, secure WebSocket, service-worker fetch, unlisted hostname
+and unlisted IP. Chromium observed **6** failed forbidden requests and the
+test-only proxy counter observed **21** refusals; that manual verifier then
+completed a one-profile synthetic Atlas job and collected its reports. Counts
+are a single local run, not an adversarial coverage percentage. Alternate proxy
+and browser switches, WebRTC/STUN, downloads, rebinding, broad address ranges,
+CI enforcement, and production runtime assurance remain open.

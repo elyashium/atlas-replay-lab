@@ -17,7 +17,17 @@ const generatedCode = await new Promise((resolve, reject) => {
 });
 if (generatedCode !== 0) throw new Error("could not create ephemeral TLS fixture certificate");
 
-const server = https.createServer({ key: await readFile(keyPath), cert: await readFile(certPath) }, (_request, response) => {
+const server = https.createServer({ key: await readFile(keyPath), cert: await readFile(certPath) }, (request, response) => {
+  if (request.url === "/redirect" || request.url === "/redirect-frame") {
+    response.writeHead(302, { location: "https://169.254.169.254/metadata-probe", "cache-control": "no-store" });
+    response.end();
+    return;
+  }
+  if (request.url === "/sw.js") {
+    response.writeHead(200, { "content-type": "text/javascript", "cache-control": "no-store", "service-worker-allowed": "/" });
+    response.end("self.addEventListener('install', event => event.waitUntil(fetch('https://169.254.169.254/service-worker-probe').catch(() => {})));\n");
+    return;
+  }
   response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
   response.end("<!doctype html><title>Atlas isolated fixture</title><main id=ready>Controlled worker network fixture</main>");
 });

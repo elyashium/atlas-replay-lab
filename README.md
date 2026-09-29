@@ -310,7 +310,10 @@ block browser subresource egress. Credentials are referenced through
 `ATLAS_*` environment variables. Screenshots stay disabled unless consent and
 redaction selectors are explicit. The built-in loopback scene is a controlled
 contract exercise, not evidence from a customer app. A target report's gate
-only covers its declared journey and Chromium emulation.
+only covers its declared journey and Chromium emulation. For an optional
+commit-scoped GitHub check that runs the actual target matrix, see the
+[GitHub target-check guide](docs/github-target-check.md). It is a local-runner
+preview, not the hosted worker service.
 
 ### Environment
 

@@ -8,7 +8,12 @@ if (!Array.isArray(allowedOrigins) || !allowedOrigins.length || allowedOrigins.s
   throw new Error("ATLAS_ALLOWED_ORIGINS must be a non-empty string array");
 }
 
-const proxy = await startEgressProxy({ allowedOrigins, host: "0.0.0.0", port: 3128, maxTunnels: 64 });
+const proxy = await startEgressProxy({
+  allowedOrigins, host: "0.0.0.0", port: 3128, maxTunnels: 64,
+  ...(process.env.ATLAS_PROXY_TEST_DIAGNOSTICS === "1"
+    ? { onDecision: (allowed) => process.stdout.write(allowed ? "ATLAS_PROXY_CONNECT_ALLOWED\n" : "ATLAS_PROXY_CONNECT_REFUSED\n") }
+    : {}),
+});
 let stopping;
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.once(signal, () => {

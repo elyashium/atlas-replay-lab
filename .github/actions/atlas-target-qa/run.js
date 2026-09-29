@@ -7,6 +7,7 @@ import { checkRunConclusion, verdictFromEvidence } from "../../../src/github/tar
 const SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i;
 
 export async function runAction(env = process.env, dependencies = {}) {
+  if (Number.parseInt(process.versions.node.split(".")[0], 10) < 20) throw new Error("the Atlas GitHub Action requires Node.js 20 or later");
   const runCommand = dependencies.runCommand ?? runNode;
   const request = dependencies.request ?? githubRequest;
   const mode = env.ATLAS_ACTION_MODE ?? "advisory";
@@ -18,7 +19,8 @@ export async function runAction(env = process.env, dependencies = {}) {
   if (!SHA.test(sha ?? "") || !SHA.test(buildId ?? "")) throw new Error("GITHUB_SHA and target-build-id must be full 40- or 64-character commit SHAs");
 
   const workspace = path.resolve(required(env.GITHUB_WORKSPACE, "GITHUB_WORKSPACE"));
-  const actionRoot = path.resolve(required(env.GITHUB_ACTION_PATH, "GITHUB_ACTION_PATH"));
+  const actionPath = path.resolve(required(env.GITHUB_ACTION_PATH, "GITHUB_ACTION_PATH"));
+  const atlasRoot = path.resolve(actionPath, "../../..");
   const contractPath = path.resolve(workspace, required(env.ATLAS_ACTION_CONTRACT_PATH, "contract-path"));
   if (!inside(workspace, contractPath)) throw new Error("contract-path must stay inside the checked-out application repository");
   const contract = JSON.parse(await readFile(contractPath, "utf8"));
@@ -51,7 +53,7 @@ export async function runAction(env = process.env, dependencies = {}) {
   try {
     const childEnv = { ...env, ATLAS_BUILD_ID: env.GITHUB_ACTION_REF || "atlas-target-qa-unpinned" };
     delete childEnv.ATLAS_ACTION_GITHUB_TOKEN;
-    const cli = path.join(actionRoot, "bin", "atlas.js");
+    const cli = path.join(atlasRoot, "bin", "atlas.js");
     matrixExitCode = await runCommand(childEnv, cli, ["matrix", "--target", hydratedContractPath, "--out", matrixDir]);
     const matrixReportPath = path.join(matrixDir, "report.json");
     try { await readFile(matrixReportPath); }
@@ -61,7 +63,7 @@ export async function runAction(env = process.env, dependencies = {}) {
     try { gate = JSON.parse(await readFile(path.join(gateDir, "report.json"), "utf8")); }
     catch { throw new Error("gate report is missing or unreadable"); }
     if (gateExitCode > 1 || (gateExitCode === 1 && gate.decision === "ship")) gate = null;
-    verdict = verdictFromEvidence({ gate, matrixExitCode });
+    verdict = verdictFromEvidence({ gate, matrixExitCode, targetBuildId: buildId });
     if (matrixExitCode !== 0) reason = `matrix exited ${matrixExitCode}; harness failure is inconclusive`;
     else if (!gate) reason = "gate command failed or produced inconsistent evidence";
     else if (verdict === "INCONCLUSIVE") reason = "required target evidence was missing or incomplete";

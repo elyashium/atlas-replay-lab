@@ -84,10 +84,15 @@ and retention deletion including shared links and backups before hosted launch.
 
 ## Phase 3 — target build release status
 
-Submit the actual target commit/build to a GitHub status check. Return
-SHIP/HOLD/INCONCLUSIVE with the policy version and report link. Unavailable
-workers and missing evidence cannot become green. Verify a controlled PR fails
-on a reproduced regression and passes after the target fix.
+A local preview Action now runs the actual target contract and gate on a GitHub
+Actions runner, binding the deployed build SHA and posting SHIP/HOLD/INCONCLUSIVE
+to a commit-scoped Check Run. Advisory mode is default; missing evidence and
+harness errors fail closed. This does not submit to hosted workers, upload a
+report unless the workflow explicitly opts in, or use an isolated target
+network. The Check Runs API path has mocked tests only. Verify a controlled PR
+against an owned staging app, reproduced regression/fix, real GitHub statuses,
+worker outage, and reruns before enabling required blocking policy. See the
+[workflow guide](github-target-check.md) and [Phase 3 evidence](evidence/phase3-github-target-check-2026-09-30.md).
 
 ## Later work
 

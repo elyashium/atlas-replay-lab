@@ -22,12 +22,53 @@ try {
   const page = await browser.connection.newPage();
   process.stdout.write("worker browser context created\n");
   await page.send("Page.enable", {}, 5000);
+  await page.send("Network.enable", {}, 5000);
+  const tracked = new Map();
+  page.on("Network.requestWillBeSent", ({ requestId, request }) => {
+    let host;
+    try { host = new URL(request.url).hostname; } catch { return; }
+    if (["169.254.169.254", "93.184.216.3", "blocked.example.test"].includes(host)) tracked.set(requestId, { host, failed: false });
+  });
+  page.on("Network.loadingFailed", ({ requestId }) => {
+    const request = tracked.get(requestId);
+    if (request) request.failed = true;
+  });
   process.stdout.write("worker browser page domain enabled\n");
   const loaded = page.once("Page.loadEventFired", { timeoutMs: 15_000 });
   await page.send("Page.navigate", { url: "https://fixture.example.test/" });
   await loaded;
   const text = await page.evaluate("document.body.innerText");
   assert.match(text, /Controlled worker network fixture/);
+  const probeResults = await page.evaluate(`(async () => {
+    const attempt = async (url) => { try { await fetch(url, { mode: "no-cors", cache: "no-store" }); return "unexpectedly-fulfilled"; } catch { return "blocked"; } };
+    const image = new Image();
+    const imageResult = new Promise((resolve) => { image.onload = () => resolve("unexpectedly-loaded"); image.onerror = () => resolve("blocked"); setTimeout(() => resolve("timed-out"), 8000); });
+    image.src = "https://169.254.169.254/image-probe";
+    document.body.append(image);
+    const frame = document.createElement("iframe");
+    const frameResult = new Promise((resolve) => { frame.onload = () => resolve("navigation-finished"); setTimeout(() => resolve("timed-out"), 8000); });
+    frame.src = "/redirect-frame";
+    document.body.append(frame);
+    const webSocketResult = new Promise((resolve) => {
+      const socket = new WebSocket("wss://169.254.169.254/websocket-probe");
+      const timer = setTimeout(() => resolve("timed-out"), 8000);
+      socket.onopen = () => { clearTimeout(timer); socket.close(); resolve("unexpectedly-opened"); };
+      socket.onerror = () => { clearTimeout(timer); resolve("blocked"); };
+    });
+    const serviceWorkerResult = navigator.serviceWorker.register("/sw.js").then(() => "registered").catch(() => "blocked");
+    const outcomes = await Promise.all([
+      attempt("https://169.254.169.254/fetch-probe"),
+      attempt("https://93.184.216.3/unlisted-ip-probe"),
+      attempt("https://blocked.example.test/unlisted-host-probe"),
+      attempt("/redirect"), imageResult, frameResult, webSocketResult, serviceWorkerResult,
+    ]);
+    return outcomes;
+  })()`, { awaitPromise: true, timeoutMs: 15_000 });
+  assert.deepEqual(probeResults, ["blocked", "blocked", "blocked", "blocked", "blocked", "navigation-finished", "blocked", "registered"]);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const failedForbiddenRequests = [...tracked.values()].filter((request) => request.failed).length;
+  assert.ok(failedForbiddenRequests >= 5, `expected failed browser requests to forbidden destinations, observed ${failedForbiddenRequests}`);
+  process.stdout.write(`browser adversarial probes blocked: ${JSON.stringify({ fetches: probeResults.slice(0, 4), image: probeResults[4], redirectFrame: probeResults[5], webSocket: probeResults[6], serviceWorker: probeResults[7], failedForbiddenRequests })}\n`);
 } finally {
   await browser.close();
 }

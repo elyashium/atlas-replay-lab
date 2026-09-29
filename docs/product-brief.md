@@ -144,9 +144,14 @@ public arbitrary-URL service.
 
 ### Phase 3 — release integration
 
-Add a GitHub status check for the target build. Preserve the target commit,
-contract and policy versions, and report link. An unavailable worker or
-inconclusive run must not turn green. Support advisory and blocking policies.
+A local preview GitHub Action now runs the owned-staging target contract on the
+workflow runner and publishes a commit-scoped GitHub Check Run. It binds the
+actual target build SHA and supports advisory or explicitly blocking mode;
+INCONCLUSIVE and harness failures fail closed. It is not connected to hosted
+workers, has not been exercised against a live GitHub repository or external
+target, and does not imply production readiness. See
+[`github-target-check.md`](github-target-check.md). A live controlled PR and
+the hosted status submission path remain planned.
 
 ### Later — real devices and production monitoring
 
