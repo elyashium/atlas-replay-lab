@@ -1,6 +1,6 @@
 # Isolated browser worker prototype
 
-This directory contains a pinned Chromium image and a local Docker network-boundary verifier. It is an engineering prototype, not a hosted runner. The API still records a run as `queued` and does not dispatch it to this image.
+This directory contains a pinned Chromium image, a local Docker network-boundary verifier, and a target-contract executor. It is a local development runner, not a hosted service. A separate opt-in worker process can claim queue rows; the API itself never starts browsers.
 
 ## Build and verify locally
 
@@ -11,7 +11,27 @@ docker build -f apps/worker/Dockerfile -t atlas-worker:local .
 npm run verify:worker-boundary --prefix apps/control-plane
 ```
 
-The verifier creates temporary Docker networks and three containers: a synthetic HTTPS origin, an egress proxy, and the unprivileged worker. It checks that the worker cannot resolve DNS or open direct sockets to the synthetic origin, a public address, or the metadata address; rejects an origin not in the job allowlist; then starts Chromium and confirms that it can fetch the synthetic HTTPS origin through the proxy. It removes its containers and networks on exit.
+To process runs in the local control-plane setup, start Postgres and apply migrations, configure a private artifact directory outside the repository, then launch the API and worker in separate terminals:
+
+```powershell
+$env:DATABASE_URL = "postgres://atlas:local-only-change-me@127.0.0.1:5432/atlas"
+$env:ATLAS_LOCAL_ARTIFACT_DIR = "C:\atlas-local-artifacts"
+$env:ATLAS_APP_ORIGIN = "http://127.0.0.1:3000"
+npm run start --prefix apps/control-plane
+```
+
+In a second terminal, use the same environment and explicitly opt in:
+
+```powershell
+$env:DATABASE_URL = "postgres://atlas:local-only-change-me@127.0.0.1:5432/atlas"
+$env:ATLAS_LOCAL_ARTIFACT_DIR = "C:\atlas-local-artifacts"
+$env:ATLAS_ENABLE_LOCAL_WORKER = "1"
+npm run worker:local --prefix apps/control-plane
+```
+
+The worker only accepts verified HTTPS targets, runs profiles sequentially in a fresh container/profile, retries harness failures once, and records exhausted harness failures as `INCONCLUSIVE`. Target failures are completed runs with the deterministic gate's `HOLD`; they are not retried as harness errors. Artifact metadata is tenant-scoped in Postgres; files are stored under `<artifact-dir>/<run-uuid>/`, served only after organization authentication and hash verification, and purged through a retryable retention queue. This local directory is not encrypted object storage or a backup system.
+
+The verifier creates temporary Docker networks and containers for a synthetic HTTPS origin, an egress proxy, a boundary-check browser, and a separate full Atlas job. It checks that the worker cannot resolve DNS or open direct sockets to the synthetic origin, a public address, or the metadata address; rejects an origin not in the job allowlist; confirms Chromium reaches the synthetic HTTPS page through the proxy; then runs the actual target-contract matrix, deterministic gate, findings, and report in the isolated image. It transfers result artifacts while the bounded temporary output filesystem is still mounted, confirms the explicit verdict, and removes its containers, networks, and temporary host files on exit.
 
 The fixture certificate is synthetic, and certificate verification is disabled only in the verifier's browser invocation. This does not change normal Atlas browser verification. The fixture uses an address reserved for documentation and is not a customer target.
 
@@ -23,7 +43,7 @@ The fixture certificate is synthetic, and certificate verification is disabled o
 - The worker is non-root, read-only except for bounded temporary filesystems, has all Linux capabilities dropped, `no-new-privileges`, a seccomp profile, and Docker CPU, memory and process limits.
 - Chromium keeps its user namespace sandbox enabled; the profile allows the namespace syscalls Chromium needs.
 
-These controls and one local Docker test do not prove production isolation. The verifier does not yet cover the full adversarial matrix in `docs/threat-model-worker-egress.md`, production container-runtime behavior, malicious browser escape, job cancellation, artifact extraction, quotas, or API queue dispatch. Do not expose this worker or arbitrary-URL endpoint publicly.
+This proves one synthetic target contract on one local Docker Desktop setup (one `high-wifi` profile; no screenshots), including Atlas evidence creation and collection. It does not prove production isolation. The verifier does not yet cover the full adversarial matrix in `docs/threat-model-worker-egress.md`, production container-runtime behavior, malicious browser escape, the full API-to-worker queue lifecycle, customer journeys, quotas, or hosted operations. Do not expose this worker or arbitrary-URL endpoint publicly.
 
 ## Image provenance
 

@@ -11,6 +11,7 @@ let isRegister = false;
 let organizations = [];
 let selectedOrg = localStorage.getItem("atlas.org") ?? "";
 let selectedProject = "";
+let runRefreshTimer;
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers ?? {});
@@ -116,12 +117,16 @@ async function loadProjects() {
 }
 
 function showProjectPlaceholder() {
-  projectDetail.innerHTML = '<p class="eyebrow">SELECT A PROJECT</p><h3>Start with your staging app</h3><p class="muted">Target registration requires HTTPS and a DNS TXT proof that you control the hostname. Queue records remain disabled until isolated browser workers are available.</p><div class="coverage-note"><span class="status-dot"></span><div><strong>Current lane</strong><p>Chromium emulation is planned here. No handset, Safari, real radio, GPU, thermal, or camera result is represented.</p></div></div>';
+  projectDetail.innerHTML = '<p class="eyebrow">SELECT A PROJECT</p><h3>Start with your staging app</h3><p class="muted">Register an owned HTTPS target and verify its DNS record. A local isolated Docker worker can execute queued runs when explicitly enabled.</p><div class="coverage-note"><span class="status-dot"></span><div><strong>Current lane</strong><p>Chromium emulation only. No handset, Safari, real radio, GPU, thermal, or camera result is represented.</p></div></div>';
 }
 
 async function loadProject(projectId) {
   selectedProject = projectId;
   const data = await api(`/v1/projects/${encodeURIComponent(projectId)}`);
+  clearTimeout(runRefreshTimer);
+  if (data.runs.some((run) => run.status === "queued" || run.status === "running")) {
+    runRefreshTimer = setTimeout(() => { if (selectedProject === projectId) void loadProject(projectId); }, 3000);
+  }
   await loadProjects();
   projectDetail.replaceChildren();
   const header = document.createElement("div"); header.className = "panel-heading";
@@ -133,20 +138,44 @@ async function loadProject(projectId) {
   for (const target of data.targets) renderTarget(target);
   renderTargetForm();
 
-  const runsTitle = document.createElement("p"); runsTitle.className = "section-title"; runsTitle.textContent = "RUN QUEUE · NO WORKERS CONNECTED"; projectDetail.append(runsTitle);
+  const runsTitle = document.createElement("p"); runsTitle.className = "section-title"; runsTitle.textContent = "RUNS · LOCAL WORKER"; projectDetail.append(runsTitle);
   if (!data.runs.length) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No run records yet."; projectDetail.append(empty); }
   for (const run of data.runs) {
     const card = document.createElement("div"); card.className = "run-card";
     const strong = document.createElement("strong"); strong.textContent = `Run ${run.id.slice(0, 8)}`;
-    const pill = document.createElement("span"); pill.className = "pill pending"; pill.textContent = run.status.toUpperCase();
-    const note = document.createElement("p"); note.textContent = "No browser evidence has been produced. A queued record is not a passing check.";
-    card.append(strong, pill, note); projectDetail.append(card);
+    const pill = document.createElement("span"); pill.className = `pill${run.verdict === "SHIP" ? "" : run.verdict === "HOLD" ? " hold" : " pending"}`; pill.textContent = run.verdict ?? run.status.toUpperCase();
+    const note = document.createElement("p"); note.textContent = run.result?.evidenceScope ?? (run.status === "queued" || run.status === "running" ? "Awaiting the explicitly configured local browser worker. A queued record is not a passing check." : run.errorCode ? `Harness failure: ${run.errorCode}. This run has no passing evidence.` : "No browser evidence is available.");
+    card.append(strong, pill, note);
+    if (run.verdict) { const verdict = document.createElement("p"); verdict.className = "run-verdict"; verdict.textContent = `Release decision: ${run.verdict}`; card.append(verdict); }
+    for (const evidence of run.result?.targetDecision?.evidence ?? []) { const row = document.createElement("p"); row.className = "run-evidence"; row.textContent = `${evidence.profileId}: journey ${evidence.journey ?? "missing"} · score ${evidence.score ?? "missing"}${evidence.error ? ` · ${evidence.error}` : ""}`; card.append(row); }
+    const artifacts = run.artifacts ?? [];
+    if (artifacts.length) {
+      const list = document.createElement("ul"); list.className = "artifact-list";
+      for (const artifact of artifacts) {
+        const item = document.createElement("li"); const link = document.createElement("a");
+        link.href = `/v1/runs/${encodeURIComponent(run.id)}/artifacts/${encodeURIComponent(artifact.id)}`;
+        link.textContent = `${artifact.name} · ${formatBytes(Number(artifact.byteLength))}`;
+        item.append(link); list.append(item);
+      }
+      card.append(list);
+    }
+    if (run.status === "queued" || run.status === "running") {
+      const cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "text-button"; cancel.textContent = run.status === "queued" ? "Cancel queued run" : "Request cancellation";
+      cancel.addEventListener("click", async () => {
+        cancel.disabled = true;
+        try { await api(`/v1/runs/${encodeURIComponent(run.id)}/cancel`, { method: "POST", body: "{}" }); await loadProject(selectedProject); }
+        catch (error) { window.alert(error.message); }
+        finally { cancel.disabled = false; }
+      });
+      card.append(cancel);
+    }
+    projectDetail.append(card);
   }
-  renderVisualReviewForm();
+  renderVisualReviewForm(data.runs ?? []);
   renderVisualReviewHistory(data.visualReviews ?? [], data.codeProposals ?? []);
 }
 
-function renderVisualReviewForm() {
+function renderVisualReviewForm(runs) {
   const section = document.createElement("section"); section.className = "visual-review-tool";
   const heading = document.createElement("div"); heading.className = "panel-heading";
   const titleGroup = document.createElement("div");
@@ -156,32 +185,102 @@ function renderVisualReviewForm() {
   const advisory = document.createElement("span"); advisory.className = "pill pending"; advisory.textContent = "ADVISORY"; heading.append(advisory);
   section.append(heading);
   const explainer = document.createElement("p"); explainer.className = "visual-review-explainer";
-  explainer.textContent = "Upload a screenshot you are authorized to share. Add an approved reference and written criteria to review visual-language fit. After consent, Atlas sends only these PNG images and criteria to Groq; it does not crawl a URL or store image bytes. The report is retained for 30 days. This server must be configured with GROQ_API_KEY; the key never reaches your browser.";
+  explainer.textContent = "Review a PNG you upload or a screenshot artifact from a completed staging run. Run screenshots are only captured when the target contract enables capture consent and redaction selectors; inspect every image before separate Groq egress consent. Only the selected PNG, optional approved reference, and criteria are sent. Findings are advisory and never change the release verdict. Reports are retained for 30 days. This server must be configured with GROQ_API_KEY; the key never reaches your browser.";
   section.append(explainer);
 
   const form = document.createElement("form"); form.className = "visual-review-form";
-  const currentLabel = document.createElement("label"); currentLabel.textContent = "Current component screenshot (PNG, up to 10 MiB)";
-  const current = document.createElement("input"); current.name = "image"; current.type = "file"; current.accept = "image/png,.png"; current.required = true; currentLabel.append(current);
+  const captureLabel = document.createElement("label"); captureLabel.textContent = "Or choose a captured screenshot from a completed staging run";
+  const captured = document.createElement("select"); captured.name = "capturedScreenshot";
+  const noCapture = document.createElement("option"); noCapture.value = ""; noCapture.textContent = "Choose a run screenshot"; captured.append(noCapture);
+  let captureCount = 0;
+  for (const run of runs) {
+    if (run.status !== "completed") continue;
+    for (const artifact of run.artifacts ?? []) {
+      if (artifact.mediaType !== "image/png") continue;
+      const option = document.createElement("option"); option.value = `${run.id}:${artifact.id}`;
+      option.dataset.url = `/v1/runs/${encodeURIComponent(run.id)}/artifacts/${encodeURIComponent(artifact.id)}`;
+      option.dataset.name = artifact.name ?? "captured-screenshot.png";
+      option.dataset.bytes = String(artifact.byteLength);
+      option.textContent = `Run ${run.id.slice(0, 8)} | ${artifact.name ?? "screenshot.png"} | ${run.verdict ?? "no verdict"}`;
+      if (Number(artifact.byteLength) > 10 * 1024 * 1024) { option.disabled = true; option.textContent += " (over 10 MiB)"; }
+      captured.append(option); captureCount += 1;
+    }
+  }
+  if (!captureCount) { noCapture.textContent = "No captured PNGs available; enable screenshot consent on a target"; noCapture.disabled = true; }
+  captureLabel.append(captured);
+  const currentLabel = document.createElement("label"); currentLabel.textContent = "Or upload a current component screenshot (PNG, up to 10 MiB)";
+  const current = document.createElement("input"); current.name = "image"; current.type = "file"; current.accept = "image/png,.png"; currentLabel.append(current);
+  let capturedFile = null;
   const referenceLabel = document.createElement("label"); referenceLabel.textContent = "Approved reference screenshot (optional, same dimensions)";
   const reference = document.createElement("input"); reference.name = "reference"; reference.type = "file"; reference.accept = "image/png,.png"; referenceLabel.append(reference);
   const criteriaLabel = document.createElement("label"); criteriaLabel.textContent = "Team visual criteria (required with a reference)";
   const criteria = document.createElement("textarea"); criteria.name = "criteria"; criteria.maxLength = 1200; criteria.rows = 3; criteria.placeholder = "For example: preserve the approved type scale and keep the primary action visually dominant."; criteriaLabel.append(criteria);
   const preview = document.createElement("div"); preview.className = "visual-previews"; preview.setAttribute("aria-live", "polite");
+  const localComparison = document.createElement("div"); localComparison.className = "local-pixel-comparison"; localComparison.setAttribute("aria-live", "polite");
   const status = document.createElement("p"); status.className = "notice visual-review-status"; status.setAttribute("role", "status");
   const consentLabel = document.createElement("label"); consentLabel.className = "check-option";
   const consent = document.createElement("input"); consent.type = "checkbox"; consent.name = "consent"; consent.required = true;
   const consentText = document.createElement("span"); consentText.textContent = "I am authorized to share these images and criteria with Groq for this analysis. This review is AI-generated advice; it does not change the release verdict.";
   consentLabel.append(consent, consentText);
+  const compareLocally = document.createElement("button"); compareLocally.className = "text-button"; compareLocally.type = "button"; compareLocally.textContent = "Compare with reference locally"; compareLocally.disabled = true;
   const submit = document.createElement("button"); submit.className = "primary"; submit.type = "submit"; submit.textContent = "Review with Groq";
-  form.append(currentLabel, referenceLabel, criteriaLabel, preview, consentLabel, submit, status);
+  form.append(captureLabel, currentLabel, referenceLabel, criteriaLabel, preview, compareLocally, localComparison, consentLabel, submit, status);
   section.append(form);
-  form.addEventListener("change", () => previewVisualInputs(current.files[0], reference.files[0], preview));
+  const selectedCurrent = () => current.files[0] ?? capturedFile;
+  const updateLocalCompareButton = () => { compareLocally.disabled = !selectedCurrent() || !reference.files[0]; };
+  captured.addEventListener("change", async () => {
+    capturedFile = null;
+    current.value = "";
+    preview.replaceChildren();
+    if (!captured.value) { status.textContent = ""; return; }
+    const option = captured.selectedOptions[0];
+    const selectedValue = captured.value;
+    if (Number(option.dataset.bytes) > 10 * 1024 * 1024) { status.textContent = "This screenshot is over the visual review size limit."; return; }
+    status.dataset.state = "pending";
+    status.textContent = "Loading the selected run artifact for preview…";
+    captured.disabled = true;
+    try {
+      const response = await fetch(option.dataset.url, { credentials: "same-origin", headers: { "x-atlas-organization": selectedOrg } });
+      if (!response.ok) throw new Error(response.status === 410 ? "The screenshot expired or failed its integrity check." : `Screenshot could not be loaded (${response.status}).`);
+      const blob = await response.blob();
+      if (captured.value !== selectedValue) return;
+      if (blob.type !== "image/png" || blob.size > 10 * 1024 * 1024) throw new Error("The selected artifact is not a supported PNG under 10 MiB.");
+      capturedFile = new File([blob], option.dataset.name, { type: "image/png" });
+      previewVisualInputs(capturedFile, reference.files[0], preview, "Run screenshot artifact");
+      updateLocalCompareButton();
+      status.dataset.state = "info";
+      status.textContent = "Preview the run screenshot below. It will not be sent to Groq unless you check the separate consent box and submit.";
+    } catch (error) { status.dataset.state = "error"; status.textContent = error.message; }
+    finally { captured.disabled = false; }
+  });
+  form.addEventListener("change", (event) => {
+    if (event.target === captured) return;
+    if (event.target === current && current.files[0]) { captured.value = ""; capturedFile = null; }
+    previewVisualInputs(current.files[0] ?? capturedFile, reference.files[0], preview, capturedFile && !current.files[0] ? "Run screenshot artifact" : "Current screenshot");
+    updateLocalCompareButton();
+  });
+  compareLocally.addEventListener("click", async () => {
+    compareLocally.disabled = true;
+    status.dataset.state = "pending";
+    status.textContent = "Comparing these images locally in your browser…";
+    try {
+      const actual = selectedCurrent();
+      const baseline = reference.files[0];
+      if (!actual || !baseline) throw new Error("Choose a current screenshot and an approved reference first.");
+      const comparison = await compareImageFilesLocally(baseline, actual);
+      localComparison.replaceChildren(renderPixelComparison(comparison, "LOCAL-ONLY PIXEL COMPARISON"));
+      status.dataset.state = "success";
+      status.textContent = "Pixel comparison completed in this browser. No images or comparison data were sent to Atlas or Groq.";
+    } catch (error) { status.dataset.state = "error"; status.textContent = error.message; }
+    finally { updateLocalCompareButton(); }
+  });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     status.textContent = "";
+    status.dataset.state = "";
     submit.disabled = true;
     try {
-      const currentFile = current.files[0];
+      const currentFile = current.files[0] ?? capturedFile;
       const referenceFile = reference.files[0];
       if (!currentFile || currentFile.size > 10 * 1024 * 1024 || (referenceFile && referenceFile.size > 10 * 1024 * 1024)) throw new Error("Choose PNG files no larger than 10 MiB each.");
       if (currentFile.type !== "image/png" || (referenceFile && referenceFile.type !== "image/png")) throw new Error("Only PNG screenshots are supported.");
@@ -196,21 +295,61 @@ function renderVisualReviewForm() {
         method: "POST", headers: { "idempotency-key": idempotencyKey }, body: JSON.stringify(payload),
       });
       form.reset();
+      capturedFile = null;
       preview.replaceChildren();
       status.textContent = result.review.status === "complete"
         ? "Review recorded. Suggestions are advisory; an empty issue list is not a design pass."
         : "Review is inconclusive. No image passed or failed; see the safe error details below.";
+      status.dataset.state = result.review.status === "complete" ? "success" : "warning";
       renderReviewResult(result.review, section);
       await refreshSelectedProject();
-    } catch (error) { status.textContent = error.message; }
+      const storedCard = [...document.querySelectorAll(".visual-review-history .visual-review-result")]
+        .find((item) => item.dataset.reviewId === result.review.id);
+      if (storedCard) renderFindingOverlay(currentFile, result.review.result?.issues ?? [], storedCard);
+    } catch (error) { status.dataset.state = "error"; status.textContent = error.message; }
     finally { submit.disabled = false; }
   });
   projectDetail.append(section);
 }
 
-function previewVisualInputs(current, reference, container) {
+async function compareImageFilesLocally(baselineFile, actualFile) {
+  const [baseline, actual] = await Promise.all([decodeLocalPng(baselineFile), decodeLocalPng(actualFile)]);
+  if (baseline.width !== actual.width || baseline.height !== actual.height) throw new Error("Reference and current screenshots must have matching dimensions.");
+  const worker = new Worker("/pixel-diff-worker.js", { type: "module" });
+  return new Promise((resolve, reject) => {
+    const finish = (callback, value) => { clearTimeout(timer); worker.terminate(); callback(value); };
+    const timer = setTimeout(() => finish(reject, new Error("Local screenshot comparison timed out.")), 30_000);
+    worker.onmessage = ({ data }) => data?.ok ? finish(resolve, data.comparison) : finish(reject, new Error(data?.error ?? "Local screenshot comparison failed."));
+    worker.onerror = () => finish(reject, new Error("Local screenshot comparison worker failed."));
+    const transfer = (image) => image.data.buffer.slice(image.data.byteOffset, image.data.byteOffset + image.data.byteLength);
+    const baselineBuffer = transfer(baseline);
+    const actualBuffer = transfer(actual);
+    worker.postMessage({
+      baseline: { width: baseline.width, height: baseline.height, data: baselineBuffer },
+      actual: { width: actual.width, height: actual.height, data: actualBuffer },
+    }, [baselineBuffer, actualBuffer]);
+  });
+}
+
+async function decodeLocalPng(file) {
+  if (file.type !== "image/png" || file.size > 10 * 1024 * 1024) throw new Error("Local comparison accepts PNG files up to 10 MiB each.");
+  const bitmap = await createImageBitmap(file);
+  try {
+    if (!bitmap.width || !bitmap.height || bitmap.width > 4096 || bitmap.height > 4096 || bitmap.width * bitmap.height > 8_000_000) {
+      throw new Error("PNG dimensions exceed the local comparison limits.");
+    }
+    const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("This browser cannot read image pixels for local comparison.");
+    context.drawImage(bitmap, 0, 0);
+    const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    return { width: bitmap.width, height: bitmap.height, data: pixels.data };
+  } finally { bitmap.close(); }
+}
+
+function previewVisualInputs(current, reference, container, currentLabel = "Current screenshot") {
   container.replaceChildren();
-  for (const [label, file] of [["Current screenshot", current], ["Approved reference", reference]]) {
+  for (const [label, file] of [[currentLabel, current], ["Approved reference", reference]]) {
     if (!file) continue;
     const figure = document.createElement("figure");
     const caption = document.createElement("figcaption"); caption.textContent = `${label} · ${formatBytes(file.size)}`;
@@ -251,6 +390,7 @@ function renderVisualReviewHistory(reviews, proposals) {
 
 function renderReviewResult(review, container, compact = false, proposals = []) {
   const card = document.createElement("article"); card.className = "visual-review-result";
+  if (review.id) card.dataset.reviewId = review.id;
   const heading = document.createElement("div"); heading.className = "panel-heading";
   const title = document.createElement("strong"); title.textContent = `${review.result?.requestedModel ?? review.requestedModel ?? "Groq visual review"} · ${review.createdAt ? new Date(review.createdAt).toLocaleString() : "just now"}`;
   const result = review.result ?? {};
@@ -258,13 +398,14 @@ function renderReviewResult(review, container, compact = false, proposals = []) 
   if (result.source === "synthetic-fixture") { const fixture = document.createElement("span"); fixture.className = "pill pending"; fixture.textContent = "SYNTHETIC FIXTURE"; heading.append(fixture); }
   card.append(heading);
   if (!compact && result.criteria) { const criteria = document.createElement("p"); criteria.className = "review-criteria"; criteria.textContent = `Criteria: ${result.criteria}`; card.append(criteria); }
+  if (result.pixelComparison) card.append(renderPixelComparison(result.pixelComparison, "DETERMINISTIC REFERENCE COMPARISON"));
   const issues = result.issues ?? [];
   if (!issues.length) {
     const note = document.createElement("p"); note.className = "review-note"; note.textContent = review.status === "complete" ? "No suggestions were returned. This is not a visual pass." : "No visual finding is available. This result is inconclusive."; card.append(note);
   }
-  for (const issue of issues) {
+  for (const [index, issue] of issues.entries()) {
     const item = document.createElement("div"); item.className = "visual-issue";
-    const label = document.createElement("strong"); label.textContent = `${issue.severity} · ${issue.category} · ${issue.kind}`;
+    const label = document.createElement("strong"); label.textContent = `Finding ${index + 1} · ${issue.severity} · ${issue.category} · ${issue.kind}`;
     const observation = document.createElement("p"); observation.textContent = issue.observation;
     const suggestion = document.createElement("p"); suggestion.textContent = `Suggestion: ${issue.recommendation}`;
     const confidence = document.createElement("small"); confidence.textContent = `Model confidence: ${issue.confidence} (self-reported, not calibrated)${issue.region ? ` · region ${issue.region.x}, ${issue.region.y}, ${issue.region.width}, ${issue.region.height} / 1000` : " · no region supplied"}`;
@@ -275,6 +416,54 @@ function renderReviewResult(review, container, compact = false, proposals = []) 
   if (review.error) { const error = document.createElement("p"); error.className = "review-note"; error.textContent = review.error; card.append(error); }
   const hashes = document.createElement("small"); hashes.className = "review-hashes"; hashes.textContent = `Screenshot SHA-256 ${review.screenshotSha256 ?? review.result?.imageSha256 ?? "unavailable"}${review.referenceSha256 ?? review.result?.referenceSha256 ? ` · reference SHA-256 ${review.referenceSha256 ?? review.result.referenceSha256}` : ""} · verdict effect none`;
   card.append(hashes); container.append(card);
+}
+
+function renderFindingOverlay(file, issues, card) {
+  if (!file || !issues.length) return;
+  const figure = document.createElement("figure"); figure.className = "visual-finding-preview";
+  const caption = document.createElement("figcaption");
+  const localizedCount = issues.filter((issue) => issue.region).length;
+  caption.textContent = localizedCount
+    ? `Current screenshot · ${localizedCount} model-supplied finding region${localizedCount === 1 ? "" : "s"} (illustrative coordinates, not pixel segmentation)`
+    : "Current screenshot · model supplied no finding coordinates";
+  const frame = document.createElement("div"); frame.className = "visual-finding-frame";
+  const image = document.createElement("img"); image.alt = localizedCount ? "Current screenshot with numbered model-supplied finding regions" : "Current screenshot; the model supplied no finding regions";
+  const objectUrl = URL.createObjectURL(file); image.src = objectUrl;
+  image.addEventListener("load", () => {
+    frame.style.aspectRatio = `${image.naturalWidth} / ${image.naturalHeight}`;
+    URL.revokeObjectURL(objectUrl);
+  }, { once: true });
+  image.addEventListener("error", () => URL.revokeObjectURL(objectUrl), { once: true });
+  frame.append(image);
+  issues.forEach((issue, index) => {
+    if (!issue.region) return;
+    const marker = document.createElement("span"); marker.className = "visual-finding-region";
+    marker.setAttribute("aria-hidden", "true"); marker.textContent = String(index + 1);
+    marker.style.left = `${issue.region.x / 10}%`;
+    marker.style.top = `${issue.region.y / 10}%`;
+    marker.style.width = `${issue.region.width / 10}%`;
+    marker.style.height = `${issue.region.height / 10}%`;
+    frame.append(marker);
+  });
+  figure.append(caption, frame);
+  const firstIssue = card.querySelector(".visual-issue");
+  if (firstIssue) card.insertBefore(figure, firstIssue);
+  else card.append(figure);
+}
+
+function renderPixelComparison(comparison, titleText) {
+  const section = document.createElement("section"); section.className = "pixel-comparison";
+  const label = document.createElement("strong"); label.textContent = titleText;
+  const changed = document.createElement("p"); changed.textContent = `${(comparison.pixelDiffRatio * 100).toFixed(2)}% of pixels differ beyond channel tolerance 6.`;
+  const similarity = document.createElement("p"); similarity.textContent = `Coarse luminance similarity: ${(comparison.perceptualScore * 100).toFixed(2)}% across a 16 by 16 grid.`;
+  const scope = document.createElement("small"); scope.textContent = `${comparison.width} by ${comparison.height} pixels. Measures visual change only; it does not rate design quality, accessibility, or release readiness.`;
+  section.append(label, changed, similarity, scope);
+  if (comparison.firstDivergenceBox) {
+    const region = document.createElement("p"); const box = comparison.firstDivergenceBox;
+    region.textContent = `Difference bounding box: x ${box.x}, y ${box.y}, w ${box.w}, h ${box.h}.`;
+    section.append(region);
+  }
+  return section;
 }
 
 function renderCodeProposalForm(review, container) {
@@ -326,7 +515,7 @@ function renderCodeProposal(proposal, container) {
   container.append(article);
 }
 
-function formatBytes(value) { return value < 1024 * 1024 ? `${(value / 1024).toFixed(0)} KiB` : `${(value / (1024 * 1024)).toFixed(1)} MiB`; }
+function formatBytes(value) { return value < 1024 ? `${Math.max(0, Math.round(value))} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(0)} KiB` : `${(value / (1024 * 1024)).toFixed(1)} MiB`; }
 
 function renderTarget(target) {
   const card = document.createElement("div"); card.className = "target-card";

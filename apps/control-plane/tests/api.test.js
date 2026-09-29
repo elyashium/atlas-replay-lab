@@ -148,7 +148,7 @@ test("run submissions require an idempotency key and retries resolve to the same
     assert.ok(first.json().run.binding.releasePolicy.contentHash);
     assert.equal(first.json().run.binding.atlas.engine, "RuleBasedDecisionEngine");
     assert.equal(first.json().run.binding.atlas.engineVersion, "0.1.0");
-    assert.match(first.json().run.message, /not enabled/);
+    assert.match(first.json().run.message, /local Docker worker is required/);
     assert.equal(retry.statusCode, 200);
     assert.equal(retry.json().run.id, first.json().run.id);
   } finally { await app.close(); }

@@ -1,12 +1,13 @@
 import Fastify from "fastify";
 import { createHash, randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { lstat, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { lookup, resolveTxt } from "node:dns/promises";
 import { validateTargetContract } from "../../../src/targets/contract.js";
 import { buildBinding, requireImmutableBuild } from "../../../src/targets/build-binding.js";
 import { policyStamp } from "../../../src/gate/policy.js";
+import { diffImages } from "../../../src/image/diff.js";
 import { decodePng } from "../../../src/image/png.js";
 import { GROQ_VISION_MODEL_DEFAULT, reviewScreenshotWithGroq, validateVisualIssues, VISUAL_REVIEW_IMAGE_LIMIT_BYTES, VISUAL_REVIEW_MAX_DIMENSION, VISUAL_REVIEW_MAX_PIXELS } from "../../../src/visual/groq-review.js";
 import { CODE_SOURCE_LIMIT_BYTES, containsCredentialLikeText, GROQ_CODE_MODEL_DEFAULT, proposeCodePatch } from "../../../src/visual/groq-patch.js";
@@ -30,6 +31,7 @@ export function buildApp({
   visualReviewDailyLimit = Number(process.env.ATLAS_VISUAL_REVIEW_DAILY_LIMIT ?? 10),
   codeProposer = proposeCodePatch,
   codeProposalDailyLimit = Number(process.env.ATLAS_CODE_PROPOSAL_DAILY_LIMIT ?? 5),
+  artifactRoot = process.env.ATLAS_LOCAL_ARTIFACT_DIR,
 } = {}) {
   if (!Number.isInteger(visualReviewDailyLimit) || visualReviewDailyLimit < 1 || visualReviewDailyLimit > 1000) throw new Error("ATLAS_VISUAL_REVIEW_DAILY_LIMIT must be an integer from 1 to 1000");
   if (!Number.isInteger(codeProposalDailyLimit) || codeProposalDailyLimit < 1 || codeProposalDailyLimit > 1000) throw new Error("ATLAS_CODE_PROPOSAL_DAILY_LIMIT must be an integer from 1 to 1000");
@@ -75,6 +77,8 @@ export function buildApp({
   app.get("/api/openapi.json", async () => OPENAPI);
   app.get("/", async (_request, reply) => reply.type("text/html; charset=utf-8").send(await readFile(path.join(here, "../public/index.html"), "utf8")));
   app.get("/app.js", async (_request, reply) => reply.type("text/javascript; charset=utf-8").send(await readFile(path.join(here, "../public/app.js"), "utf8")));
+  app.get("/pixel-diff-worker.js", async (_request, reply) => reply.type("text/javascript; charset=utf-8").send(await readFile(path.join(here, "../public/pixel-diff-worker.js"), "utf8")));
+  app.get("/image-diff.js", async (_request, reply) => reply.type("text/javascript; charset=utf-8").send(await readFile(path.resolve(here, "../../../src/image/diff.js"), "utf8")));
   app.get("/app.css", async (_request, reply) => reply.type("text/css; charset=utf-8").send(await readFile(path.join(here, "../public/app.css"), "utf8")));
 
   app.post("/v1/auth/register", async (request, reply) => {
@@ -165,7 +169,7 @@ export function buildApp({
     const result = await pool.query("SELECT id,name,created_at AS \"createdAt\" FROM projects WHERE organization_id=$1 AND id=$2", [orgId, projectId]);
     if (!result.rowCount) return reply.code(404).send({ error: "project not found" });
     const targets = await pool.query("SELECT id,base_url AS \"baseUrl\",hostname,verified_at IS NOT NULL AS verified,CASE WHEN verified_at IS NULL THEN verification_token ELSE NULL END AS \"verificationToken\",contract->>'name' AS name,created_at AS \"createdAt\" FROM targets WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC", [orgId, projectId]);
-    const runs = await pool.query("SELECT id,target_id AS \"targetId\",status,verdict,contract_version AS \"contractVersion\",created_at AS \"createdAt\",finished_at AS \"finishedAt\" FROM runs WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
+    const runs = await pool.query("SELECT r.id,r.target_id AS \"targetId\",r.status,r.verdict,r.error_code AS \"errorCode\",r.contract_version AS \"contractVersion\",r.created_at AS \"createdAt\",r.started_at AS \"startedAt\",r.finished_at AS \"finishedAt\",r.result_snapshot AS result,COALESCE((SELECT json_agg(json_build_object('id',a.id,'mediaType',a.media_type,'byteLength',a.byte_length,'sha256',a.sha256,'name',regexp_replace(a.object_key,'^.*/','')) ORDER BY a.object_key) FROM artifacts a WHERE a.organization_id=r.organization_id AND a.run_id=r.id),'[]'::json) AS artifacts FROM runs r WHERE r.organization_id=$1 AND r.project_id=$2 ORDER BY r.created_at DESC LIMIT 50", [orgId, projectId]);
     const visualReviews = await pool.query("SELECT id,status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",screenshot_sha256 AS \"screenshotSha256\",reference_sha256 AS \"referenceSha256\",result,error,created_at AS \"createdAt\" FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
     const codeProposals = await pool.query("SELECT id,visual_review_id AS \"visualReviewId\",status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",file_name AS \"fileName\",source_sha256 AS \"sourceSha256\",result,error,created_at AS \"createdAt\" FROM code_proposals WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
     return { project: result.rows[0], targets: targets.rows, runs: runs.rows, visualReviews: visualReviews.rows, codeProposals: codeProposals.rows };
@@ -187,16 +191,24 @@ export function buildApp({
       return reply.code(400).send({ error: "idempotency-key header (8 to 128 safe characters) is required" });
     }
     let image;
+    let imagePixels;
     let referenceImage;
+    let referencePixels;
     try {
-      image = decodePngBase64(body.imageBase64, "current screenshot");
-      if (body.referenceImageBase64 !== undefined) referenceImage = decodePngBase64(body.referenceImageBase64, "reference screenshot");
+      const current = decodePngBase64(body.imageBase64, "current screenshot");
+      image = current.bytes;
+      imagePixels = current.pixels;
+      if (body.referenceImageBase64 !== undefined) {
+        const reference = decodePngBase64(body.referenceImageBase64, "reference screenshot");
+        referenceImage = reference.bytes;
+        referencePixels = reference.pixels;
+      }
     } catch (decodeError) { return reply.code(400).send({ error: decodeError.message }); }
     if (referenceImage && (typeof body.criteria !== "string" || !body.criteria.trim() || body.criteria.trim().length > 1200)) {
       return reply.code(400).send({ error: "a reference screenshot requires explicit criteria of 1 to 1200 characters" });
     }
     if (!referenceImage && body.criteria !== undefined) return reply.code(400).send({ error: "criteria can only be sent with a reference screenshot" });
-    if (referenceImage && !samePngDimensions(image, referenceImage)) return reply.code(400).send({ error: "reference and current screenshots must have matching dimensions" });
+    if (referencePixels && (imagePixels.width !== referencePixels.width || imagePixels.height !== referencePixels.height)) return reply.code(400).send({ error: "reference and current screenshots must have matching dimensions" });
     const requestSha256 = createHash("sha256").update(JSON.stringify({
       imageSha256: createHash("sha256").update(image).digest("hex"),
       referenceSha256: referenceImage ? createHash("sha256").update(referenceImage).digest("hex") : null,
@@ -215,6 +227,12 @@ export function buildApp({
       );
       if (!quota.rowCount) return reply.code(429).send({ error: `this organization has reached the daily visual review limit (${visualReviewDailyLimit})` });
 
+      const pixelComparison = referencePixels ? {
+        ...diffImages(referencePixels, imagePixels),
+        channelTolerance: 6,
+        basis: "deterministic RGBA pixel threshold plus coarse 16x16 luminance similarity; visual evidence only",
+        verdictEffect: "none",
+      } : null;
       const requestedModel = process.env.ATLAS_GROQ_VISION_MODEL ?? GROQ_VISION_MODEL_DEFAULT;
       let result;
       let failure;
@@ -230,10 +248,13 @@ export function buildApp({
       } catch (providerError) { failure = safeProviderError(providerError); }
       const screenshotSha256 = createHash("sha256").update(image).digest("hex");
       const referenceSha256 = referenceImage ? createHash("sha256").update(referenceImage).digest("hex") : null;
-      const report = result ?? {
+      const report = {
+        ...(result ?? {
         provider: "groq", requestedModel, returnedModel: null, profileId: "studio-component", checkpointId: "user-upload",
         imageSha256: screenshotSha256, referenceSha256, criteria: referenceImage ? body.criteria.trim() : null,
         issues: [], verdictEffect: "none", confidenceNote: "No model result is available; this is inconclusive, not a visual pass.",
+        }),
+        pixelComparison,
       };
       const status = failure ? "inconclusive" : "complete";
       const reviewId = newId();
@@ -394,6 +415,9 @@ export function buildApp({
     const target = found.rows[0];
     if (!target) return reply.code(404).send({ error: "target not found" });
     if (!target.verified_at) return reply.code(409).send({ error: "verify target ownership before queueing a run" });
+    if (target.contract.target?.allowedOrigins?.some((origin) => { try { const parsed = new URL(origin); return parsed.protocol !== "https:" || (parsed.port && parsed.port !== "443"); } catch { return true; } })) {
+      return reply.code(400).send({ error: "local isolated workers currently support HTTPS origins on port 443 only" });
+    }
     const idempotencyKey = request.headers["idempotency-key"];
     if (typeof idempotencyKey !== "string" || idempotencyKey.length < 8 || idempotencyKey.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)) {
       return reply.code(400).send({ error: "idempotency-key header (8 to 128 safe characters) is required" });
@@ -416,17 +440,79 @@ export function buildApp({
       return { run: inserted.rows[0], created: true, conflict: false };
     });
     if (queued.conflict) return reply.code(409).send({ error: "idempotency-key was already used for a different target" });
-    return reply.code(queued.created ? 202 : 200).send({ run: { ...queued.run, message: "Run accepted. Browser execution is not enabled in this deployment." } });
+    return reply.code(queued.created ? 202 : 200).send({ run: { ...queued.run, message: "Run queued. A separately started local Docker worker is required; this API process does not launch browsers." } });
   });
 
   app.get("/v1/runs/:runId", async (request, reply) => {
     const { orgId, error } = await organizationContext(request, pool);
     if (error) return reply.code(error.status).send({ error: error.message });
     const { runId } = request.params;
-    const found = await pool.query("SELECT id,status,verdict,contract_version AS \"contractVersion\",created_at AS \"createdAt\",started_at AS \"startedAt\",finished_at AS \"finishedAt\",contract_snapshot AS contract,binding_snapshot AS binding FROM runs WHERE organization_id=$1 AND id=$2", [orgId, runId]);
+    const found = await pool.query("SELECT id,status,verdict,error_code AS \"errorCode\",contract_version AS \"contractVersion\",created_at AS \"createdAt\",started_at AS \"startedAt\",finished_at AS \"finishedAt\",contract_snapshot AS contract,binding_snapshot AS binding,result_snapshot AS result FROM runs WHERE organization_id=$1 AND id=$2", [orgId, runId]);
     if (!found.rowCount) return reply.code(404).send({ error: "run not found" });
     const artifacts = await pool.query("SELECT id,media_type AS \"mediaType\",byte_length AS \"byteLength\",sha256,created_at AS \"createdAt\" FROM artifacts WHERE organization_id=$1 AND run_id=$2 ORDER BY created_at", [orgId, runId]);
-    return { run: found.rows[0], artifacts: artifacts.rows, evidenceStatus: "not-run" };
+    return { run: found.rows[0], artifacts: artifacts.rows.map((artifact) => ({ ...artifact, url: `/v1/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifact.id)}` })), evidenceStatus: found.rows[0].result ? "captured" : found.rows[0].status === "queued" || found.rows[0].status === "running" ? "pending" : "absent" };
+  });
+
+  app.post("/v1/runs/:runId/cancel", async (request, reply) => {
+    const { user, orgId, role, error } = await organizationContext(request, pool);
+    if (error) return reply.code(error.status).send({ error: error.message });
+    if (!canWrite(role)) return reply.code(403).send({ error: "organization editor role required" });
+    const { runId } = request.params;
+    if (!UUID.test(runId)) return reply.code(404).send({ error: "run not found" });
+    const outcome = await inTransaction(pool, async (client) => {
+      const found = await client.query("SELECT status,cancel_requested_at FROM runs WHERE organization_id=$1 AND id=$2 FOR UPDATE", [orgId, runId]);
+      if (!found.rowCount) return { missing: true };
+      const run = found.rows[0];
+      if (run.status === "queued") {
+        await client.query("UPDATE runs SET status='cancelled',finished_at=now() WHERE organization_id=$1 AND id=$2 AND status='queued'", [orgId, runId]);
+        await audit(client, orgId, user.id, "run.cancelled", "run", runId, { phase: "queued" });
+        return { status: "cancelled" };
+      }
+      if (run.status === "running") {
+        if (!run.cancel_requested_at) {
+          await client.query("UPDATE runs SET cancel_requested_at=now() WHERE organization_id=$1 AND id=$2 AND status='running'", [orgId, runId]);
+          await audit(client, orgId, user.id, "run.cancel.requested", "run", runId, { phase: "running" });
+        }
+        return { status: "running", cancellationRequested: true };
+      }
+      return { conflict: true, status: run.status };
+    });
+    if (outcome.missing) return reply.code(404).send({ error: "run not found" });
+    if (outcome.conflict) return reply.code(409).send({ error: `run cannot be cancelled after it is ${outcome.status}` });
+    return { runId, ...outcome };
+  });
+
+  app.get("/v1/runs/:runId/artifacts/:artifactId", async (request, reply) => {
+    const { user, orgId, error } = await organizationContext(request, pool);
+    if (error) return reply.code(error.status).send({ error: error.message });
+    if (!artifactRoot || !path.isAbsolute(artifactRoot)) return reply.code(503).send({ error: "local run artifacts are not configured" });
+    const { runId, artifactId } = request.params;
+    if (!UUID.test(runId) || !UUID.test(artifactId)) return reply.code(404).send({ error: "artifact not found" });
+    const result = await pool.query("SELECT a.object_key,a.media_type,a.byte_length,a.sha256 FROM artifacts a JOIN runs r ON r.organization_id=a.organization_id AND r.id=a.run_id WHERE a.organization_id=$1 AND r.id=$2 AND a.id=$3", [orgId, runId, artifactId]);
+    if (!result.rowCount) return reply.code(404).send({ error: "artifact not found" });
+    const artifact = result.rows[0];
+    const pieces = artifact.object_key.split("/");
+    if (pieces[0] !== runId || pieces.length < 2 || pieces.some((piece) => !piece || piece === "." || piece === ".." || !/^[A-Za-z0-9._-]+$/.test(piece))) return reply.code(404).send({ error: "artifact not found" });
+    const root = path.resolve(artifactRoot);
+    const filePath = path.resolve(root, ...pieces);
+    if (!filePath.startsWith(`${root}${path.sep}`)) return reply.code(404).send({ error: "artifact not found" });
+    try {
+      const file = await lstat(filePath);
+      if (!file.isFile() || file.isSymbolicLink()) return reply.code(404).send({ error: "artifact not found" });
+      if (file.size !== Number(artifact.byte_length)) return reply.code(410).send({ error: "artifact integrity check failed" });
+      const bytes = await readFile(filePath);
+      if (createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) return reply.code(410).send({ error: "artifact integrity check failed" });
+      await pool.query("INSERT INTO audit_events(organization_id,actor_user_id,action,resource_type,resource_id,details) VALUES($1,$2,'artifact.downloaded','run',$3,$4)", [orgId, user.id, runId, { artifactId, sha256: artifact.sha256 }]);
+      reply.header("content-type", artifact.media_type);
+      reply.header("content-length", String(bytes.length));
+      reply.header("content-disposition", `attachment; filename="${pieces.at(-1)}"`);
+      reply.header("content-security-policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; base-uri 'none'; form-action 'none'");
+      reply.header("x-content-type-options", "nosniff");
+      return reply.send(bytes);
+    } catch (readError) {
+      if (readError?.code === "ENOENT") return reply.code(410).send({ error: "artifact is no longer available" });
+      throw readError;
+    }
   });
 
   if (closePool) app.addHook("onClose", async () => { await pool.end(); });
@@ -468,12 +554,10 @@ function decodePngBase64(value, label) {
   if (!width || !height || width > VISUAL_REVIEW_MAX_DIMENSION || height > VISUAL_REVIEW_MAX_DIMENSION || width * height > VISUAL_REVIEW_MAX_PIXELS) {
     throw new Error(`${label} dimensions exceed the visual-review limit`);
   }
-  try { decodePng(bytes); }
+  let pixels;
+  try { pixels = decodePng(bytes); }
   catch { throw new Error(`${label} is not a supported, complete PNG`); }
-  return bytes;
-}
-function samePngDimensions(first, second) {
-  return first.readUInt32BE(16) === second.readUInt32BE(16) && first.readUInt32BE(20) === second.readUInt32BE(20);
+  return { bytes, pixels };
 }
 function safeProviderError(error) {
   const message = error instanceof Error ? error.message : "";
@@ -506,7 +590,7 @@ async function audit(client, orgId, userId, action, type, id, details = {}) {
 }
 
 const OPENAPI = {
-  openapi: "3.1.0", info: { title: "Atlas Control Plane API", version: "0.1.0", description: "Phase 2 local development slice. Queue records are not browser executions." },
+  openapi: "3.1.0", info: { title: "Atlas Control Plane API", version: "0.1.0", description: "Local development control plane with an opt-in Docker worker; it is not a hosted service." },
   servers: [{ url: "http://localhost:3000" }],
   paths: {
     "/v1/auth/register": { post: { summary: "Create account and organization", responses: { "201": { description: "Created" } } } },
@@ -514,10 +598,10 @@ const OPENAPI = {
     "/v1/projects": { get: { summary: "List projects in selected organization", responses: { "200": { description: "Project list" } } }, post: { summary: "Create project", responses: { "201": { description: "Created" } } } },
     "/v1/projects/{projectId}/targets": { post: { summary: "Register an HTTPS target and DNS ownership challenge", responses: { "201": { description: "Created" } } } },
     "/v1/projects/{projectId}/visual-reviews": { post: {
-      summary: "Submit consented component screenshots for advisory visual review; image bytes are not retained",
+      summary: "Compare consented reference/current PNGs deterministically and request separate advisory model review; image bytes are not retained by this route",
       parameters: [{ in: "header", name: "Idempotency-Key", required: true, schema: { type: "string", minLength: 8, maxLength: 128 } }, { in: "header", name: "x-atlas-organization", required: true, schema: { type: "string", format: "uuid" } }],
       requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["providerConsent", "imageBase64"], properties: { providerConsent: { const: true }, imageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png", description: "Maximum decoded size 10 MiB; PNG dimensions capped." }, referenceImageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png" }, criteria: { type: "string", maxLength: 1200 } } } } } },
-      responses: { "201": { description: "Review report stored for 30 days" }, "400": { description: "Invalid PNG, dimensions, criteria, or missing egress consent" }, "429": { description: "Daily organization quota reached" }, "503": { description: "Groq model is not configured" } },
+      responses: { "201": { description: "Advisory review and optional deterministic pixel comparison stored for 30 days" }, "400": { description: "Invalid PNG, dimensions, criteria, or missing egress consent" }, "429": { description: "Daily organization quota reached" }, "503": { description: "Groq model is not configured" } },
     } },
     "/v1/projects/{projectId}/visual-reviews/{reviewId}/code-proposals": { post: {
       summary: "Create a separate-consent, single-file code proposal from one completed visual review; never apply or test it",
@@ -526,8 +610,10 @@ const OPENAPI = {
       responses: { "201": { description: "Unapplied, untested proposal stored for 30 days" }, "400": { description: "Invalid source or missing code-egress consent" }, "409": { description: "Review is inconclusive or has no findings" }, "429": { description: "Daily organization quota reached" }, "503": { description: "Groq code model is not configured" } },
     } },
     "/v1/targets/{targetId}/verify": { post: { summary: "Verify DNS TXT ownership", responses: { "200": { description: "Verified" } } } },
-    "/v1/targets/{targetId}/runs": { post: { summary: "Queue a run record (Idempotency-Key required)", responses: { "202": { description: "Queued; execution disabled" }, "200": { description: "Existing idempotent run" } } } },
+    "/v1/targets/{targetId}/runs": { post: { summary: "Queue a run record (Idempotency-Key required)", responses: { "202": { description: "Queued; an explicitly started local Docker worker may process it" }, "200": { description: "Existing idempotent run" } } } },
     "/v1/runs/{runId}": { get: { summary: "Get private run status and artifact metadata", responses: { "200": { description: "Run detail" } } } },
+    "/v1/runs/{runId}/cancel": { post: { summary: "Cancel a queued run or request cancellation of a running local Docker job", responses: { "200": { description: "Cancelled or cancellation requested" }, "409": { description: "Run already completed" } } } },
+    "/v1/runs/{runId}/artifacts/{artifactId}": { get: { summary: "Download an organization-scoped local run artifact with integrity verification and audit", responses: { "200": { description: "Artifact bytes" }, "404": { description: "Artifact not found" }, "410": { description: "Artifact expired or integrity check failed" } } } },
   },
 };
 

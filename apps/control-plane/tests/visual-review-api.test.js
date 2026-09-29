@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { encodePng } from "../../../src/image/png.js";
+import { decodePng, encodePng } from "../../../src/image/png.js";
 import { buildApp } from "../src/server.js";
 
 const origin = "http://127.0.0.1:3000";
@@ -106,6 +106,35 @@ test("consented review stores hashes and advisory findings, not the uploaded scr
     const conflict = await request(app, { ...payload, criteria: "Different criteria." });
     assert.equal(conflict.statusCode, 409);
     assert.equal(providerCalls, 1);
+  } finally { await app.close(); }
+});
+
+test("reference review adds deterministic pixel evidence without granting it release effect", async () => {
+  const pool = reviewPool();
+  const altered = decodePng(png);
+  altered.data = Buffer.from(altered.data);
+  altered.data[0] = 230;
+  const current = encodePng(altered);
+  const app = buildApp({ pool, appOrigin: origin, groqApiKey: "test-only", visualReviewer: async () => ({
+    provider: "groq", requestedModel: "qwen/test", returnedModel: "qwen/test",
+    issues: [], verdictEffect: "none",
+  }) });
+  try {
+    const response = await request(app, {
+      providerConsent: true,
+      imageBase64: current.toString("base64"),
+      referenceImageBase64: png.toString("base64"),
+      criteria: "Keep the component structure stable.",
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    const comparison = response.json().review.result.pixelComparison;
+    assert.equal(comparison.pixelDiffRatio, 0.25);
+    assert.ok(comparison.perceptualScore < 1);
+    assert.deepEqual(comparison.width, 2);
+    assert.equal(comparison.height, 2);
+    assert.equal(comparison.channelTolerance, 6);
+    assert.deepEqual(comparison.verdictEffect, "none");
+    assert.match(comparison.basis, /deterministic RGBA/);
   } finally { await app.close(); }
 });
 

@@ -99,29 +99,41 @@ Honest scope: the CLI writes traces to local `artifacts/`. The Phase 2 local
 control-plane foundation has a PostgreSQL schema for accounts, organizations,
 projects, target contracts, queued run records, artifact metadata, and audit
 events. Its server runs an hourly purge for expired sessions, expired/revoked
-share-link rows, and run rows after their 30-day `retention_expires_at`; run
-artifact metadata cascades with the run row. There is no object-store adapter
-yet, so blob, backup, and end-to-end deletion are not implemented or verified.
-Do not expose the current app publicly.
+share-link rows, and run rows after their 30-day `retention_expires_at`; local
+worker artifacts are queued for filesystem deletion when the artifact directory
+is configured. This is not backup-aware object-store retention, and restore and
+backup deletion are not implemented or verified. Do not expose the current app
+publicly.
 
 The control-plane app stores account email, organization/project names, target
 URLs and contracts, session token hashes, and run/audit metadata in Postgres.
-It does not currently execute browser runs or store screenshots/traces in an
-object store. The prototype's request serializer omits client IP and query
-strings; this has not been tested against a deployed proxy or database log
-configuration. No production data has been processed.
+An explicitly started local Docker worker can execute target contracts and
+store reports, traces, and consented screenshots on a local filesystem; it does
+not use object storage. Artifact downloads require organization membership and
+are hash-checked and audited. The hourly purge removes expired run metadata and
+uses a retryable queue to delete matching local run directories when
+`ATLAS_LOCAL_ARTIFACT_DIR` is configured. Backups, restore, encryption at rest,
+and hosted retention enforcement are not implemented. The prototype's request
+serializer omits client IP and query strings; this has not been tested against
+a deployed proxy or database log configuration. No production data has been
+processed.
 
 ## Third-party egress
 
 ### Studio component visual review
 
-The separate control-plane feature accepts user-selected PNG screenshots only
-after an organization editor checks the per-review Groq egress consent. A
+The separate control-plane feature accepts an organization editor's PNG choice
+after separate per-review Groq egress consent. An editor may upload a PNG or
+select a run screenshot artifact. Run screenshots are captured only when that
+target contract has screenshot consent and redaction selectors configured. A
 reference PNG and up to 1200 characters of team criteria may also be sent. PNGs
 are capped at 10 MiB each, at 4096 pixels per side and 8 million pixels total,
-and are decoded before egress. Image bytes are held in request memory and are
-not written to Postgres or object storage. The model output, image hashes,
-criteria, request status, and audit event are stored in Postgres for 30 days;
+and are decoded before egress. The visual-review request holds image bytes in
+memory and does not store them in Postgres or review storage. A screenshot
+selected from a run remains in that run's artifacts until its retention purge.
+The model output, deterministic comparison metrics (when a reference exists),
+image hashes, criteria, request status, and audit event are stored in Postgres
+for 30 days;
 the hourly retention job deletes expired report and usage rows. Reports are
 organization-scoped. This local synchronous route has not been assessed for
 public hosting and does not use a managed secret vault or isolated worker.
@@ -148,8 +160,10 @@ For the CLI and engine, with no configuration, nothing leaves the machine.
 Every engine call is local because the default engine is
 `RuleBasedDecisionEngine` and makes no network calls. The local control plane
 serves its UI/API and connects to its configured PostgreSQL database; target
-onboarding performs DNS lookups. It has no browser worker, and therefore does
-not fetch the registered target page yet.
+onboarding performs DNS lookups. A separate, explicitly enabled local worker
+fetches verified HTTPS targets through the per-job pinned-address proxy. The
+worker has no model or customer credentials. The control plane is not a hosted
+execution service.
 
 When a model **is** configured (`TYPESAFE_API_KEY`), what crosses the boundary is
 deliberately not the trace:

@@ -1,8 +1,11 @@
 import { randomBytes } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { exportContainerArtifacts } from "../../control-plane/src/local-worker.js";
 
 const image = process.env.ATLAS_WORKER_IMAGE ?? "atlas-worker:local";
 const docker = process.env.DOCKER ?? "docker";
@@ -13,10 +16,14 @@ const fixtureNetwork = `atlas-fixture-${suffix}`;
 const proxyName = `atlas-proxy-${suffix}`;
 const targetName = `atlas-target-${suffix}`;
 const workerName = `atlas-worker-${suffix}`;
+const jobWorkerName = `atlas-job-worker-${suffix}`;
 const fixtureHost = "fixture.example.test";
 const fixtureAddress = "93.184.216.2";
 const seccomp = path.join(repoRoot, "apps/worker/seccomp.json");
 const active = new Set();
+const jobOutput = await mkdtemp(path.join(tmpdir(), `atlas-job-evidence-${suffix}-`));
+const contractFile = path.join(jobOutput, "contract.json");
+const capturedOutput = path.join(jobOutput, "captured");
 
 try {
   run("network", ["create", "--internal", "--label", "atlas.test=network-boundary", jobNetwork]);
@@ -58,12 +65,64 @@ try {
   ]);
   process.stdout.write(`${boundaryDetails.trim()}\n`);
   process.stdout.write("PASS: isolated container could reach the synthetic HTTPS origin through the job proxy, while direct public/private sockets and worker DNS were blocked\n");
+
+  const fixtureContract = {
+    schemaVersion: 1,
+    id: "docker-fixture",
+    name: "Synthetic isolated-worker fixture",
+    environment: "staging",
+    authorization: { authorized: true, note: "Synthetic verifier fixture; not a third-party target" },
+    target: { url: `https://${fixtureHost}/`, allowedOrigins: [`https://${fixtureHost}`], buildId: "a1b2c3d4" },
+    journey: { steps: [{ type: "waitForVisible", selector: "#ready", timeoutMs: 5000 }], success: { selector: "#ready" }, fallback: { selector: "#fallback", requiredOn: [] } },
+    profiles: ["high-wifi"],
+    budgets: { journeyTimeoutMs: 10000, stepTimeoutMs: 5000 },
+    mediaConsent: false,
+    policy: { version: "1", criticalProfiles: ["high-wifi"], minimumScore: 0 },
+    screenshots: { consent: false, redactSelectors: [] },
+  };
+  await writeFile(contractFile, `${JSON.stringify(fixtureContract)}\n`, { flag: "wx" });
+  run("create", [
+    "--name", jobWorkerName, "--network", jobNetwork, "--dns", "127.0.0.1",
+    "--read-only", "--tmpfs", "/tmp:rw,nosuid,noexec,size=128m", "--tmpfs", "/dev/shm:rw,nosuid,nodev,size=256m",
+    "--tmpfs", "/output:rw,nosuid,nodev,size=512m",
+    "--mount", `type=bind,source=${contractFile},target=/job/contract.json,readonly`,
+    "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--security-opt", `seccomp=${seccomp}`,
+    "--pids-limit", "256", "--memory", "2g", "--memory-swap", "2g", "--cpus", "2",
+    "--env", `ATLAS_EGRESS_PROXY=http://${proxyAddress}:3128`, "--env", "NODE_ENV=test", "--env", "ATLAS_WORKER_TEST_MODE=1",
+    "--entrypoint", "node", image, "apps/worker/scripts/job-supervisor.js", "/job/contract.json", "/output/run",
+  ]);
+  active.add(jobWorkerName);
+  run("start", [jobWorkerName]);
+  let jobExit;
+  const jobDeadline = Date.now() + 120_000;
+  while (Date.now() < jobDeadline) {
+    const marker = spawnSync(docker, ["exec", jobWorkerName, "cat", "/output/.worker-exit-code"], { encoding: "utf8", timeout: 5000 });
+    if (marker.status === 0) { jobExit = Number(marker.stdout.trim()); break; }
+    const state = JSON.parse(run("inspect", ["--format", "{{json .State}}", jobWorkerName]));
+    if (!state.Running) throw new Error(`synthetic browser worker exited before artifact collection: ${run("logs", [jobWorkerName])}`);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (jobExit === undefined) throw new Error(`synthetic browser run timed out: ${run("logs", [jobWorkerName])}`);
+  process.stdout.write(`job output root: ${run("exec", [jobWorkerName, "ls", "-la", "/output"])}\n`);
+  process.stdout.write(`job output files: ${run("exec", [jobWorkerName, "find", "/output", "-maxdepth", "3", "-type", "f"])}\n`);
+  await exportContainerArtifacts(docker, jobWorkerName, capturedOutput);
+  const jobResult = JSON.parse(await readFile(path.join(capturedOutput, "job-result.json"), "utf8"));
+  run("exec", [jobWorkerName, "touch", "/output/.parent-collected"]);
+  if (Number(run("wait", [jobWorkerName])) !== jobExit) throw new Error("synthetic worker supervisor exit did not match its execution marker");
+  if (jobExit !== 0) throw new Error(`synthetic browser run failed (${jobExit}): ${run("logs", [jobWorkerName])}`);
+  if (jobResult.status !== "completed" || !["SHIP", "HOLD", "INCONCLUSIVE"].includes(jobResult.verdict) || jobResult.profiles?.completed !== 1) {
+    throw new Error("synthetic queue job did not produce a complete, explicit release result");
+  }
+  const gateReport = JSON.parse(await readFile(path.join(capturedOutput, "gate", "report.json"), "utf8"));
+  process.stdout.write(`PASS: actual Atlas target matrix, gate, findings, and report completed in the isolated worker (${jobResult.verdict}; ${jobResult.profiles.completed}/${jobResult.profiles.total} profile)\n`);
+  process.stdout.write(`Synthetic fixture verdict evidence: ${JSON.stringify({ targetDecision: jobResult.targetDecision, gateFindings: gateReport.findings })}\n`);
 } finally {
-  for (const name of [workerName, proxyName, targetName]) {
-    if (active.has(name)) runQuiet("stop", ["--time", "2", name]);
+  for (const name of [jobWorkerName, workerName, proxyName, targetName]) {
+    if (active.has(name)) runQuiet("rm", ["--force", name]);
   }
   runQuiet("network", ["rm", jobNetwork]);
   runQuiet("network", ["rm", fixtureNetwork]);
+  await rm(jobOutput, { recursive: true, force: true });
 }
 
 function run(command, args) {

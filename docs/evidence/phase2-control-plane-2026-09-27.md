@@ -9,9 +9,10 @@ flowchart LR
   API --> DB[(PostgreSQL: orgs, targets, queued runs, visual reports, audit)]
   API -. explicit per-review consent .-> Groq[Groq vision API]
   API --> DNS[DNS ownership challenge]
-  Proxy[Per-job CONNECT proxy component: tested separately, not integrated]
-  DB -. queued rows only .-> Worker[Isolated Chrome worker: not implemented]
-  Worker -. future .-> Objects[(Private object storage: not implemented)]
+  DB --> Worker[Opt-in local queue worker]
+  Worker --> Proxy[Per-job pinned CONNECT proxy]
+  Worker --> Disk[(Private local artifact directory)]
+  Worker -. production deployment pending .-> Objects[(Private object storage: not implemented)]
   Objects -. future .-> Report[Private evidence report: not implemented]
 ```
 
@@ -33,9 +34,11 @@ Atlas rule-engine version, requestor, and a 30-day expiry timestamp. A required
 idempotency key maps request retries back to the same run row. Migration 002
 cancels legacy unbound queue entries before adding the required binding column.
 The server purges expired sessions, share-link records, and non-running run
-rows hourly. The integration test exercised deletion of expired run and
-artifact metadata rows against PostgreSQL. The run stays `queued` and has no
-verdict because no worker is connected.
+rows hourly. An opt-in local Docker queue worker claims runs using expiring
+leases, executes the existing target matrix and deterministic gate, stores
+hashed artifacts on disk, and marks harness failures `INCONCLUSIVE`. The API
+does not start it automatically. Browser execution remains local development
+only and has not been exercised against a real owned staging target in Docker.
 
 The API enforces organization membership in each read/write path, scopes SQL by
 organization ID, hashes opaque session tokens in Postgres, uses an HttpOnly,
@@ -106,16 +109,18 @@ database, or this setup to the public internet.
   proves the tested query paths, not a comprehensive tenant-isolation audit or
   the hosted network boundary. DNS answers/TXT were stubbed to avoid contacting
   or running an outside studio target.
-- No queue consumer/browser worker, report renderer, artifact object store,
-  client-share flow, real run metrics, or release verdict was exercised.
+- A local queue consumer, browser worker image, report renderer, and private
+  artifact download endpoint now exist. The worker job path was not exercised
+  end to end against a real owned staging target. No private object store,
+  client-share flow, or real customer run metrics exist.
 
 ## Blocking gaps before hosted use
 
-The DNS lookup is a one-time onboarding check, not protection from DNS
-rebinding, redirect pivots, private subresources, metadata services, or unsafe
-downloads. There is no worker network namespace or outbound allowlist. Browser
-execution is deliberately absent. There is no S3-compatible storage, artifact
-content-serving endpoint, job retry/cancellation, quotas, distributed
+The DNS lookup is a one-time onboarding check; the local worker additionally
+uses a connection-pinned proxy and isolated Docker network, but the container
+attack suite is incomplete and this is not hosted protection evidence. Browser
+execution is opt-in local development only. There is no S3-compatible storage,
+distributed worker deployment, job cancellation/backoff, quotas, distributed
 rate limiting, backup/blob deletion proof, expiring
 revocable report links, MFA/recovery, deployment hardening, or end-to-end
 second-tenant attack test. The current session/password implementation has no
@@ -155,12 +160,11 @@ Verification on Windows x64 / Node 20.18.0:
   vulnerabilities reported** by npm's current advisory data. This is not a
   security audit or a guarantee against undisclosed vulnerabilities.
 
-The proxy is not imported by the API or any job consumer. There is still no
-queue consumer, worker, browser run, object store, or report. In particular,
-these unit/local-socket checks provide no evidence that a Chrome process cannot
-bypass a proxy. A per-job network namespace/firewall, container-level bypass
-tests, worker resource limits and cleanup must precede worker integration or
-any hosted execution claim. The component is documented in ADR-0008.
+At this stage, the proxy was not imported by the API or any job consumer. The
+later 2026-09-29 entries below record local Docker integration and the local
+queue worker. Hosted execution still needs the full adversarial network suite,
+private object storage, cancellation/quotas, backup deletion, and real target
+evidence; do not read the earlier snapshot as current state.
 
 ## 2026-09-29 continuation: local component visual review
 
@@ -223,9 +227,21 @@ This demonstrates one local path on one Docker Desktop setup with a synthetic
 origin. It does not cover the complete DNS/redirect/subresource/alternate-egress
 attack matrix, real staging journeys, CI runtime differences, queue dispatch,
 cancellation, artifact extraction/retention, or a hosted security boundary. The
-API still leaves queued runs queued. Keep public execution disabled. Worker
-implementation notes and limitations are in [`../../apps/worker/README.md`](../../apps/worker/README.md)
-and [`../threat-model-worker-egress.md`](../threat-model-worker-egress.md).
+At that point in the work, the API left queued runs queued. The later
+2026-09-29 continuation below records the opt-in local queue consumer. Keep
+public execution disabled. Worker implementation notes and limitations are in
+[`../../apps/worker/README.md`](../../apps/worker/README.md) and
+[`../threat-model-worker-egress.md`](../threat-model-worker-egress.md).
+
+The verifier now goes beyond the browser network probe and runs the actual Atlas
+matrix, deterministic target gate, diagnosis, and report in a second isolated
+container against that same synthetic HTTPS fixture. One `high-wifi` profile
+completed and wrote an explicit result plus matrix, gate, findings, and HTML
+report. The verifier retrieved artifacts while the container remained alive,
+then signaled collection and cleaned up. This is one synthetic fixture profile,
+with the fixture policy's score floor set to zero to verify plumbing; the
+resulting `SHIP` is not product-quality evidence. It still does not dispatch
+from the API/Postgres queue and is not a run against a real studio's target.
 - `npm run preview:screenshots --prefix apps/control-plane` started a disposable
   local API on a loopback ephemeral port, created a test account/project, and
   submitted a synthetic component PNG through the actual browser form and API
@@ -243,8 +259,8 @@ inconclusive; no post-fix live analysis, accuracy, latency, or cost measurement
 exists. The visual review daily limit of ten is an initial local abuse-control
 ceiling, not a pricing or customer entitlement decision. The feature still
 lacks managed key storage, distributed quotas, request cancellation, private
-report shares, browser capture, object storage, public-service security review,
-and queue isolation. Do not host it publicly.
+report shares, browser capture, object storage, and public-service security
+review. Do not host it publicly.
 
 ## 2026-09-29 continuation: guarded code proposals
 
@@ -286,3 +302,123 @@ process-local, and a provider timeout can consume quota without a durable job
 record. Secret-pattern scanning is incomplete; a returned diff can repeat
 source lines. Do not host this endpoint publicly. Live quality, latency, and
 cost remain unmeasured.
+
+## 2026-09-29 continuation: opt-in local queue worker
+
+Added a local-only Postgres queue consumer that claims one run with a bounded
+lease, runs its profiles sequentially in a fresh Docker container, heartbeats
+the lease, handles cancellation, retries harness failures once, and records
+artifacts in a private local directory. Each run gets a job-specific internal
+Docker network and allowlisted HTTPS proxy. Worker output is copied while the
+container is alive, validated for file type, path, count, and total size, then
+hashed and registered in Postgres. Retention uses a retryable database outbox
+to remove the matching local run directory. Expired-lease recovery runs every
+15 seconds while the worker polls for new work once per second.
+
+Verification on Windows x64 / Node 20.18.0 / Docker Desktop 29.6.2 / local
+PostgreSQL 17:
+
+- Root `npm test`: **390/390 passed**.
+- `npm test --prefix apps/control-plane` with loopback-only `DATABASE_URL`:
+  **33/33 passed**.
+- `node bin/atlas.js doctor`: passed with Chrome 154.0.8037.58 and CDP 1.3.
+- `npm run verify:worker-boundary --prefix apps/control-plane`: passed. DNS and
+  direct public, fixture, and metadata sockets were blocked; allowlisted HTTPS
+  was reached through the proxy. The actual matrix, gate, findings, and report
+  completed in the isolated container. One captured run returned `SHIP` with a
+  target score of 99/100 and no target gate findings; another verifier run in
+  this work session returned `HOLD`. The verifier removes its ephemeral output,
+  so the runs are not retained for independent artifact review. This variation
+  means the synthetic fixture verdict is plumbing evidence only, not a stable
+  performance or product benchmark.
+- `node --check` for the changed worker scripts and `git diff --check`: passed.
+
+The Postgres integration suite now exercises authenticated target setup and
+queue submission, a real SQL lease claim, the worker's atomic result/artifact
+commit, authenticated report download, download audit, and cross-organization
+artifact denial in one run. Its labeled synthetic executor does not launch
+Docker. The isolated verifier separately runs the actual Atlas matrix and
+artifact exporter inside Docker against a synthetic origin. The browser
+executor is therefore covered at the Docker boundary and the API/queue
+orchestration is covered with Postgres, but a single live API-to-Docker run is
+still unverified. Cancellation, retries, and retention are exercised in
+separate Postgres integration assertions. Hosted object storage, multi-host
+workers, network adversarial coverage, credentials, quotas, durable distributed
+visual-provider calls, and real owned-staging evidence remain unfinished. The
+worker is disabled unless `ATLAS_ENABLE_LOCAL_WORKER=1` is set and is not a
+hosted service. Do not expose the control plane publicly.
+
+## 2026-09-29 continuation: run screenshots into visual review
+
+The project visual-review form can now choose a PNG artifact from a completed
+run as well as upload a local PNG. It fetches the selected artifact through the
+organization-authenticated, integrity-checked download route (which records an
+artifact-download audit), previews the image, then requires the existing
+separate Groq egress consent before submission. Captures still require the
+target contract's explicit screenshot consent and redaction selectors; every
+image must be inspected before provider egress. Visual findings remain advisory
+and do not affect release verdicts. The browser does not crawl an arbitrary
+URL for visual review, and model egress remains synchronous.
+
+- `npm run preview:screenshots --prefix apps/control-plane` with local
+  PostgreSQL exercised artifact selection, authenticated PNG fetch, preview,
+  unchecked egress consent, mocked visual analysis, and code-proposal display at
+  desktop 1440px and mobile 390px. Both layouts had no horizontal overflow; the
+  screenshot preview image loaded at both sizes. This used a synthetic PNG and
+  mock reviewer; no model call or customer data left the workspace.
+
+## 2026-09-29 continuation: objective reference-difference evidence
+
+Reference-based component reviews now include Atlas's existing deterministic
+PNG comparison: share of pixels beyond per-channel tolerance 6, coarse 16x16
+luminance similarity, dimensions, and the calculated change bounding box. It is
+explicitly labeled pixel-change evidence, not a design-quality/accessibility
+score, and `verdictEffect` remains `none`. It is computed after idempotency and
+daily-quota checks; no screenshot bytes are added to the review row. The
+vision-model result remains a separate advisory section and may be inconclusive
+even when deterministic comparison metrics exist.
+
+- `node --test apps/control-plane/tests/visual-review-api.test.js`: **6/6
+  passed**, including a synthetic 2x2 pair with one changed pixel (25% pixel
+  difference) and no release effect.
+- The desktop 1440px and mobile 390px browser preview showed deterministic
+  reference metrics and the distinct synthetic model advisory. Neither layout
+  overflowed horizontally. It used synthetic PNGs and a mock reviewer; no
+  live provider request or customer data was used.
+- Full `npm test --prefix apps/control-plane` with loopback-only Postgres:
+  **34/34 passed**. Root `npm test`: **390/390 passed**. Changed server/client/
+  preview scripts passed `node --check`; `git diff --check` passed.
+
+## 2026-09-29 continuation: browser-local reference comparison
+
+Added a no-egress comparison action to the screenshot review form. It decodes
+the current and approved PNGs in the browser, then runs the existing Atlas
+`diffImages` function in a module web worker. The browser enforces a 10 MiB PNG
+limit and dimension/pixel ceilings before decoding. This path sends no image,
+criteria, or request to the control-plane API or a model provider, and it does
+not persist its result. The separately consented server review still requires
+explicit provider egress consent; when a reference is included, deterministic
+pixel evidence is computed server-side and stored alongside the advisory
+review, with no verdict effect.
+
+The synthetic preview was visually inspected at desktop 1440px and mobile
+390px. Both displayed the local-only comparison and showed no horizontal page
+overflow. The desktop showed a 100.00% pixel difference, 68.09% coarse
+luminance similarity, tolerance 6, and the full 16-by-16 difference bounds for
+the synthetic fixture. The mobile view stacks the image previews; its native
+run selector truncates a long synthetic option label. These fixture metrics
+are UI plumbing evidence, not a design score or benchmark. Groq consent was
+unchecked during local comparison; the later provider response in the preview
+was mocked. No live Groq call or customer image was used.
+
+- `npm test`: **390/390 passed**.
+- `npm test --prefix apps/control-plane` with loopback-only Postgres:
+  **34/34 passed**.
+- `node --check` passed for the API, UI, pixel-diff worker, and preview script;
+  `git diff --check` passed.
+
+This adds a useful local review tool but does not establish design-quality
+judgment, visual regression policy, accessibility assessment, arbitrary-URL
+capture, or hosted provider-call durability. Visual model findings remain
+advisory, and screenshot capture still depends on target consent and configured
+redaction selectors.

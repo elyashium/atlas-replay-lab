@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, lstat, readdir, readFile, rm, rename, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, lstat, readdir, readFile, rm, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { validateTargetContract } from "../../../src/targets/contract.js";
@@ -34,20 +34,20 @@ export async function executeLocalRun(options) {
   const worker = `atlas-worker-${suffix}`;
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), `atlas-run-${suffix}-`));
   const staged = path.join(tempRoot, "artifacts");
-  const containerOutput = path.join(tempRoot, "container-output");
   await mkdir(staged, { recursive: true });
-  await mkdir(containerOutput, { recursive: true });
   const contractFile = path.join(tempRoot, "contract.json");
   const active = { network: false, proxy: false, worker: false };
   let heartbeatTimer;
+  let primaryError;
 
   try {
-    await writeFile(contractFile, `${JSON.stringify(contract)}\n`, { flag: "wx", mode: 0o600 });
-    await dockerCall(docker, ["network", "create", "--internal", "--label", "atlas.managed=true", network]);
+    await writeFile(contractFile, `${JSON.stringify(contract)}\n`, { flag: "wx", mode: 0o644 });
+    await dockerCall(docker, ["network", "create", "--internal", "--label", "atlas.managed=true", "--label", `atlas.run=${run.id}`, network]);
     active.network = true;
 
     await dockerCall(docker, [
       "run", "--detach", "--rm", "--name", proxy, "--network", "bridge",
+      "--label", `atlas.run=${run.id}`,
       "--read-only", "--tmpfs", "/tmp:rw,nosuid,noexec,size=32m", "--cap-drop", "ALL",
       "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "256m", "--cpus", "0.5",
       "--env", `ATLAS_ALLOWED_ORIGINS=${JSON.stringify(origins)}`,
@@ -62,30 +62,48 @@ export async function executeLocalRun(options) {
 
     await dockerCall(docker, [
       "create", "--name", worker, "--network", network, "--dns", "127.0.0.1",
+      "--label", `atlas.run=${run.id}`,
       "--read-only", "--tmpfs", "/tmp:rw,nosuid,noexec,size=128m", "--tmpfs", "/dev/shm:rw,nosuid,nodev,size=256m",
-      "--tmpfs", "/job:rw,nosuid,nodev,noexec,size=8m", "--tmpfs", "/output:rw,nosuid,nodev,size=512m",
+      "--tmpfs", "/output:rw,nosuid,nodev,size=512m",
+      "--mount", `type=bind,source=${contractFile},target=/job/contract.json,readonly`,
       "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--security-opt", `seccomp=${options.seccompPath}`,
       "--pids-limit", "256", "--memory", "2g", "--memory-swap", "2g", "--cpus", "2",
       "--env", `ATLAS_EGRESS_PROXY=http://${proxyAddress}:3128`,
-      "--entrypoint", "node", image, "apps/worker/scripts/execute-job.js", "/job/contract.json", "/output/run",
+      "--entrypoint", "node", image, "apps/worker/scripts/job-supervisor.js", "/job/contract.json", "/output/run",
     ]);
     active.worker = true;
-    await dockerCall(docker, ["cp", contractFile, `${worker}:/job/contract.json`]);
     await dockerCall(docker, ["start", worker]);
 
     let heartbeatBusy = false;
+    let cancelled = false;
+    let heartbeatFailure = null;
     heartbeatTimer = setInterval(() => {
       if (heartbeatBusy || !options.heartbeat) return;
       heartbeatBusy = true;
-      options.heartbeat().catch(() => {}).finally(() => { heartbeatBusy = false; });
+      options.heartbeat().then(async (cancelRequested) => {
+        if (cancelRequested && !cancelled) {
+          cancelled = true;
+          await dockerCall(docker, ["kill", worker]).catch(() => {});
+        }
+      }).catch(async () => {
+        heartbeatFailure = Object.assign(new Error("worker heartbeat failed; stopping the isolated job"), { code: "worker_heartbeat_failed" });
+        await dockerCall(docker, ["kill", worker]).catch(() => {});
+      }).finally(() => { heartbeatBusy = false; });
     }, 30_000);
     heartbeatTimer.unref?.();
-    const exitCode = await waitForContainer(docker, worker, options.timeoutMs ?? JOB_TIMEOUT_MS);
+    let exitCode;
+    try { exitCode = await waitForCompletionMarker(docker, worker, options.timeoutMs ?? JOB_TIMEOUT_MS); }
+    catch (error) { if (heartbeatFailure) throw heartbeatFailure; throw error; }
+    if (heartbeatFailure) throw heartbeatFailure;
+    await exportContainerArtifacts(docker, worker, staged);
+    await dockerCall(docker, ["exec", worker, "touch", "/output/.parent-collected"]);
+    const supervisorExit = Number(await dockerCall(docker, ["wait", worker]));
+    if (supervisorExit !== exitCode) throw new Error("worker supervisor exit did not match the collected execution status");
+    if (cancelled) throw Object.assign(new Error("run was cancelled by an organization member"), { code: "worker_cancelled" });
     if (exitCode !== 0) throw Object.assign(new Error("isolated browser harness exited without a complete evidence bundle"), { code: "worker_harness_failed" });
-    await dockerCall(docker, ["cp", `${worker}:/output/run/.`, staged]);
     const resultPath = path.join(staged, "job-result.json");
     const result = JSON.parse(await readFile(resultPath, "utf8"));
-    if (result.status !== "completed" || !["SHIP", "HOLD"].includes(result.verdict)) throw new Error("worker returned an invalid release result");
+    if (result.status !== "completed" || !["SHIP", "HOLD", "INCONCLUSIVE"].includes(result.verdict)) throw new Error("worker returned an invalid release result");
     const files = await inventory(staged);
     if (!files.some((file) => file.relativePath === "report.html") || !files.some((file) => file.relativePath === "job-result.json")) {
       throw new Error("worker output is missing its report or result summary");
@@ -93,6 +111,7 @@ export async function executeLocalRun(options) {
 
     const destination = path.join(options.artifactRoot, run.id);
     await mkdir(options.artifactRoot, { recursive: true, mode: 0o700 });
+    await chmod(options.artifactRoot, 0o700);
     await rm(destination, { recursive: true, force: true });
     await rename(staged, destination);
     return {
@@ -109,14 +128,16 @@ export async function executeLocalRun(options) {
       })),
     };
   } catch (error) {
-    if (error?.code === "ETIMEDOUT") throw Object.assign(new Error("worker exceeded its wall-time budget"), { code: "worker_timeout" });
-    throw error;
+    primaryError = error?.code === "ETIMEDOUT" ? Object.assign(new Error("worker exceeded its wall-time budget"), { code: "worker_timeout" }) : error;
+    throw primaryError;
   } finally {
     clearInterval(heartbeatTimer);
-    if (active.worker) await dockerCall(docker, ["rm", "--force", worker]).catch(() => {});
-    if (active.proxy) await dockerCall(docker, ["stop", "--time", "2", proxy]).catch(() => {});
-    if (active.network) await dockerCall(docker, ["network", "rm", network]).catch(() => {});
-    await rm(tempRoot, { recursive: true, force: true });
+    const cleanupErrors = [];
+    if (active.worker) await cleanupDockerResource(docker, ["rm", "--force", worker], cleanupErrors);
+    if (active.proxy) await cleanupDockerResource(docker, ["rm", "--force", proxy], cleanupErrors);
+    if (active.network) await cleanupDockerResource(docker, ["network", "rm", network], cleanupErrors);
+    try { await rm(tempRoot, { recursive: true, force: true }); } catch (error) { cleanupErrors.push(error); }
+    if (cleanupErrors.length && !primaryError) throw new AggregateError(cleanupErrors, "worker cleanup could not be verified");
   }
 }
 
@@ -137,12 +158,46 @@ export async function claimNextRun(pool, workerId) {
   return result.rows[0] ?? null;
 }
 
+/** Reap containers from expired local leases before making a run claimable again. */
+export async function recoverExpiredRuns(pool, { docker = process.env.DOCKER ?? "docker", call = dockerCall } = {}) {
+  const recoveryId = `reaper:${randomUUID()}`;
+  const expired = await pool.query(
+    `WITH expired AS (
+       SELECT id FROM runs WHERE status='running' AND lease_expires_at <= now()
+       ORDER BY lease_expires_at FOR UPDATE SKIP LOCKED LIMIT 50
+     )
+     UPDATE runs r SET worker_id=$1,lease_expires_at=now()+interval '2 minutes'
+     FROM expired WHERE r.id=expired.id
+     RETURNING r.id,r.attempt_count`,
+    [recoveryId],
+  );
+  let recovered = 0;
+  for (const run of expired.rows) {
+    const containers = (await call(docker, ["ps", "--all", "--quiet", "--filter", `label=atlas.run=${run.id}`])).split(/\s+/).filter(Boolean);
+    for (const container of containers) await call(docker, ["rm", "--force", container]);
+    const networks = (await call(docker, ["network", "ls", "--quiet", "--filter", `label=atlas.run=${run.id}`])).split(/\s+/).filter(Boolean);
+    for (const network of networks) await call(docker, ["network", "rm", network]);
+    const exhausted = Number(run.attempt_count) >= MAX_ATTEMPTS;
+    const result = await pool.query(
+      "UPDATE runs SET status=CASE WHEN cancel_requested_at IS NOT NULL THEN 'cancelled' WHEN $3 THEN 'failed' ELSE 'queued' END,verdict=CASE WHEN cancel_requested_at IS NOT NULL THEN NULL WHEN $3 THEN 'INCONCLUSIVE' ELSE NULL END,error_code=CASE WHEN cancel_requested_at IS NOT NULL THEN NULL WHEN $3 THEN 'worker_lease_expired' ELSE NULL END,worker_id=NULL,lease_expires_at=NULL,finished_at=CASE WHEN cancel_requested_at IS NOT NULL OR $3 THEN now() ELSE NULL END WHERE id=$1 AND status='running' AND worker_id=$2 RETURNING organization_id,status",
+      [run.id, recoveryId, exhausted],
+    );
+    if (result.rowCount && result.rows[0].status !== "queued") {
+      const cancelled = result.rows[0].status === "cancelled";
+      await pool.query("INSERT INTO audit_events(organization_id,action,resource_type,resource_id,details) VALUES($1,$2,'run',$3,$4)", [result.rows[0].organization_id, cancelled ? "run.cancelled" : "run.inconclusive", run.id, cancelled ? { workerMode: "local-docker" } : { errorCode: "worker_lease_expired", workerMode: "local-docker" }]);
+    }
+    recovered += result.rowCount ?? 0;
+  }
+  return recovered;
+}
+
 export async function heartbeatRun(pool, runId, workerId) {
   const result = await pool.query(
-    "UPDATE runs SET lease_expires_at=now()+interval '2 minutes' WHERE id=$1 AND status='running' AND worker_id=$2 RETURNING id",
+    "UPDATE runs SET lease_expires_at=now()+interval '2 minutes' WHERE id=$1 AND status='running' AND worker_id=$2 RETURNING cancel_requested_at IS NOT NULL AS cancelled",
     [runId, workerId],
   );
   if (!result.rowCount) throw new Error("run lease was lost");
+  return result.rows[0].cancelled;
 }
 
 async function inventory(root) {
@@ -183,6 +238,53 @@ function dockerCall(docker, args) {
   });
 }
 
+export async function exportContainerArtifacts(docker, name, destination) {
+  const unsupported = await dockerCall(docker, ["exec", name, "find", "/output/run", "-mindepth", "1", "!", "-type", "f", "!", "-type", "d", "-print"]);
+  if (unsupported) throw new Error("worker output contains an unsupported filesystem entry");
+  const listing = await dockerCall(docker, ["exec", name, "find", "/output/run", "-type", "f", "-printf", "%P\\n"]);
+  const relativePaths = listing ? listing.split(/\r?\n/).filter(Boolean) : [];
+  if (!relativePaths.length || relativePaths.length > MAX_OUTPUT_FILES) throw new Error("worker output is empty or contains too many files");
+  let totalBytes = 0;
+  for (const relativePath of relativePaths) {
+    if (!/^[A-Za-z0-9._/-]{1,240}$/.test(relativePath) || relativePath.split("/").some((part) => !part || part === "." || part === "..")) throw new Error("worker output contains an unsafe path");
+    const encoded = await dockerReadBase64(docker, ["exec", name, "base64", "--wrap=0", `/output/run/${relativePath}`]);
+    const encodedText = encoded.toString("ascii").replace(/\r?\n$/, "");
+    const bytes = Buffer.from(encodedText, "base64");
+    if (bytes.toString("base64") !== encodedText) throw new Error("worker output transfer was not valid base64");
+    totalBytes += bytes.length;
+    if (totalBytes > MAX_OUTPUT_BYTES) throw new Error("worker output exceeded the artifact byte budget");
+    const destinationPath = path.join(destination, ...relativePath.split("/"));
+    await mkdir(path.dirname(destinationPath), { recursive: true });
+    await writeFile(destinationPath, bytes, { flag: "wx", mode: 0o600 });
+  }
+}
+
+function dockerReadBase64(docker, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(docker, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    const chunks = [];
+    let size = 0;
+    let stderr = "";
+    const maximum = Math.ceil(MAX_OUTPUT_BYTES / 3) * 4 + 8;
+    child.stdout.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > maximum) { child.kill(); reject(new Error("worker artifact exceeded the per-file transfer limit")); return; }
+      chunks.push(chunk);
+    });
+    child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr = (stderr + chunk).slice(-4096); });
+    child.once("error", reject);
+    child.once("close", (code) => code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`docker artifact read failed (${code}): ${stderr.trim()}`)));
+  });
+}
+
+async function cleanupDockerResource(docker, args, errors) {
+  try { await dockerCall(docker, args); }
+  catch (error) {
+    if (/no such (?:container|network)|not found/i.test(error.message)) return;
+    errors.push(error);
+  }
+}
+
 async function waitForLog(docker, name, pattern) {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
@@ -195,17 +297,20 @@ async function waitForLog(docker, name, pattern) {
   throw new Error("per-job egress proxy did not become ready");
 }
 
-async function waitForContainer(docker, name, timeoutMs) {
-  const waiter = dockerCall(docker, ["wait", name]);
-  let timer;
-  try {
-    const code = await Promise.race([
-      waiter,
-      new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error("worker timeout"), { code: "ETIMEDOUT" })), timeoutMs); }),
-    ]);
-    return Number(code);
-  } catch (error) {
-    if (error?.code === "ETIMEDOUT") await dockerCall(docker, ["kill", name]).catch(() => {});
-    throw error;
-  } finally { clearTimeout(timer); }
+async function waitForCompletionMarker(docker, name, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const value = await dockerCall(docker, ["exec", name, "cat", "/output/.worker-exit-code"]);
+      if (!/^[0-9]+$/.test(value)) throw new Error("worker completion marker is malformed");
+      return Number(value);
+    } catch (error) {
+      if (!/no such file|no such container|is not running/i.test(error.message)) throw error;
+      const state = JSON.parse(await dockerCall(docker, ["inspect", "--format", "{{json .State}}", name]));
+      if (!state.Running) throw new Error("worker stopped before artifact collection");
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  await dockerCall(docker, ["kill", name]).catch(() => {});
+  throw Object.assign(new Error("worker exceeded its wall-time budget"), { code: "ETIMEDOUT" });
 }

@@ -1,6 +1,6 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import net from "node:net";
 import pg from "pg";
 import { launchBrowser } from "../../../src/runner/cdp.js";
@@ -14,15 +14,17 @@ const port = await availablePort();
 const origin = `http://${host}:${port}`;
 const email = `preview-${randomUUID()}@example.test`;
 const uploadFixture = path.join(output, "control-plane-synthetic-component.png");
+const referenceFixture = path.join(output, "control-plane-synthetic-reference.png");
 const sourceFixture = path.join(output, "control-plane-synthetic-component.jsx");
+const previewArtifactRoot = path.join(output, "control-plane-preview-run-artifacts");
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const app = buildApp({
-  pool, appOrigin: origin, secureCookies: false, closePool: false,
+  pool, appOrigin: origin, secureCookies: false, closePool: false, artifactRoot: previewArtifactRoot,
   groqApiKey: "preview-only-no-egress",
   visualReviewer: async () => ({
     provider: "groq", requestedModel: "synthetic-fixture", returnedModel: "synthetic-fixture",
     imageSha256: "a".repeat(64), referenceSha256: null, criteria: null,
-    issues: [{ category: "hierarchy", kind: "subjective", severity: "minor", confidence: "medium", observation: "Illustrative fixture finding; no provider request was made.", recommendation: "This suggestion is test-only and is not a design assessment.", region: null }],
+    issues: [{ category: "hierarchy", kind: "subjective", severity: "minor", confidence: "medium", observation: "Illustrative fixture finding; no provider request was made.", recommendation: "This suggestion is test-only and is not a design assessment.", region: { x: 250, y: 280, width: 300, height: 200 } }],
     verdictEffect: "none", source: "synthetic-fixture",
   }),
   codeProposer: async ({ fileName }) => ({
@@ -37,7 +39,13 @@ let organizationId;
 let userId;
 try {
   await writeFile(uploadFixture, encodePng({ width: 16, height: 16, data: Buffer.alloc(16 * 16 * 4, 180) }));
+  const referencePixels = Buffer.alloc(16 * 16 * 4);
+  for (let offset = 0; offset < referencePixels.length; offset += 4) {
+    referencePixels[offset] = 80; referencePixels[offset + 1] = 100; referencePixels[offset + 2] = 140; referencePixels[offset + 3] = 255;
+  }
+  await writeFile(referenceFixture, encodePng({ width: 16, height: 16, data: referencePixels }));
   await writeFile(sourceFixture, "export function PreviewButton(){ return <button>Preview</button>; }\n");
+  await mkdir(previewArtifactRoot, { recursive: true });
   await app.listen({ port, host });
   const registration = await fetch(`${origin}/v1/auth/register`, {
     method: "POST",
@@ -71,6 +79,19 @@ try {
     "INSERT INTO targets(id,organization_id,project_id,base_url,hostname,verification_token,contract,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
     [targetId, organizationId, project.id, "https://stage.example.test/", "stage.example.test", verificationToken, targetContract, userId],
   );
+  const sampleRunId = randomUUID();
+  await pool.query(
+    "INSERT INTO runs(id,organization_id,project_id,target_id,status,verdict,contract_version,contract_snapshot,binding_snapshot,requested_by,idempotency_key,retention_expires_at,result_snapshot) VALUES($1,$2,$3,$4,'completed','INCONCLUSIVE','1',$5,$6,$7,$8,now()+interval '30 days',$9)",
+    [sampleRunId, organizationId, project.id, targetId, targetContract, { bindingVersion: 1, bindingHash: "1".repeat(16) }, userId, `preview-${sampleRunId}`, { evidenceScope: "Illustrative UI fixture; no browser job was run.", targetDecision: { evidence: [{ profileId: "high-wifi", journey: null, score: null, error: "No run executed in this preview" }] } }],
+  );
+  const screenshotBytes = await readFile(uploadFixture);
+  const screenshotId = randomUUID();
+  await mkdir(path.join(previewArtifactRoot, sampleRunId), { recursive: true });
+  await writeFile(path.join(previewArtifactRoot, sampleRunId, "high-wifi-preview.png"), screenshotBytes);
+  await pool.query(
+    "INSERT INTO artifacts(id,organization_id,run_id,object_key,media_type,byte_length,sha256) VALUES($1,$2,$3,$4,'image/png',$5,$6)",
+    [screenshotId, organizationId, sampleRunId, `${sampleRunId}/high-wifi-preview.png`, screenshotBytes.length, createHash("sha256").update(screenshotBytes).digest("hex")],
+  );
 
   const page = await browser.connection.newPage();
   await page.send("Page.enable");
@@ -95,6 +116,11 @@ try {
     if (readyState !== "ready") throw new Error(`preview workspace did not load: ${JSON.stringify(readyState)}`);
     await page.evaluate("document.querySelector('.project-item').click()");
     await page.evaluate("new Promise((resolve) => { const check = () => document.querySelector('.target-form') ? resolve(true) : setTimeout(check, 25); check(); })", { awaitPromise: true });
+    await page.evaluate("document.querySelector('.run-card').scrollIntoView({block:'center'})");
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    const runLayout = await page.evaluate("({innerWidth, clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, bodyScrollWidth: document.body.scrollWidth, fixtureLabel: document.querySelector('.run-card')?.innerText.includes('Illustrative UI fixture')})");
+    await writeFile(path.join(output, `control-plane-run-${viewport.name}.png`), await page.screenshot());
+    reports.push({ viewport: viewport.name, state: "illustrative-run", ...runLayout, screenshot: `artifacts/control-plane-run-${viewport.name}.png` });
     await page.evaluate("document.querySelector('.target-card').scrollIntoView({block:'start'})");
     await page.evaluate("document.querySelector('.verification-record').open = true");
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -111,11 +137,22 @@ try {
     await page.evaluate("document.querySelector('.visual-review-tool').scrollIntoView({block:'start'})");
     await page.send("DOM.enable");
     const documentNode = await page.send("DOM.getDocument", { depth: -1 });
-    const fileInput = await page.send("DOM.querySelector", { nodeId: documentNode.root.nodeId, selector: ".visual-review-form input[name='image']" });
-    await page.send("DOM.setFileInputFiles", { nodeId: fileInput.nodeId, files: [uploadFixture] });
+    await page.evaluate("(() => { const select=document.querySelector('.visual-review-form select[name=capturedScreenshot]'); if(select.options.length<2) throw new Error('captured screenshot option was not rendered'); select.selectedIndex=1; select.dispatchEvent(new Event('change',{bubbles:true})); })()");
+    await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if (document.querySelector('.visual-review-form .visual-previews img') && document.querySelector('.visual-review-status').innerText.includes('Preview the run screenshot')) resolve(true); else if (Date.now()-started>8000) reject(new Error('captured screenshot preview did not load through the artifact API')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
+    const referenceInput = await page.send("DOM.querySelector", { nodeId: documentNode.root.nodeId, selector: ".visual-review-form input[name=reference]" });
+    await page.send("DOM.setFileInputFiles", { nodeId: referenceInput.nodeId, files: [referenceFixture] });
+    await page.evaluate("(() => { const criteria=document.querySelector('.visual-review-form textarea[name=criteria]'); criteria.value='Preserve the approved component composition.'; criteria.dispatchEvent(new Event('input',{bubbles:true})); })()");
+    await page.evaluate("document.querySelector('.visual-review-form button[type=button]').click()");
+    await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if (document.querySelector('.local-pixel-comparison .pixel-comparison') && document.querySelector('.visual-review-status').innerText.includes('No images or comparison data were sent')) resolve(true); else if (Date.now()-started>10000) reject(new Error('local pixel comparison did not complete in the browser worker')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
+    await page.evaluate("document.querySelector('.visual-review-tool').scrollIntoView({block:'start'})");
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    const capturePreviewState = await page.evaluate("({innerWidth, clientWidth:document.documentElement.clientWidth, scrollWidth:document.documentElement.scrollWidth, imageReady:document.querySelector('.visual-review-form .visual-previews img')?.complete, screenshotCaption:document.querySelector('.visual-review-form .visual-previews figcaption')?.innerText, consentChecked:document.querySelector('.visual-review-form input[name=consent]').checked, localComparisonVisible:Boolean(document.querySelector('.local-pixel-comparison .pixel-comparison')), statusColor:getComputedStyle(document.querySelector('.visual-review-status')).color})");
+    await writeFile(path.join(output, `control-plane-capture-preview-${viewport.name}.png`), await page.screenshot());
+    reports.push({ viewport: viewport.name, state: "local-only-captured-screenshot-comparison", ...capturePreviewState, screenshot: `artifacts/control-plane-capture-preview-${viewport.name}.png` });
     await page.evaluate("document.querySelector('.visual-review-form input[name=consent]').checked = true; document.querySelector('.visual-review-form input[name=consent]').dispatchEvent(new Event('change',{bubbles:true})); document.querySelector('.visual-review-form').requestSubmit()");
     await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if (document.querySelector('.visual-review-history .visual-review-result')) resolve(true); else if (Date.now()-started>8000) reject(new Error('synthetic review preview did not finish')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
-    const previewState = await page.evaluate("({reviewCount:document.querySelectorAll('.visual-review-history .visual-review-result').length, fixtureLabel:document.body.innerText.includes('SYNTHETIC FIXTURE'), status:document.querySelector('.visual-review-status')?.innerText, scrollY})");
+    await page.evaluate("new Promise((resolve, reject) => { const image=document.querySelector('.visual-finding-preview img'); if(!image) return resolve(true); if(image.complete && image.naturalWidth) return resolve(true); image.addEventListener('load',resolve,{once:true}); image.addEventListener('error',()=>reject(new Error('synthetic finding overlay image did not load')),{once:true}); })", { awaitPromise: true });
+    const previewState = await page.evaluate("({reviewCount:document.querySelectorAll('.visual-review-history .visual-review-result').length, fixtureLabel:document.body.innerText.includes('SYNTHETIC FIXTURE'), pixelComparisonVisible:document.body.innerText.includes('DETERMINISTIC REFERENCE COMPARISON'), findingOverlayCount:document.querySelectorAll('.visual-finding-region').length, findingOverlayLabel:document.querySelector('.visual-finding-preview figcaption')?.innerText, status:document.querySelector('.visual-review-status')?.innerText, scrollY})");
     reports.push({ viewport: viewport.name, state: "visual-review-result", ...previewState });
     const sourceInput = await page.send("DOM.querySelector", { nodeId: documentNode.root.nodeId, selector: ".code-proposal-form input[type=file]" });
     await page.send("DOM.setFileInputFiles", { nodeId: sourceInput.nodeId, files: [sourceFixture] });
@@ -140,7 +177,9 @@ try {
   await browser.close();
   await app.close();
   await rm(uploadFixture, { force: true });
+  await rm(referenceFixture, { force: true });
   await rm(sourceFixture, { force: true });
+  await rm(previewArtifactRoot, { recursive: true, force: true });
   if (organizationId) await pool.query("DELETE FROM organizations WHERE id=$1", [organizationId]);
   if (userId) await pool.query("DELETE FROM users WHERE id=$1", [userId]);
   await pool.end();

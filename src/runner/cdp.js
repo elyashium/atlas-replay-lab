@@ -144,6 +144,7 @@ export async function launchBrowser(opts = {}) {
     "--disable-lcd-text",
     ...(headless ? ["--headless=new"] : []),
     ...(opts.extraArgs ?? []),
+    ...(process.env.NODE_ENV === "test" && process.env.ATLAS_WORKER_TEST_MODE === "1" ? ["--ignore-certificate-errors"] : []),
     ...egressProxyChromeArgs(process.env.ATLAS_EGRESS_PROXY),
     "about:blank",
   ];

@@ -31,13 +31,14 @@ await renderReport({ artifactsDir: outputDir, matrixReportPath: matrixPath, gate
 const summary = {
   schemaVersion: 1,
   status: "completed",
-  verdict: gateResult.shipped ? "SHIP" : "HOLD",
+  verdict: String(gateResult.report.decision).toUpperCase(),
   decisionSource: "deterministic-release-gate",
   evidenceScope: "Chromium desktop emulation; not a physical handset or real radio test",
   targetContractId: contract.id,
   contractHash: matrixResult.report.target?.contractHash ?? null,
   policyVersion: gateResult.report.targetBinding?.contractPolicyVersion ?? contract.policy.version,
   profiles: matrixResult.report.summary,
+  targetDecision: matrixResult.report.targetDecision,
   gateFindings: gateResult.findings.length,
   artifacts: ["report.html", "matrix/report.json", "gate/report.json", "findings/findings.json"],
 };

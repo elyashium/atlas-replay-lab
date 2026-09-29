@@ -230,11 +230,16 @@ measurements, commands, and limits; do not infer a hosted workflow from it.
 The separate Phase 2 web control-plane foundation is documented in
 [the Phase 2 evidence record](docs/evidence/phase2-control-plane-2026-09-27.md).
 It needs its own dependencies and local PostgreSQL; it is not a hosted service,
-and its queued records do not represent browser test results. The signed-in
-project view now includes optional component screenshot review and a guarded
-source-code proposal flow. PNG uploads and source files require separate
-explicit Groq egress consent and are not retained; report data, hashes, and
-proposed diffs expire after 30 days. A proposed diff can repeat source lines.
+and the API does not start browser workers automatically. To opt into the
+local isolated Docker queue worker, build the pinned image and follow
+[the local worker setup](apps/worker/README.md). Queue records remain pending
+until that separate process claims them; they are not passing results. The signed-in
+project view now includes optional component screenshot review from an uploaded
+PNG or a completed run screenshot artifact, plus a guarded source-code proposal
+flow. Both flows require separate explicit Groq egress consent. Visual-review
+requests do not store submitted image bytes; a screenshot selected from a run
+remains in that run's artifacts until retention purge. Review reports, source
+hashes, and proposed diffs expire after 30 days. A proposed diff can repeat source lines.
 Proposals are advisory, unapplied, and untested. Configure the server-side
 `GROQ_API_KEY`; never put it in browser storage. These synchronous paths are
 local-only and do not use the queued browser lane.

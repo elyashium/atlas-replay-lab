@@ -1,13 +1,20 @@
 import { inTransaction } from "./db.js";
+import path from "node:path";
+import { lstat, rm } from "node:fs/promises";
 
-/** Purge expired private metadata. Artifact blobs are not connected yet. */
-export async function purgeExpiredRecords(pool) {
-  return inTransaction(pool, async (client) => {
+/** Purge expired private metadata and, in local-worker mode, its artifact directories. */
+export async function purgeExpiredRecords(pool, { artifactRoot = process.env.ATLAS_LOCAL_ARTIFACT_DIR } = {}) {
+  if (artifactRoot && !path.isAbsolute(artifactRoot)) throw new Error("ATLAS_LOCAL_ARTIFACT_DIR must be an absolute path");
+  const deleted = await inTransaction(pool, async (client) => {
     const sessions = await client.query("DELETE FROM sessions WHERE expires_at <= now()");
     const shares = await client.query("DELETE FROM share_links WHERE expires_at <= now() OR revoked_at IS NOT NULL");
-    const runs = await client.query("DELETE FROM runs WHERE retention_expires_at <= now() AND status <> 'running' RETURNING organization_id,id");
+    const runs = await client.query("SELECT organization_id,id FROM runs WHERE retention_expires_at <= now() AND status <> 'running' FOR UPDATE");
     for (const run of runs.rows) {
       await client.query("INSERT INTO audit_events(organization_id,action,resource_type,resource_id,details) VALUES($1,'run.retention.purged','run',$2,'{}'::jsonb)", [run.organization_id, run.id]);
+    }
+    if (runs.rows.length) {
+      await client.query("INSERT INTO artifact_purge_queue(run_id) SELECT unnest($1::uuid[]) ON CONFLICT DO NOTHING", [runs.rows.map((run) => run.id)]);
+      await client.query("DELETE FROM runs WHERE id=ANY($1::uuid[])", [runs.rows.map((run) => run.id)]);
     }
     const codeProposals = await client.query("DELETE FROM code_proposals WHERE retention_expires_at <= now() RETURNING organization_id,id");
     for (const proposal of codeProposals.rows) {
@@ -19,8 +26,26 @@ export async function purgeExpiredRecords(pool) {
       await client.query("INSERT INTO audit_events(organization_id,action,resource_type,resource_id,details) VALUES($1,'visual-review.retention.purged','visual-review',$2,'{}'::jsonb)", [review.organization_id, review.id]);
     }
     const reviewUsage = await client.query("DELETE FROM visual_review_usage WHERE usage_date < (now() AT TIME ZONE 'UTC')::date - 30");
-    return { sessions: sessions.rowCount ?? 0, shares: shares.rowCount ?? 0, runs: runs.rowCount ?? 0, visualReviews: visualReviews.rowCount ?? 0, reviewUsage: reviewUsage.rowCount ?? 0, codeProposals: codeProposals.rowCount ?? 0, proposalUsage: proposalUsage.rowCount ?? 0 };
+    return { sessions: sessions.rowCount ?? 0, shares: shares.rowCount ?? 0, runs: runs.rows, runCount: runs.rowCount ?? 0, visualReviews: visualReviews.rowCount ?? 0, reviewUsage: reviewUsage.rowCount ?? 0, codeProposals: codeProposals.rowCount ?? 0, proposalUsage: proposalUsage.rowCount ?? 0 };
   });
+  let artifactDirectories = 0;
+  if (artifactRoot) {
+    const pending = await pool.query("SELECT run_id AS id FROM artifact_purge_queue ORDER BY requested_at LIMIT 100");
+    for (const run of pending.rows) {
+      if (!/^[0-9a-f-]{36}$/i.test(run.id)) continue;
+      const directory = path.join(artifactRoot, run.id);
+      try {
+        const info = await lstat(directory);
+        if (info.isSymbolicLink() || !info.isDirectory()) throw new Error("run artifact path is not a normal directory");
+        await rm(directory, { recursive: true, force: true });
+        artifactDirectories += 1;
+      } catch (error) { if (error?.code !== "ENOENT") throw error; }
+      await pool.query("DELETE FROM artifact_purge_queue WHERE run_id=$1", [run.id]);
+    }
+  }
+  const result = { ...deleted, artifactDirectories };
+  delete result.runs;
+  return result;
 }
 
 export function startRetentionMaintenance(pool, logger = console, intervalMs = 60 * 60 * 1000) {
