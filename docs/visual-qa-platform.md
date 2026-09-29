@@ -206,8 +206,12 @@ Teams can label each model suggestion as confirmed, accepted-risk,
 false-positive, or needs-follow-up. These labels are organization-role scoped,
 stored without free-text comments, and audited with actor and update time. They
 are evaluation inputs, not model ground truth and not release-policy inputs.
-Labels are retained with the review and deleted when its 30-day record expires;
-the minimal audit event remains under the existing audit-retention policy.
+Expired reviews, labels, and proposals are hidden by API queries immediately,
+even if the retention worker has not yet purged their rows. Expired review
+findings cannot trigger code-proposal egress, and expired idempotent review or
+proposal retries return `410 Gone`. The local PostgreSQL integration test covers
+this cutoff. This does not prove deletion from backups, object storage, or
+Groq's systems; image bytes are not stored in the control-plane database.
 
 A completed review with findings can also start a separate-consent code
 proposal. The route sends one source file (up to 64 KiB), validated findings,
@@ -221,9 +225,9 @@ process-local idempotency lock and is not ready for public hosting.
 
 The system still lacks hosted browser execution, private object storage,
 component URL preview, a persistent reference library, DOM-level visual checks,
-a versioned rubric editor, reviewer dispositions, a managed secret vault,
-distributed egress/rate controls, isolated patch evaluation, PR integration,
-and a visual model evaluation corpus. It is not a production service.
+a versioned rubric editor, a managed secret vault, distributed egress/rate
+controls, isolated patch evaluation, PR integration, and a visual model
+evaluation corpus. It is not a production service.
 
 ## Build order
 

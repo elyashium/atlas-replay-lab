@@ -133,6 +133,13 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
   `011_visual_finding_dispositions.sql` is reversible; labels cascade-delete
   with their 30-day visual review record. No free-text reviewer comment is
   collected. This does not yet make the labels a calibrated benchmark.
+- API reads now enforce visual-review and code-proposal expiry directly, even
+  before the retention worker physically purges their rows. Expired findings
+  and labels are omitted from project detail; expired review records cannot
+  trigger a code-proposal provider call; replaying an expired idempotency key
+  returns `410 Gone`. The PostgreSQL integration suite exercises those paths.
+  This enforces the row-level 30-day access cutoff; it does not provide backup,
+  object-store, or third-party provider deletion guarantees.
 
 ## Recommended next work (keep hosted workers disabled)
 

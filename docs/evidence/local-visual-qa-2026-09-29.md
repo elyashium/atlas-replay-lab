@@ -167,6 +167,29 @@ passed **399/399**. The local PostgreSQL database has migrations through 011.
 The synthetic browser preview again saved/reloaded `confirmed` at desktop and
 mobile widths without horizontal overflow; provider calls were mocked.
 
+## 2026-09-30 continuation: enforce visual-record expiry at reads
+
+Project detail now filters expired visual reviews, finding dispositions, and
+code proposals at query time, so an overdue retention worker cannot leave
+expired material visible through the API. Creating a proposal requires an
+unexpired source review; idempotent retries for an expired visual review or
+code proposal return `410 Gone`. The Postgres integration scenario expires a
+proposal while its source review remains active, checks its retry is rejected,
+then expires the review and checks that the project response omits its report,
+labels, and proposals. A fresh proposal request against that expired review is
+rejected before calling the provider. Physical row deletion and its audit event
+remain the maintenance worker's job; this does not establish backup, object
+storage, or Groq-side deletion.
+
+Verification on 2026-09-30: `node --test
+apps/control-plane/tests/visual-review-api.test.js
+apps/control-plane/tests/visual-review-integration.test.js` passed **10/10** with
+local Postgres, including an OpenAPI expiry-contract assertion. The control-plane
+suite passed **40/40**, root `npm test` passed **400/400**,
+`node --check` passed for the changed server and API test, and `git diff
+--check` passed. Provider calls were mocked; no screenshot or source was sent
+to Groq.
+
 ## Reproduce local checks
 
 ```powershell

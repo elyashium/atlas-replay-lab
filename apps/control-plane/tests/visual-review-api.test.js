@@ -101,6 +101,18 @@ test("visual review requires consent, valid capped PNGs, and an idempotency key 
   } finally { await app.close(); }
 });
 
+test("OpenAPI documents expiry outcomes for visual-review and code-proposal retries", async () => {
+  const app = buildApp({ pool: reviewPool(), appOrigin: origin });
+  try {
+    const response = await app.inject({ method: "GET", url: "/api/openapi.json" });
+    assert.equal(response.statusCode, 200);
+    const spec = response.json();
+    assert.match(spec.paths["/v1/projects/{projectId}/visual-reviews"].post.responses["410"].description, /expired/);
+    assert.match(spec.paths["/v1/projects/{projectId}/visual-reviews/{reviewId}/code-proposals"].post.responses["404"].description, /expired/);
+    assert.match(spec.paths["/v1/projects/{projectId}/visual-reviews/{reviewId}/code-proposals"].post.responses["410"].description, /expired/);
+  } finally { await app.close(); }
+});
+
 test("team finding dispositions are authorized, auditable, replaceable, and verdict-neutral", async () => {
   const pool = reviewPool();
   const app = buildApp({ pool, appOrigin: origin, groqApiKey: "test-only", visualReviewer: async () => ({
