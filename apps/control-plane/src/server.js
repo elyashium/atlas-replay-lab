@@ -173,7 +173,7 @@ export function buildApp({
     if (!result.rowCount) return reply.code(404).send({ error: "project not found" });
     const targets = await pool.query("SELECT id,base_url AS \"baseUrl\",hostname,verified_at IS NOT NULL AS verified,CASE WHEN verified_at IS NULL THEN verification_token ELSE NULL END AS \"verificationToken\",contract->>'name' AS name,created_at AS \"createdAt\" FROM targets WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC", [orgId, projectId]);
     const runs = await pool.query("SELECT r.id,r.target_id AS \"targetId\",r.status,r.verdict,r.error_code AS \"errorCode\",r.contract_version AS \"contractVersion\",r.created_at AS \"createdAt\",r.started_at AS \"startedAt\",r.finished_at AS \"finishedAt\",r.result_snapshot AS result,COALESCE((SELECT json_agg(json_build_object('id',a.id,'mediaType',a.media_type,'byteLength',a.byte_length,'sha256',a.sha256,'name',regexp_replace(a.object_key,'^.*/','')) ORDER BY a.object_key) FROM artifacts a WHERE a.organization_id=r.organization_id AND a.run_id=r.id),'[]'::json) AS artifacts FROM runs r WHERE r.organization_id=$1 AND r.project_id=$2 ORDER BY r.created_at DESC LIMIT 50", [orgId, projectId]);
-    const visualReviews = await pool.query("SELECT id,status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",screenshot_sha256 AS \"screenshotSha256\",reference_sha256 AS \"referenceSha256\",result,error,created_at AS \"createdAt\" FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
+    const visualReviews = await pool.query("SELECT id,status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",screenshot_sha256 AS \"screenshotSha256\",reference_sha256 AS \"referenceSha256\",source_run_id AS \"sourceRunId\",source_artifact_id AS \"sourceArtifactId\",source_artifact_name AS \"sourceArtifactName\",result,error,created_at AS \"createdAt\" FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
     const codeProposals = await pool.query("SELECT id,visual_review_id AS \"visualReviewId\",status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",file_name AS \"fileName\",source_sha256 AS \"sourceSha256\",result,error,created_at AS \"createdAt\" FROM code_proposals WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
     const shares = await pool.query("SELECT s.id,s.run_id AS \"runId\",s.include_summary AS \"includeSummary\",s.artifact_scope AS \"artifactIds\",s.expires_at AS \"expiresAt\",s.revoked_at AS \"revokedAt\",s.created_at AS \"createdAt\",s.access_count AS \"accessCount\",s.last_accessed_at AS \"lastAccessedAt\",COALESCE((SELECT json_agg(json_build_object('action',e.action,'createdAt',e.created_at,'artifactId',e.details->>'artifactId') ORDER BY e.created_at DESC) FROM (SELECT action,created_at,details FROM audit_events WHERE organization_id=s.organization_id AND resource_type='share-link' AND resource_id=s.id AND action IN ('share-link.opened','share-link.artifact-downloaded') ORDER BY created_at DESC LIMIT 25) e),'[]'::json) AS \"accessLog\" FROM share_links s JOIN runs r ON r.organization_id=s.organization_id AND r.id=s.run_id WHERE s.organization_id=$1 AND r.project_id=$2 ORDER BY s.created_at DESC", [orgId, projectId]);
     for (const run of runs.rows) run.clientShares = shares.rows.filter((share) => share.runId === run.id);
@@ -214,10 +214,27 @@ export function buildApp({
     }
     if (!referenceImage && body.criteria !== undefined) return reply.code(400).send({ error: "criteria can only be sent with a reference screenshot" });
     if (referencePixels && (imagePixels.width !== referencePixels.width || imagePixels.height !== referencePixels.height)) return reply.code(400).send({ error: "reference and current screenshots must have matching dimensions" });
+    let sourceArtifact = null;
+    if (body.sourceArtifact !== undefined) {
+      const source = asObject(body.sourceArtifact);
+      if (Object.keys(source).length !== 2 || typeof source.runId !== "string" || !UUID.test(source.runId) || typeof source.artifactId !== "string" || !UUID.test(source.artifactId)) {
+        return reply.code(400).send({ error: "sourceArtifact must identify a run and artifact from this project" });
+      }
+      const sourceResult = await pool.query(
+        "SELECT a.sha256,regexp_replace(a.object_key,'^.*/','') AS \"artifactName\" FROM artifacts a JOIN runs r ON r.organization_id=a.organization_id AND r.id=a.run_id WHERE a.organization_id=$1 AND r.project_id=$2 AND r.id=$3 AND a.id=$4 AND a.media_type='image/png' AND r.status='completed' AND r.retention_expires_at>now()",
+        [orgId, projectId, source.runId, source.artifactId],
+      );
+      if (!sourceResult.rowCount) return reply.code(404).send({ error: "source screenshot artifact not found in this project" });
+      const storedArtifact = sourceResult.rows[0];
+      const actualSha256 = createHash("sha256").update(image).digest("hex");
+      if (storedArtifact.sha256 !== actualSha256) return reply.code(409).send({ error: "source screenshot bytes do not match the selected run artifact" });
+      sourceArtifact = { runId: source.runId, artifactId: source.artifactId, artifactName: storedArtifact.artifactName };
+    }
     const requestSha256 = createHash("sha256").update(JSON.stringify({
       imageSha256: createHash("sha256").update(image).digest("hex"),
       referenceSha256: referenceImage ? createHash("sha256").update(referenceImage).digest("hex") : null,
       criteria: body.criteria ?? null,
+      sourceArtifact: sourceArtifact ? { runId: sourceArtifact.runId, artifactId: sourceArtifact.artifactId } : null,
     })).digest("hex");
     return withIdempotencyLock(visualReviewLocks, idempotencyPool, `${orgId}:${idempotencyKey}`, async () => {
       const duplicate = await pool.query("SELECT id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\",status,result,error FROM visual_reviews WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
@@ -265,10 +282,10 @@ export function buildApp({
       const reviewId = newId();
       const record = await inTransaction(pool, async (client) => {
         const inserted = await client.query(
-          "INSERT INTO visual_reviews(id,organization_id,project_id,status,provider,requested_model,returned_model,request_sha256,screenshot_sha256,reference_sha256,idempotency_key,result,error,requested_by,retention_expires_at) VALUES($1,$2,$3,$4,'groq',$5,$6,$7,$8,$9,$10,$11,$12,$13,now()+interval '30 days') RETURNING id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\",status,result,error,created_at AS \"createdAt\"",
-          [reviewId, orgId, projectId, status, requestedModel, report.returnedModel, requestSha256, screenshotSha256, referenceSha256, idempotencyKey, report, failure ?? null, user.id],
+          "INSERT INTO visual_reviews(id,organization_id,project_id,status,provider,requested_model,returned_model,request_sha256,screenshot_sha256,reference_sha256,idempotency_key,result,error,requested_by,retention_expires_at,source_run_id,source_artifact_id,source_artifact_name) VALUES($1,$2,$3,$4,'groq',$5,$6,$7,$8,$9,$10,$11,$12,$13,now()+interval '30 days',$14,$15,$16) RETURNING id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\",status,result,error,source_run_id AS \"sourceRunId\",source_artifact_id AS \"sourceArtifactId\",source_artifact_name AS \"sourceArtifactName\",created_at AS \"createdAt\"",
+          [reviewId, orgId, projectId, status, requestedModel, report.returnedModel, requestSha256, screenshotSha256, referenceSha256, idempotencyKey, report, failure ?? null, user.id, sourceArtifact?.runId ?? null, sourceArtifact?.artifactId ?? null, sourceArtifact?.artifactName ?? null],
         );
-        await audit(client, orgId, user.id, status === "complete" ? "visual-review.completed" : "visual-review.inconclusive", "visual-review", reviewId, { screenshotSha256, referenceSha256, provider: "groq", requestedModel, egressConsent: true });
+        await audit(client, orgId, user.id, status === "complete" ? "visual-review.completed" : "visual-review.inconclusive", "visual-review", reviewId, { screenshotSha256, referenceSha256, sourceRunId: sourceArtifact?.runId ?? null, sourceArtifactId: sourceArtifact?.artifactId ?? null, provider: "groq", requestedModel, egressConsent: true });
         return inserted.rows[0];
       });
       return reply.code(201).send({ review: record });
@@ -761,7 +778,7 @@ const OPENAPI = {
     "/v1/projects/{projectId}/visual-reviews": { post: {
       summary: "Compare consented reference/current PNGs deterministically and request separate advisory model review; image bytes are not retained by this route",
       parameters: [{ in: "header", name: "Idempotency-Key", required: true, schema: { type: "string", minLength: 8, maxLength: 128 } }, { in: "header", name: "x-atlas-organization", required: true, schema: { type: "string", format: "uuid" } }],
-      requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["providerConsent", "imageBase64"], properties: { providerConsent: { const: true }, imageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png", description: "Maximum decoded size 10 MiB; PNG dimensions capped." }, referenceImageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png" }, criteria: { type: "string", maxLength: 1200 } } } } } },
+      requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["providerConsent", "imageBase64"], properties: { providerConsent: { const: true }, imageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png", description: "Maximum decoded size 10 MiB; PNG dimensions capped." }, sourceArtifact: { type: "object", required: ["runId", "artifactId"], properties: { runId: { type: "string", format: "uuid" }, artifactId: { type: "string", format: "uuid" } }, description: "Optional exact run screenshot provenance; server verifies same-project PNG identity and SHA-256." }, referenceImageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png" }, criteria: { type: "string", maxLength: 1200 } } } } } },
       responses: { "201": { description: "Advisory review and optional deterministic pixel comparison stored for 30 days" }, "400": { description: "Invalid PNG, dimensions, criteria, or missing egress consent" }, "429": { description: "Daily organization quota reached" }, "503": { description: "Groq model is not configured" } },
     } },
     "/v1/projects/{projectId}/visual-reviews/{reviewId}/code-proposals": { post: {

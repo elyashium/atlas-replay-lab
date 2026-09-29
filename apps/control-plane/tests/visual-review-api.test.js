@@ -1,15 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { decodePng, encodePng } from "../../../src/image/png.js";
 import { buildApp } from "../src/server.js";
 
 const origin = "http://127.0.0.1:3000";
 const orgId = "123e4567-e89b-42d3-a456-426614174000";
 const projectId = "223e4567-e89b-42d3-a456-426614174000";
+const runId = "323e4567-e89b-42d3-a456-426614174000";
+const artifactId = "423e4567-e89b-42d3-a456-426614174000";
 const cookie = "atlas_session=0123456789abcdef0123456789abcdef0123456789abcdef";
 const png = encodePng({ width: 2, height: 2, data: Buffer.from([20, 30, 40, 255, 60, 70, 80, 255, 90, 100, 110, 255, 120, 130, 140, 255]) });
 
-function reviewPool({ role = "owner" } = {}) {
+function reviewPool({ role = "owner", sourceArtifact = null } = {}) {
   const reviews = new Map();
   const calls = [];
   let quota = 0;
@@ -20,6 +23,7 @@ function reviewPool({ role = "owner" } = {}) {
       if (sql.includes("SELECT u.id,u.email FROM sessions")) return { rows: [{ id: "user-1", email: "qa@example.org" }], rowCount: 1 };
       if (sql.includes("SELECT role FROM memberships")) return { rows: [{ role }], rowCount: 1 };
       if (sql.includes("SELECT id FROM projects WHERE organization_id=$1 AND id=$2")) return { rows: [{ id: projectId }], rowCount: 1 };
+      if (sql.includes("SELECT a.sha256,regexp_replace")) return sourceArtifact && params[1] === projectId ? { rows: [sourceArtifact], rowCount: 1 } : { rows: [], rowCount: 0 };
       if (sql.includes("SELECT id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\"")) {
         const row = reviews.get(params[1]);
         return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
@@ -38,6 +42,7 @@ function reviewPool({ role = "owner" } = {}) {
           const row = {
             id: params[0], projectId: params[2], status: params[3], requestSha256: params[6],
             result: params[10], error: params[11], screenshotSha256: params[7], referenceSha256: params[8],
+            sourceRunId: params[13], sourceArtifactId: params[14], sourceArtifactName: params[15],
             createdAt: "2026-09-29T00:00:00.000Z",
           };
           reviews.set(params[9], row);
@@ -136,6 +141,51 @@ test("reference review adds deterministic pixel evidence without granting it rel
     assert.deepEqual(comparison.verdictEffect, "none");
     assert.match(comparison.basis, /deterministic RGBA/);
   } finally { await app.close(); }
+});
+
+test("captured screenshot provenance must be a same-project PNG with matching bytes and is recorded", async () => {
+  const source = { runId, artifactId };
+  const imageSha256 = createHash("sha256").update(png).digest("hex");
+  const pool = reviewPool({ sourceArtifact: { sha256: imageSha256, artifactName: "component-ready.png" } });
+  let providerCalls = 0;
+  const app = buildApp({ pool, appOrigin: origin, groqApiKey: "test-only", visualReviewer: async () => {
+    providerCalls += 1;
+    return { provider: "groq", requestedModel: "qwen/test", returnedModel: "qwen/test", issues: [], verdictEffect: "none" };
+  } });
+  try {
+    const response = await request(app, { providerConsent: true, imageBase64: png.toString("base64"), sourceArtifact: source });
+    assert.equal(response.statusCode, 201, response.body);
+    assert.deepEqual({
+      runId: response.json().review.sourceRunId,
+      artifactId: response.json().review.sourceArtifactId,
+      name: response.json().review.sourceArtifactName,
+    }, { runId, artifactId, name: "component-ready.png" });
+    const insert = pool.calls.find((call) => call.sql.includes("INSERT INTO visual_reviews"));
+    assert.deepEqual(insert.params.slice(13), [runId, artifactId, "component-ready.png"]);
+    assert.equal(providerCalls, 1);
+  } finally { await app.close(); }
+
+  const mismatchPool = reviewPool({ sourceArtifact: { sha256: "f".repeat(64), artifactName: "component-ready.png" } });
+  let mismatchProviderCalls = 0;
+  const mismatchApp = buildApp({ pool: mismatchPool, appOrigin: origin, groqApiKey: "test-only", visualReviewer: async () => { mismatchProviderCalls += 1; } });
+  try {
+    const mismatch = await request(mismatchApp, { providerConsent: true, imageBase64: png.toString("base64"), sourceArtifact: source });
+    assert.equal(mismatch.statusCode, 409);
+    assert.equal(mismatchProviderCalls, 0);
+  } finally { await mismatchApp.close(); }
+
+  const missingApp = buildApp({ pool: reviewPool(), appOrigin: origin, groqApiKey: "test-only", visualReviewer: async () => { throw new Error("must not call"); } });
+  try {
+    const missing = await request(missingApp, { providerConsent: true, imageBase64: png.toString("base64"), sourceArtifact: source });
+    assert.equal(missing.statusCode, 404);
+  } finally { await missingApp.close(); }
+
+  const otherProjectId = "523e4567-e89b-42d3-a456-426614174000";
+  const crossProjectApp = buildApp({ pool: reviewPool({ sourceArtifact: { sha256: imageSha256, artifactName: "component-ready.png" } }), appOrigin: origin, groqApiKey: "test-only", visualReviewer: async () => { throw new Error("must not call"); } });
+  try {
+    const crossProject = await request(crossProjectApp, { providerConsent: true, imageBase64: png.toString("base64"), sourceArtifact: source }, { project: otherProjectId });
+    assert.equal(crossProject.statusCode, 404);
+  } finally { await crossProjectApp.close(); }
 });
 
 test("simultaneous retries with the same idempotency key share one provider request", async () => {

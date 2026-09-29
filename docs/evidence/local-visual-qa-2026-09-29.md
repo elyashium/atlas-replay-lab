@@ -119,6 +119,28 @@ worker build passed. The synthetic UI preview passed at **1440 px** and
 sizes. Provider calls remained mocked. No key was used and no customer image
 was sent to Groq.
 
+## 2026-09-30 continuation: visual review source provenance
+
+Reviews submitted from a completed run PNG now send the selected run and
+artifact IDs. The API verifies that the artifact is a PNG attached to a
+completed run in the same project and that its stored SHA-256 matches the exact
+submitted PNG bytes before egress. It records source run/artifact IDs and the
+artifact basename in review history and the egress audit event. Uploaded images
+have no linked source. Images remain unpersisted; the 30-day review record
+contains hashes, findings, criteria, and provenance identifiers only.
+
+Added reversible migration `010_visual_review_provenance.sql`. Targeted API
+tests cover valid provenance, a missing/cross-project artifact, and a hash
+mismatch that blocks provider invocation. This is traceability for the local
+synchronous review path; it does not make the visual result a release verdict.
+
+After migration 010 was applied to the local PostgreSQL 17 database,
+`npm test --prefix apps/control-plane` passed **38/38** and root `npm test`
+passed **399/399**. The browser preview completed at 1440 px and 390 px with
+no horizontal overflow; both rendered histories showed the run and exact
+artifact basename as source provenance. The preview image/model remain
+synthetic fixtures, and no provider call was made.
+
 ## Reproduce local checks
 
 ```powershell

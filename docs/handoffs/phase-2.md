@@ -118,6 +118,13 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
   restored from stored review history after reload. Coordinates are uncalibrated
   model suggestions, not pixel segmentation. Desktop/mobile preview verifies
   synthetic wiring only.
+- Component visual reviews created from a run screenshot now preserve the
+  source run/artifact ID and artifact filename. Before provider egress, the API
+  checks the artifact belongs to the same project, is a completed-run PNG, and
+  its database SHA-256 matches the exact submitted bytes. Uploaded PNGs are
+  stored as unlinked. Migration `010_visual_review_provenance.sql` adds these
+  optional fields; image bytes remain unpersisted. This is provenance for the
+  synchronous local review feature, not a durable visual evaluation job.
 
 ## Recommended next work (keep hosted workers disabled)
 

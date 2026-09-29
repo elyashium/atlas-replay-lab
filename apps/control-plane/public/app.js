@@ -391,6 +391,7 @@ function renderVisualReviewForm(runs) {
   const currentLabel = document.createElement("label"); currentLabel.textContent = "Or upload a current component screenshot (PNG, up to 10 MiB)";
   const current = document.createElement("input"); current.name = "image"; current.type = "file"; current.accept = "image/png,.png"; currentLabel.append(current);
   let capturedFile = null;
+  let capturedSourceArtifact = null;
   const referenceLabel = document.createElement("label"); referenceLabel.textContent = "Approved reference screenshot (optional, same dimensions)";
   const reference = document.createElement("input"); reference.name = "reference"; reference.type = "file"; reference.accept = "image/png,.png"; referenceLabel.append(reference);
   const criteriaLabel = document.createElement("label"); criteriaLabel.textContent = "Team visual criteria (required with a reference)";
@@ -410,6 +411,7 @@ function renderVisualReviewForm(runs) {
   const updateLocalCompareButton = () => { compareLocally.disabled = !selectedCurrent() || !reference.files[0]; };
   captured.addEventListener("change", async () => {
     capturedFile = null;
+    capturedSourceArtifact = null;
     current.value = "";
     preview.replaceChildren();
     if (!captured.value) { status.textContent = ""; return; }
@@ -426,6 +428,8 @@ function renderVisualReviewForm(runs) {
       if (captured.value !== selectedValue) return;
       if (blob.type !== "image/png" || blob.size > 10 * 1024 * 1024) throw new Error("The selected artifact is not a supported PNG under 10 MiB.");
       capturedFile = new File([blob], option.dataset.name, { type: "image/png" });
+      const [runId, artifactId] = selectedValue.split(":");
+      capturedSourceArtifact = { runId, artifactId };
       previewVisualInputs(capturedFile, reference.files[0], preview, "Run screenshot artifact");
       updateLocalCompareButton();
       status.dataset.state = "info";
@@ -435,7 +439,7 @@ function renderVisualReviewForm(runs) {
   });
   form.addEventListener("change", (event) => {
     if (event.target === captured) return;
-    if (event.target === current && current.files[0]) { captured.value = ""; capturedFile = null; }
+    if (event.target === current && current.files[0]) { captured.value = ""; capturedFile = null; capturedSourceArtifact = null; }
     previewVisualInputs(current.files[0] ?? capturedFile, reference.files[0], preview, capturedFile && !current.files[0] ? "Run screenshot artifact" : "Current screenshot");
     updateLocalCompareButton();
   });
@@ -467,6 +471,7 @@ function renderVisualReviewForm(runs) {
       if (referenceFile && !criteria.value.trim()) throw new Error("Add the team's visual criteria when using a reference image.");
       const payload = {
         imageBase64: await fileToBase64(currentFile),
+        ...(capturedSourceArtifact && !current.files[0] ? { sourceArtifact: capturedSourceArtifact } : {}),
         ...(referenceFile ? { referenceImageBase64: await fileToBase64(referenceFile), criteria: criteria.value.trim() } : {}),
         providerConsent: consent.checked,
       };
@@ -477,6 +482,7 @@ function renderVisualReviewForm(runs) {
       activeVisualPreview = { reviewId: result.review.id, file: currentFile };
       form.reset();
       capturedFile = null;
+      capturedSourceArtifact = null;
       preview.replaceChildren();
       status.textContent = result.review.status === "complete"
         ? "Review recorded. Suggestions are advisory; an empty issue list is not a design pass."
@@ -578,6 +584,13 @@ function renderReviewResult(review, container, compact = false, proposals = []) 
   const pill = document.createElement("span"); pill.className = `pill${review.status === "complete" ? "" : " pending"}`; pill.textContent = review.status.toUpperCase(); heading.append(title, pill);
   if (result.source === "synthetic-fixture") { const fixture = document.createElement("span"); fixture.className = "pill pending"; fixture.textContent = "SYNTHETIC FIXTURE"; heading.append(fixture); }
   card.append(heading);
+  if (review.sourceRunId && review.sourceArtifactId) {
+    const provenance = document.createElement("p"); provenance.className = "review-note";
+    provenance.textContent = `Source: run ${review.sourceRunId.slice(0, 8)} · ${review.sourceArtifactName ?? `artifact ${review.sourceArtifactId.slice(0, 8)}`} · exact PNG SHA-256 verified before provider egress.`;
+    card.append(provenance);
+  } else {
+    const provenance = document.createElement("p"); provenance.className = "review-note"; provenance.textContent = "Source: user-uploaded PNG; no Atlas run artifact is linked."; card.append(provenance);
+  }
   if (!compact && result.criteria) { const criteria = document.createElement("p"); criteria.className = "review-criteria"; criteria.textContent = `Criteria: ${result.criteria}`; card.append(criteria); }
   if (result.pixelComparison) card.append(renderPixelComparison(result.pixelComparison, "DETERMINISTIC REFERENCE COMPARISON"));
   const issues = result.issues ?? [];

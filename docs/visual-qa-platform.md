@@ -193,6 +193,15 @@ synchronous local control-plane execution, not an isolated worker. The crop is
 not an arbitrary component-state recorder: it captures only the declared final
 journey state under Chromium emulation.
 
+When the selected current PNG came from a completed project run, the API now
+requires its run and artifact IDs, checks that the artifact is a PNG in that
+same project, and compares its stored SHA-256 to the exact bytes before any
+provider request. Review history keeps the source run/artifact identity and
+filename next to the screenshot hash; it still does not retain image bytes.
+Uploaded PNGs remain explicitly marked as unlinked. This improves provenance
+for local review, but it is not a calibrated visual evaluation or a release
+gate.
+
 A completed review with findings can also start a separate-consent code
 proposal. The route sends one source file (up to 64 KiB), validated findings,
 and an optional task to Groq. Common credential patterns are blocked, but this
