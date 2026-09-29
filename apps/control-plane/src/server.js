@@ -32,10 +32,12 @@ export function buildApp({
   visualReviewDailyLimit = Number(process.env.ATLAS_VISUAL_REVIEW_DAILY_LIMIT ?? 10),
   codeProposer = proposeCodePatch,
   codeProposalDailyLimit = Number(process.env.ATLAS_CODE_PROPOSAL_DAILY_LIMIT ?? 5),
+  sharedReportRateLimitPerMinute = Number(process.env.ATLAS_SHARED_REPORT_RATE_LIMIT_PER_MINUTE ?? 120),
   artifactRoot = process.env.ATLAS_LOCAL_ARTIFACT_DIR,
 } = {}) {
   if (!Number.isInteger(visualReviewDailyLimit) || visualReviewDailyLimit < 1 || visualReviewDailyLimit > 1000) throw new Error("ATLAS_VISUAL_REVIEW_DAILY_LIMIT must be an integer from 1 to 1000");
   if (!Number.isInteger(codeProposalDailyLimit) || codeProposalDailyLimit < 1 || codeProposalDailyLimit > 1000) throw new Error("ATLAS_CODE_PROPOSAL_DAILY_LIMIT must be an integer from 1 to 1000");
+  if (!Number.isInteger(sharedReportRateLimitPerMinute) || sharedReportRateLimitPerMinute < 1 || sharedReportRateLimitPerMinute > 10000) throw new Error("sharedReportRateLimitPerMinute must be an integer from 1 to 10000");
   const visualReviewLocks = new Map();
   const codeProposalLocks = new Map();
   const app = Fastify({
@@ -173,6 +175,8 @@ export function buildApp({
     const runs = await pool.query("SELECT r.id,r.target_id AS \"targetId\",r.status,r.verdict,r.error_code AS \"errorCode\",r.contract_version AS \"contractVersion\",r.created_at AS \"createdAt\",r.started_at AS \"startedAt\",r.finished_at AS \"finishedAt\",r.result_snapshot AS result,COALESCE((SELECT json_agg(json_build_object('id',a.id,'mediaType',a.media_type,'byteLength',a.byte_length,'sha256',a.sha256,'name',regexp_replace(a.object_key,'^.*/','')) ORDER BY a.object_key) FROM artifacts a WHERE a.organization_id=r.organization_id AND a.run_id=r.id),'[]'::json) AS artifacts FROM runs r WHERE r.organization_id=$1 AND r.project_id=$2 ORDER BY r.created_at DESC LIMIT 50", [orgId, projectId]);
     const visualReviews = await pool.query("SELECT id,status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",screenshot_sha256 AS \"screenshotSha256\",reference_sha256 AS \"referenceSha256\",result,error,created_at AS \"createdAt\" FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
     const codeProposals = await pool.query("SELECT id,visual_review_id AS \"visualReviewId\",status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",file_name AS \"fileName\",source_sha256 AS \"sourceSha256\",result,error,created_at AS \"createdAt\" FROM code_proposals WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
+    const shares = await pool.query("SELECT s.id,s.run_id AS \"runId\",s.include_summary AS \"includeSummary\",s.artifact_scope AS \"artifactIds\",s.expires_at AS \"expiresAt\",s.revoked_at AS \"revokedAt\",s.created_at AS \"createdAt\",s.access_count AS \"accessCount\",s.last_accessed_at AS \"lastAccessedAt\",COALESCE((SELECT json_agg(json_build_object('action',e.action,'createdAt',e.created_at,'artifactId',e.details->>'artifactId') ORDER BY e.created_at DESC) FROM (SELECT action,created_at,details FROM audit_events WHERE organization_id=s.organization_id AND resource_type='share-link' AND resource_id=s.id AND action IN ('share-link.opened','share-link.artifact-downloaded') ORDER BY created_at DESC LIMIT 25) e),'[]'::json) AS \"accessLog\" FROM share_links s JOIN runs r ON r.organization_id=s.organization_id AND r.id=s.run_id WHERE s.organization_id=$1 AND r.project_id=$2 ORDER BY s.created_at DESC", [orgId, projectId]);
+    for (const run of runs.rows) run.clientShares = shares.rows.filter((share) => share.runId === run.id);
     return { project: result.rows[0], targets: targets.rows, runs: runs.rows, visualReviews: visualReviews.rows, codeProposals: codeProposals.rows };
   });
 
@@ -483,6 +487,132 @@ export function buildApp({
     return { runId, ...outcome };
   });
 
+  app.post("/v1/runs/:runId/share-links", async (request, reply) => {
+    const { user, orgId, role, error } = await organizationContext(request, pool);
+    if (error) return reply.code(error.status).send({ error: error.message });
+    if (!canWrite(role)) return reply.code(403).send({ error: "organization editor role required" });
+    const { runId } = request.params;
+    if (!UUID.test(runId)) return reply.code(404).send({ error: "run not found" });
+    const body = asObject(request.body);
+    if (body.includeSummary !== true) return reply.code(400).send({ error: "explicit consent to share the run summary is required" });
+    const expiresInHours = body.expiresInHours;
+    if (![24, 168, 720].includes(expiresInHours)) return reply.code(400).send({ error: "expiresInHours must be 24, 168, or 720" });
+    const artifactIds = body.artifactIds ?? [];
+    if (!Array.isArray(artifactIds) || artifactIds.length > 20 || artifactIds.some((id) => typeof id !== "string" || !UUID.test(id)) || new Set(artifactIds).size !== artifactIds.length) {
+      return reply.code(400).send({ error: "artifactIds must contain at most 20 distinct artifact IDs" });
+    }
+    const created = await inTransaction(pool, async (client) => {
+      const run = await client.query("SELECT id,status,result_snapshot AS result,retention_expires_at AS \"retentionExpiresAt\" FROM runs WHERE organization_id=$1 AND id=$2 AND retention_expires_at>now() FOR SHARE", [orgId, runId]);
+      if (!run.rowCount) return { missing: true };
+      if (!run.rows[0].result || ["queued", "running"].includes(run.rows[0].status)) return { pending: true };
+      if (artifactIds.length) {
+        const found = await client.query("SELECT id FROM artifacts WHERE organization_id=$1 AND run_id=$2 AND id=ANY($3::uuid[])", [orgId, runId, artifactIds]);
+        if (found.rowCount !== artifactIds.length) return { invalidArtifacts: true };
+      }
+      const id = newId();
+      const token = newSecret(32);
+      const inserted = await client.query(
+        "INSERT INTO share_links(id,organization_id,run_id,token_hash,expires_at,created_by,include_summary,artifact_scope) VALUES($1,$2,$3,$4,LEAST(now()+($5::int*interval '1 hour'),$8::timestamptz),$6,true,$7::jsonb) RETURNING id,expires_at AS \"expiresAt\",created_at AS \"createdAt\"",
+        [id, orgId, runId, hashToken(token), expiresInHours, user.id, JSON.stringify(artifactIds), run.rows[0].retentionExpiresAt],
+      );
+      await audit(client, orgId, user.id, "share-link.created", "share-link", id, { runId, includeSummary: true, artifactIds, expiresInHours });
+      const shareUrl = new URL("/", appOrigin);
+      shareUrl.hash = `share=${token}`;
+      return { share: inserted.rows[0], token, url: shareUrl.href };
+    });
+    if (created.missing) return reply.code(404).send({ error: "run not found" });
+    if (created.pending) return reply.code(409).send({ error: "only a run with completed evidence can be shared" });
+    if (created.invalidArtifacts) return reply.code(400).send({ error: "one or more selected artifacts do not belong to this run" });
+    return reply.code(201).send({ share: created.share, url: created.url });
+  });
+
+  app.post("/v1/runs/:runId/share-links/:shareId/revoke", async (request, reply) => {
+    const { user, orgId, role, error } = await organizationContext(request, pool);
+    if (error) return reply.code(error.status).send({ error: error.message });
+    if (!canWrite(role)) return reply.code(403).send({ error: "organization editor role required" });
+    const { runId, shareId } = request.params;
+    if (!UUID.test(runId) || !UUID.test(shareId)) return reply.code(404).send({ error: "share link not found" });
+    const revoked = await inTransaction(pool, async (client) => {
+      const row = await client.query("UPDATE share_links SET revoked_at=COALESCE(revoked_at,now()) WHERE organization_id=$1 AND run_id=$2 AND id=$3 RETURNING id,revoked_at AS \"revokedAt\"", [orgId, runId, shareId]);
+      if (!row.rowCount) return null;
+      await audit(client, orgId, user.id, "share-link.revoked", "share-link", shareId, { runId });
+      return row.rows[0];
+    });
+    if (!revoked) return reply.code(404).send({ error: "share link not found" });
+    return { share: revoked };
+  });
+
+  app.post("/v1/shared-reports/open", { bodyLimit: 4096 }, async (request, reply) => {
+    const token = asObject(request.body).token;
+    if (typeof token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(token)) return reply.code(404).send({ error: "shared report not found or expired" });
+    const report = await inTransaction(pool, async (client) => {
+      const found = await client.query(
+        "SELECT s.id AS \"shareId\",s.organization_id AS \"organizationId\",s.run_id AS \"runId\",s.expires_at AS \"expiresAt\",s.artifact_scope AS \"artifactIds\",s.include_summary AS \"includeSummary\",r.status,r.verdict,r.created_at AS \"createdAt\",r.finished_at AS \"finishedAt\",r.result_snapshot AS result FROM share_links s JOIN runs r ON r.organization_id=s.organization_id AND r.id=s.run_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND r.retention_expires_at>now() FOR UPDATE OF s",
+        [hashToken(token)],
+      );
+      if (!found.rowCount) return null;
+      const row = found.rows[0];
+      const allowed = await consumeSharedReportRequest(client, row.shareId, sharedReportRateLimitPerMinute);
+      if (!allowed) return { throttled: true };
+      const artifacts = row.artifactIds.length ? await client.query("SELECT id,media_type AS \"mediaType\",byte_length AS \"byteLength\",sha256,regexp_replace(object_key,'^.*/','') AS name FROM artifacts WHERE organization_id=$1 AND run_id=$2 AND id=ANY($3::uuid[]) ORDER BY object_key", [row.organizationId, row.runId, row.artifactIds]) : { rows: [] };
+      await client.query("UPDATE share_links SET access_count=access_count+1,last_accessed_at=now() WHERE id=$1", [row.shareId]);
+      await audit(client, row.organizationId, null, "share-link.opened", "share-link", row.shareId, { runId: row.runId });
+      return { share: { id: row.shareId, expiresAt: row.expiresAt }, run: row.includeSummary ? { id: row.runId, status: row.status, verdict: row.verdict, createdAt: row.createdAt, finishedAt: row.finishedAt, result: row.result } : null, artifacts: artifacts.rows };
+    });
+    if (report?.throttled) return reply.header("retry-after", "60").code(429).send({ error: "shared report access limit reached; retry in about one minute" });
+    if (!report) return reply.code(404).send({ error: "shared report not found or expired" });
+    return report;
+  });
+
+  app.post("/v1/shared-reports/artifact", { bodyLimit: 4096 }, async (request, reply) => {
+    const body = asObject(request.body);
+    if (typeof body.token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(body.token) || typeof body.artifactId !== "string" || !UUID.test(body.artifactId)) return reply.code(404).send({ error: "shared artifact not found or expired" });
+    const share = await inTransaction(pool, async (client) => {
+      const found = await client.query(
+        "SELECT s.id AS \"shareId\",s.organization_id AS \"organizationId\",s.run_id AS \"runId\" FROM share_links s JOIN runs r ON r.organization_id=s.organization_id AND r.id=s.run_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND r.retention_expires_at>now() AND s.artifact_scope @> jsonb_build_array($2::text) FOR UPDATE OF s",
+        [hashToken(body.token), body.artifactId],
+      );
+      if (!found.rowCount) return null;
+      const row = found.rows[0];
+      const allowed = await consumeSharedReportRequest(client, row.shareId, sharedReportRateLimitPerMinute);
+      return allowed ? row : { throttled: true };
+    });
+    if (share?.throttled) return reply.header("retry-after", "60").code(429).send({ error: "shared report access limit reached; retry in about one minute" });
+    if (!share) return reply.code(404).send({ error: "shared artifact not found or expired" });
+    const row = share;
+    const result = await pool.query("SELECT object_key,media_type,byte_length,sha256 FROM artifacts WHERE organization_id=$1 AND run_id=$2 AND id=$3", [row.organizationId, row.runId, body.artifactId]);
+    if (!result.rowCount || !artifactRoot || !path.isAbsolute(artifactRoot)) return reply.code(404).send({ error: "shared artifact not found or expired" });
+    const artifact = result.rows[0];
+    const pieces = artifact.object_key.split("/");
+    if (pieces[0] !== row.runId || pieces.length < 2 || pieces.some((piece) => !piece || piece === "." || piece === ".." || !/^[A-Za-z0-9._-]+$/.test(piece))) return reply.code(404).send({ error: "shared artifact not found or expired" });
+    const root = path.resolve(artifactRoot);
+    const filePath = path.resolve(root, ...pieces);
+    if (!filePath.startsWith(`${root}${path.sep}`)) return reply.code(404).send({ error: "shared artifact not found or expired" });
+    try {
+      const file = await lstat(filePath);
+      if (!file.isFile() || file.isSymbolicLink() || file.size !== Number(artifact.byte_length)) return reply.code(410).send({ error: "shared artifact integrity check failed" });
+      const bytes = await readFile(filePath);
+      if (createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) return reply.code(410).send({ error: "shared artifact integrity check failed" });
+      await inTransaction(pool, async (client) => {
+        const active = await client.query("SELECT id FROM share_links WHERE id=$1 AND revoked_at IS NULL AND expires_at>now() FOR UPDATE", [row.shareId]);
+        if (!active.rowCount) return;
+        await client.query("UPDATE share_links SET access_count=access_count+1,last_accessed_at=now() WHERE id=$1", [row.shareId]);
+        await audit(client, row.organizationId, null, "share-link.artifact-downloaded", "share-link", row.shareId, { runId: row.runId, artifactId: body.artifactId, sha256: artifact.sha256 });
+      });
+      const stillActive = await pool.query("SELECT revoked_at IS NULL AND expires_at>now() AS active FROM share_links WHERE id=$1", [row.shareId]);
+      if (!stillActive.rows[0]?.active) return reply.code(404).send({ error: "shared artifact not found or expired" });
+      reply.header("content-type", artifact.media_type);
+      reply.header("content-length", String(bytes.length));
+      reply.header("content-disposition", `attachment; filename=\"${pieces.at(-1)}\"`);
+      reply.header("content-security-policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; base-uri 'none'; form-action 'none'");
+      reply.header("x-content-type-options", "nosniff");
+      return reply.send(bytes);
+    } catch (readError) {
+      if (readError?.code === "ENOENT") return reply.code(410).send({ error: "shared artifact is no longer available" });
+      throw readError;
+    }
+  });
+
   app.get("/v1/runs/:runId/artifacts/:artifactId", async (request, reply) => {
     const { user, orgId, error } = await organizationContext(request, pool);
     if (error) return reply.code(error.status).send({ error: error.message });
@@ -612,6 +742,14 @@ async function audit(client, orgId, userId, action, type, id, details = {}) {
   await client.query("INSERT INTO audit_events(organization_id,actor_user_id,action,resource_type,resource_id,details) VALUES($1,$2,$3,$4,$5,$6)", [orgId, userId, action, type, id, details]);
 }
 
+async function consumeSharedReportRequest(client, shareId, limit) {
+  const result = await client.query(
+    "INSERT INTO shared_report_request_buckets(share_id,bucket_start,request_count) VALUES($1,date_trunc('minute',clock_timestamp()),1) ON CONFLICT(share_id,bucket_start) DO UPDATE SET request_count=shared_report_request_buckets.request_count+1 RETURNING request_count",
+    [shareId],
+  );
+  return result.rows[0].request_count <= limit;
+}
+
 const OPENAPI = {
   openapi: "3.1.0", info: { title: "Atlas Control Plane API", version: "0.1.0", description: "Local development control plane with an opt-in Docker worker; it is not a hosted service." },
   servers: [{ url: "http://localhost:3000" }],
@@ -635,6 +773,10 @@ const OPENAPI = {
     "/v1/targets/{targetId}/verify": { post: { summary: "Verify DNS TXT ownership", responses: { "200": { description: "Verified" } } } },
     "/v1/targets/{targetId}/runs": { post: { summary: "Queue a run record (Idempotency-Key required)", responses: { "202": { description: "Queued; an explicitly started local Docker worker may process it" }, "200": { description: "Existing idempotent run" } } } },
     "/v1/runs/{runId}": { get: { summary: "Get private run status and artifact metadata", responses: { "200": { description: "Run detail" } } } },
+    "/v1/runs/{runId}/share-links": { post: { summary: "Create an expiring client link for an explicitly selected run summary and artifacts; raw token is returned once in a URL fragment", responses: { "201": { description: "Created; client must store the fragment URL" }, "400": { description: "Invalid expiry or artifact scope" }, "409": { description: "Run evidence is still pending" } } } },
+    "/v1/runs/{runId}/share-links/{shareId}/revoke": { post: { summary: "Immediately revoke a client report link", responses: { "200": { description: "Revoked" }, "404": { description: "Link not found" } } } },
+    "/v1/shared-reports/open": { post: { summary: "Resolve an anonymous client report using a token sent in the JSON body; access is audited", responses: { "200": { description: "Scoped report summary and selected artifact metadata" }, "404": { description: "Invalid, expired, or revoked link" }, "429": { description: "Per-link request limit reached; retry after the supplied interval" } } } },
+    "/v1/shared-reports/artifact": { post: { summary: "Download only an artifact explicitly included in an active client link; access is audited and content hash verified", responses: { "200": { description: "Verified artifact bytes" }, "404": { description: "Artifact outside link scope or inactive link" }, "429": { description: "Per-link request limit reached; retry after the supplied interval" } } } },
     "/v1/runs/{runId}/cancel": { post: { summary: "Cancel a queued run or request cancellation of a running local Docker job", responses: { "200": { description: "Cancelled or cancellation requested" }, "409": { description: "Run already completed" } } } },
     "/v1/runs/{runId}/artifacts/{artifactId}": { get: { summary: "Download an organization-scoped local run artifact with integrity verification and audit", responses: { "200": { description: "Artifact bytes" }, "404": { description: "Artifact not found" }, "410": { description: "Artifact expired or integrity check failed" } } } },
   },

@@ -23,7 +23,7 @@ test("retention purge removes expired non-running rows and records a minimal aud
     },
   };
   const result = await purgeExpiredRecords(pool);
-  assert.deepEqual(result, { sessions: 2, shares: 1, runCount: 1, codeProposals: 1, proposalUsage: 3, visualReviews: 1, reviewUsage: 2, artifactDirectories: 0 });
+  assert.deepEqual(result, { sessions: 2, shares: 1, shareRequestBuckets: 1, runCount: 1, codeProposals: 1, proposalUsage: 3, visualReviews: 1, reviewUsage: 2, artifactDirectories: 0 });
   const selectRuns = calls.find((call) => call.sql.includes("SELECT organization_id,id FROM runs"));
   assert.match(selectRuns.sql, /retention_expires_at <= now\(\)/);
   assert.match(selectRuns.sql, /status <> 'running'/);
@@ -32,6 +32,7 @@ test("retention purge removes expired non-running rows and records a minimal aud
   const reviewAudit = calls.find((call) => call.sql.includes("visual-review.retention.purged"));
   assert.deepEqual(reviewAudit.params, ["org-1", "review-1"]);
   assert.match(calls.find((call) => call.sql.includes("DELETE FROM visual_review_usage")).sql, /usage_date < .* - 30/);
+  assert.match(calls.find((call) => call.sql.includes("DELETE FROM shared_report_request_buckets")).sql, /bucket_start < date_trunc\('minute', now\(\)\) - interval '2 minutes'/);
   const proposalAudit = calls.find((call) => call.sql.includes("code-proposal.retention.purged"));
   assert.deepEqual(proposalAudit.params, ["org-1", "proposal-1"]);
   assert.equal(calls[0].sql, "BEGIN");

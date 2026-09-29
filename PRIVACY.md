@@ -118,6 +118,33 @@ serializer omits client IP and query strings; this has not been tested against
 a deployed proxy or database log configuration. No production data has been
 processed.
 
+### Client report links (local control-plane prototype)
+
+An organization editor can create a scoped anonymous report link for a
+completed run. The editor must explicitly opt into including the summary and
+separately select each artifact; only those selected items are returned. Links
+expire after 1, 7, or 30 days, and never later than the source run's retention
+deadline. An editor can revoke a link. The bearer token is placed in the URL
+fragment (not sent in the initial HTTP request), removed from browser history
+after the app reads it, and stored in Postgres only as a hash. Treat the full
+link as a secret: anyone possessing an active link can view its selected
+content without signing in.
+
+Successful report opens and artifact reads increment an access counter and
+write an audit event with the action and server timestamp. This share flow does
+not record recipient IP or identity. The recipient receives only the selected
+summary and artifacts, not the organization's other runs. Revocation and expiry
+are enforced by the API, while hourly maintenance later removes expired or
+revoked share rows. The API also enforces a default maximum of 120 valid opens
+and selected-artifact requests per share link per minute (`ATLAS_SHARED_REPORT_RATE_LIMIT_PER_MINUTE`).
+Atomic PostgreSQL minute buckets apply across API instances and are purged by
+hourly maintenance; rejected requests receive HTTP 429 and `Retry-After`. This
+does not limit requests with invalid/unknown tokens or replace an edge WAF or
+network-level abuse control. This has local PostgreSQL integration coverage,
+not a deployed proxy, object store, or backup purge. Do not expose it publicly
+until hosted rate limits, infrastructure logs, object storage deletion, backup
+retention, and operational access controls are reviewed and tested.
+
 ## Third-party egress
 
 ### Studio component visual review

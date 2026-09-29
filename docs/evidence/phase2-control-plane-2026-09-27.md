@@ -470,3 +470,80 @@ This closes concurrent duplicate requests across API instances, but not crash
 recovery. The provider call still runs inline; a process can fail after remote
 egress and before its result is committed. Durable model jobs, cancellation,
 retry semantics, and distributed queue quotas remain unimplemented.
+
+## 2026-09-30 continuation: scoped client report links
+
+The local app now exposes a recipient-safe share path for completed runs. An
+organization editor explicitly opts into the run summary and individually
+selects artifacts; no artifact is selected by default. Share links support
+1/7/30-day expiry, capped by source-run retention, and editor revocation. The
+random token is returned once in a URL fragment, hashed in Postgres, stripped
+from browser history after recipient startup, and never placed in the open
+request URL. Anonymous recipients see only the selected summary and artifacts.
+Artifact reads re-check scope, run retention, object path, symlink state, byte
+length, and SHA-256. Successful opens/downloads update a counter and audit
+action/timestamp. The UI offers explicit PNG preview; owner view shows state,
+access count, and recent actions without recipient IP/identity.
+
+Migration `008_share_scope.sql` and its down migration add summary consent,
+selected artifact IDs, access count, and last-access time. `PRIVACY.md` now
+documents bearer-link semantics and the local prototype boundary. This remains
+local disk storage; no hosted object store, backup-aware deletion, anonymous
+rate limit, deployed proxy-log review, or abuse monitoring was added.
+
+Verification on 2026-09-30:
+
+- `node --test apps/control-plane/tests/integration.test.js` with local
+  PostgreSQL: **2/2 passed**, including hashed token storage, selected scope,
+  download integrity, unselected-item denial, expiry, revocation, audit and
+  cross-organization create denial.
+- `npm test --prefix apps/control-plane` with local PostgreSQL: **35/35
+  passed**. Root `npm test`: **390/390 passed**.
+- `npm run preview:screenshots --prefix apps/control-plane` passed. The UI
+  preview uses synthetic run/artifact rows and mock model responses. At 1440 px
+  desktop and emulated 390 px mobile, recipient view showed one selected PNG,
+  loaded its preview, stripped the fragment, and had no horizontal overflow.
+  Owner share-create previews also completed at both widths. Screenshot files
+  are ignored under local `artifacts/` and contain a redacted placeholder
+  rather than an active bearer token.
+- `node --check` on server/client/integration/preview scripts and `git diff
+  --check`: passed after the privacy, handoff, and evidence-note edits.
+
+These are local test/fixture measurements, not customer usage, a security
+assessment, hosted evidence, or a real target-browser job. Anonymous links are
+bearer credentials: anyone possessing a current link can read its selected
+content. Keep hosted workers disabled and do not publish this endpoint until
+the above hosted safety gaps are resolved.
+
+## 2026-09-30 continuation: database-backed share request limit
+
+Migration `009_share_request_limit.sql` adds fixed-minute PostgreSQL buckets
+keyed by share link. Shared report opens and in-scope artifact reads reserve a
+bucket atomically before returning report data or reading an artifact. Default
+limit is 120 valid requests per share/minute, configurable through
+`ATLAS_SHARED_REPORT_RATE_LIMIT_PER_MINUTE` (all API instances must use the
+same setting). Excess requests return HTTP 429 with `Retry-After: 60`. No IP is
+used in this limiter. Maintenance removes buckets more than two minutes old;
+share deletion cascades matching counters. Unknown-token attempts are not
+limited by this layer and still need network-edge abuse protection.
+
+- Local Postgres integration uses a limit of two: one open and one artifact
+  download succeed on API instance A; an open via instance B, with a separate
+  pool, receives 429. The database records three requests but only two
+  successful share accesses.
+- `npm run migrate --prefix apps/control-plane`: migration 009 applied to local
+  PostgreSQL.
+- `node --test apps/control-plane/tests/integration.test.js`: **2/2 passed**.
+- `npm test --prefix apps/control-plane` with loopback Postgres: **35/35
+  passed**, including maintenance bucket cleanup. Root `npm test`: **390/390
+  passed**.
+- `npm run preview:screenshots --prefix apps/control-plane`: passed. Desktop
+  1440 px and mobile 390 px previews use synthetic run/artifact data; shared
+  report loaded one selected PNG, stripped the fragment token, and had no
+  horizontal overflow.
+- `node --check` on the changed server, maintenance, and test scripts plus
+  `git diff --check`: passed after the documentation updates.
+
+This proves local cross-instance database enforcement under a small test, not
+production throughput, edge filtering, invalid-token throttling, deployment
+logging, or general quota enforcement.

@@ -7,12 +7,19 @@ const toggleAuth = document.querySelector("#toggle-auth");
 const orgPicker = document.querySelector("#org-picker");
 const projectList = document.querySelector("#project-list");
 const projectDetail = document.querySelector("#project-detail");
+const sharedReportSection = document.querySelector("#shared-report");
 let isRegister = false;
 let organizations = [];
 let selectedOrg = localStorage.getItem("atlas.org") ?? "";
 let selectedProject = "";
 let runRefreshTimer;
 let activeVisualPreview = null;
+
+const sharedToken = new URLSearchParams(window.location.hash.slice(1)).get("share");
+if (sharedToken) {
+  history.replaceState(null, "", `${location.pathname}${location.search}`);
+  void showSharedReport(sharedToken);
+}
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers ?? {});
@@ -163,6 +170,7 @@ async function loadProject(projectId) {
       }
       card.append(list);
     }
+    if (run.result) renderShareManager(run, card);
     if (run.status === "queued" || run.status === "running") {
       const cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "text-button"; cancel.textContent = run.status === "queued" ? "Cancel queued run" : "Request cancellation";
       cancel.addEventListener("click", async () => {
@@ -177,6 +185,174 @@ async function loadProject(projectId) {
   }
   renderVisualReviewForm(data.runs ?? []);
   renderVisualReviewHistory(data.visualReviews ?? [], data.codeProposals ?? []);
+}
+
+function renderShareManager(run, container) {
+  const section = document.createElement("section"); section.className = "share-manager";
+  const title = document.createElement("p"); title.className = "section-title"; title.textContent = "CLIENT REPORT LINK";
+  const note = document.createElement("p"); note.className = "share-note"; note.textContent = "Private by default. Explicitly choose the run summary and files to share. Anyone with the link can view them until expiry or revocation.";
+  const form = document.createElement("form"); form.className = "share-create-form";
+  const summaryLabel = document.createElement("label"); summaryLabel.className = "check-option";
+  const summary = document.createElement("input"); summary.type = "checkbox"; summary.name = "includeSummary"; summary.required = true;
+  const summaryText = document.createElement("span"); summaryText.textContent = "Share verdict, profile metrics, and run evidence summary";
+  summaryLabel.append(summary, summaryText); form.append(summaryLabel);
+  for (const artifact of run.artifacts ?? []) {
+    const label = document.createElement("label"); label.className = "check-option";
+    const input = document.createElement("input"); input.type = "checkbox"; input.name = "artifact"; input.value = artifact.id;
+    const text = document.createElement("span"); text.textContent = `${artifact.name} · ${artifact.mediaType} · ${formatBytes(Number(artifact.byteLength))}`;
+    label.append(input, text); form.append(label);
+  }
+  const expiryLabel = document.createElement("label"); expiryLabel.textContent = "Link expires after";
+  const expiry = document.createElement("select"); expiry.name = "expiresInHours";
+  for (const [value, label] of [[24, "1 day"], [168, "7 days"], [720, "30 days"]]) {
+    const option = document.createElement("option"); option.value = String(value); option.textContent = label; option.selected = value === 168; expiry.append(option);
+  }
+  expiryLabel.append(expiry); form.append(expiryLabel);
+  const status = document.createElement("p"); status.className = "notice share-status"; status.setAttribute("role", "status");
+  const submit = document.createElement("button"); submit.type = "submit"; submit.className = "text-button"; submit.textContent = "Create expiring link";
+  form.append(submit, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault(); submit.disabled = true; status.textContent = "";
+    try {
+      const created = await api(`/v1/runs/${encodeURIComponent(run.id)}/share-links`, {
+        method: "POST", body: JSON.stringify({
+          includeSummary: summary.checked,
+          artifactIds: [...form.querySelectorAll('input[name="artifact"]:checked')].map((input) => input.value),
+          expiresInHours: Number(expiry.value),
+        }),
+      });
+      const next = { ...run, clientShares: [{ ...created.share, includeSummary: true, artifactIds: [...form.querySelectorAll('input[name="artifact"]:checked')].map((input) => input.value), accessCount: 0, oneTimeUrl: created.url }, ...(run.clientShares ?? [])] };
+      section.replaceWith(renderShareManager(next, null));
+    } catch (error) { status.textContent = error.message; }
+    finally { submit.disabled = false; }
+  });
+  section.append(title, note, form);
+  for (const share of run.clientShares ?? []) {
+    const row = document.createElement("div"); row.className = "share-row";
+    const state = share.revokedAt ? "REVOKED" : new Date(share.expiresAt).getTime() <= Date.now() ? "EXPIRED" : "ACTIVE";
+    const summaryLine = document.createElement("p"); summaryLine.textContent = `${state} · expires ${new Date(share.expiresAt).toLocaleString()} · ${share.accessCount} access${share.accessCount === 1 ? "" : "es"}`;
+    const scopeLine = document.createElement("small");
+    const selectedNames = (share.artifactIds ?? []).map((id) => (run.artifacts ?? []).find((artifact) => artifact.id === id)?.name ?? "selected file");
+    scopeLine.textContent = `${share.includeSummary ? "Run summary" : "No summary"}${selectedNames.length ? ` · ${selectedNames.join(", ")}` : " · no files"}`;
+    row.append(summaryLine, scopeLine);
+    if (share.accessLog?.length) {
+      const details = document.createElement("details"); details.className = "share-access-log";
+      const summary = document.createElement("summary"); summary.textContent = `Recent access log (${share.accessLog.length})`; details.append(summary);
+      for (const access of share.accessLog) {
+        const line = document.createElement("small");
+        const artifactName = (run.artifacts ?? []).find((artifact) => artifact.id === access.artifactId)?.name;
+        line.textContent = `${new Date(access.createdAt).toLocaleString()} · ${access.action === "share-link.opened" ? "Report opened" : `Downloaded ${artifactName ?? "selected artifact"}`}`;
+        details.append(line);
+      }
+      row.append(details);
+    }
+    if (share.oneTimeUrl && state === "ACTIVE") {
+      const url = document.createElement("input"); url.type = "text"; url.readOnly = true; url.value = share.oneTimeUrl; url.setAttribute("aria-label", "New client share URL; copy and store it now");
+      const copy = document.createElement("button"); copy.type = "button"; copy.className = "text-button"; copy.textContent = "Copy link";
+      const copyStatus = document.createElement("small"); copyStatus.setAttribute("role", "status");
+      copy.addEventListener("click", async () => {
+        url.select();
+        try { await navigator.clipboard.writeText(url.value); copyStatus.textContent = "Copied. This token will not be shown after reload."; }
+        catch { copyStatus.textContent = "Selected the link. Copy it now; the token will not be shown after reload."; }
+      });
+      row.append(url, copy, copyStatus);
+    }
+    if (state === "ACTIVE") {
+      const revoke = document.createElement("button"); revoke.type = "button"; revoke.className = "text-button"; revoke.textContent = "Revoke";
+      revoke.addEventListener("click", async () => {
+        revoke.disabled = true;
+        try { await api(`/v1/runs/${encodeURIComponent(run.id)}/share-links/${encodeURIComponent(share.id)}/revoke`, { method: "POST", body: "{}" }); await loadProject(selectedProject); }
+        catch (error) { window.alert(error.message); }
+        finally { revoke.disabled = false; }
+      });
+      row.append(revoke);
+    }
+    section.append(row);
+  }
+  if (container) container.append(section);
+  return section;
+}
+
+async function showSharedReport(token) {
+  authSection.hidden = true; workspace.hidden = true; sharedReportSection.hidden = false;
+  document.querySelector(".intro").hidden = true;
+  document.querySelector(".topbar .quiet-link").hidden = true;
+  sharedReportSection.replaceChildren();
+  const eyebrow = document.createElement("p"); eyebrow.className = "eyebrow"; eyebrow.textContent = "SHARED ATLAS QA REPORT";
+  const heading = document.createElement("h2"); heading.textContent = "Loading shared evidence…";
+  const status = document.createElement("p"); status.className = "notice"; status.setAttribute("role", "status");
+  sharedReportSection.append(eyebrow, heading, status);
+  try {
+    const response = await fetch("/v1/shared-reports/open", { method: "POST", headers: { accept: "application/json", "content-type": "application/json" }, credentials: "omit", body: JSON.stringify({ token }) });
+    const report = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(report.error ?? "Shared report is unavailable.");
+    const run = report.run;
+    heading.textContent = `Run ${run.id.slice(0, 8)} · ${run.verdict ?? run.status.toUpperCase()}`;
+    status.className = "share-note";
+    status.textContent = `Link expires ${new Date(report.share.expiresAt).toLocaleString()}. Access is logged. Revoke the link to block future access.`;
+    if (run.result?.evidenceScope) { const scope = document.createElement("p"); scope.className = "coverage-note"; scope.textContent = run.result.evidenceScope; sharedReportSection.append(scope); }
+    const summary = document.createElement("div"); summary.className = "shared-run-summary";
+    const summaryHeading = document.createElement("h3"); summaryHeading.textContent = "Release evidence"; summary.append(summaryHeading);
+    for (const evidence of run.result?.targetDecision?.evidence ?? []) {
+      const line = document.createElement("p"); line.textContent = `${evidence.profileId}: journey ${evidence.journey ?? "missing"} · score ${evidence.score ?? "missing"}${evidence.error ? ` · ${evidence.error}` : ""}`; summary.append(line);
+    }
+    const profileSummary = run.result?.profiles;
+    if (profileSummary) { const line = document.createElement("p"); line.textContent = `Profiles completed: ${profileSummary.completed ?? 0}/${profileSummary.total ?? 0}.`; summary.append(line); }
+    if (run.result?.gateFindings !== undefined) { const line = document.createElement("p"); line.textContent = `Release gate findings: ${run.result.gateFindings}.`; summary.append(line); }
+    sharedReportSection.append(summary);
+    if (report.artifacts.length) {
+      const title = document.createElement("h3"); title.textContent = "Shared files"; sharedReportSection.append(title);
+      const list = document.createElement("ul"); list.className = "artifact-list";
+      for (const artifact of report.artifacts) {
+        const item = document.createElement("li");
+        const button = document.createElement("button"); button.type = "button"; button.className = "text-button"; button.textContent = `Download ${artifact.name} · ${formatBytes(Number(artifact.byteLength))}`;
+        const message = document.createElement("small"); message.setAttribute("role", "status");
+        button.addEventListener("click", async () => {
+          button.disabled = true; message.textContent = "";
+          try {
+            const blob = await fetchSharedArtifact(token, artifact.id); const objectUrl = URL.createObjectURL(blob);
+            const download = document.createElement("a"); download.href = objectUrl; download.download = artifact.name; download.click();
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+          } catch (error) { message.textContent = error.message; }
+          finally { button.disabled = false; }
+        });
+        item.append(button, message); list.append(item);
+        if (artifact.mediaType === "image/png") {
+          const preview = document.createElement("button"); preview.type = "button"; preview.className = "text-button"; preview.textContent = "Preview screenshot";
+          let figure; let objectUrl;
+          preview.addEventListener("click", async () => {
+            if (figure) { URL.revokeObjectURL(objectUrl); figure.remove(); figure = null; objectUrl = null; preview.textContent = "Preview screenshot"; return; }
+            preview.disabled = true; message.textContent = "";
+            try {
+              const blob = await fetchSharedArtifact(token, artifact.id); objectUrl = URL.createObjectURL(blob);
+              figure = document.createElement("figure"); figure.className = "shared-artifact-preview";
+              const image = document.createElement("img"); image.src = objectUrl; image.alt = `Shared screenshot ${artifact.name}`;
+              const caption = document.createElement("figcaption"); caption.textContent = `${artifact.name} · ${formatBytes(Number(artifact.byteLength))}`;
+              figure.append(image, caption); item.append(figure); preview.textContent = "Hide screenshot";
+            } catch (error) { message.textContent = error.message; }
+            finally { preview.disabled = false; }
+          });
+          item.append(preview);
+        }
+      }
+      sharedReportSection.append(list);
+    }
+  } catch (error) {
+    heading.textContent = "Shared report unavailable";
+    status.textContent = error.message;
+    status.dataset.state = "error";
+  }
+}
+
+async function fetchSharedArtifact(token, artifactId) {
+  const response = await fetch("/v1/shared-reports/artifact", {
+    method: "POST",
+    headers: { accept: "application/octet-stream", "content-type": "application/json" },
+    credentials: "omit",
+    body: JSON.stringify({ token, artifactId }),
+  });
+  if (!response.ok) throw new Error(response.status === 404 ? "This share was revoked or expired." : "The shared artifact could not be verified.");
+  return response.blob();
 }
 
 function renderVisualReviewForm(runs) {
@@ -645,10 +821,12 @@ function renderTargetForm() {
   projectDetail.append(form);
 }
 
-api("/v1/me").then(({ organizations: list }) => {
-  organizations = list;
-  if (!organizations.length) return;
-  if (!organizations.some((org) => org.id === selectedOrg)) selectedOrg = organizations[0].id;
-  localStorage.setItem("atlas.org", selectedOrg);
-  showWorkspace().catch((error) => { authSection.hidden = false; workspace.hidden = true; document.querySelector("#auth-message").textContent = error.message; });
-}).catch(() => {});
+if (!sharedToken) {
+  api("/v1/me").then(({ organizations: list }) => {
+    organizations = list;
+    if (!organizations.length) return;
+    if (!organizations.some((org) => org.id === selectedOrg)) selectedOrg = organizations[0].id;
+    localStorage.setItem("atlas.org", selectedOrg);
+    showWorkspace().catch((error) => { authSection.hidden = false; workspace.hidden = true; document.querySelector("#auth-message").textContent = error.message; });
+  }).catch(() => {});
+}

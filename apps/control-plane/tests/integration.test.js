@@ -21,13 +21,15 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
   const emailB = `qa-b-${suffix}@example.org`;
   const organizationIds = [];
   const artifactRoot = await mkdtemp(path.join(tmpdir(), "atlas-pg-artifacts-"));
+  let shareReplicaPool;
+  let shareReplicaApp;
   let runId;
   let challenge = "";
   const dns = {
     lookup: async () => [{ address: "93.184.216.34", family: 4 }],
     resolveTxt: async () => challenge ? [[challenge]] : [],
   };
-  const runningApp = buildApp({ pool, appOrigin: origin, secureCookies: false, dns, closePool: false, artifactRoot });
+  const runningApp = buildApp({ pool, appOrigin: origin, secureCookies: false, dns, closePool: false, artifactRoot, sharedReportRateLimitPerMinute: 2 });
   try {
     const write = (path, { body = {}, cookie = "", organizationId = "", headers = {} } = {}) => runningApp.inject({
       method: "POST", url: path, payload: body,
@@ -178,6 +180,53 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
     assert.equal(artifactAudit.rowCount, 1);
     assert.equal(artifactAudit.rows[0].sha256, reportArtifact.sha256);
 
+    const shareCreated = await write(`/v1/runs/${workerRun.id}/share-links`, {
+      cookie: cookieA, organizationId: orgA,
+      body: { includeSummary: true, artifactIds: [reportArtifact.id], expiresInHours: 24 },
+    });
+    assert.equal(shareCreated.statusCode, 201, shareCreated.body);
+    const shareUrl = new URL(shareCreated.json().url);
+    const shareToken = new URLSearchParams(shareUrl.hash.slice(1)).get("share");
+    assert.match(shareToken, /^[A-Za-z0-9_-]{43}$/);
+    const tokenHash = await pool.query("SELECT token_hash FROM share_links WHERE id=$1", [shareCreated.json().share.id]);
+    assert.equal(tokenHash.rows[0].token_hash.toString("hex"), createHash("sha256").update(shareToken).digest("hex"));
+    const shareHeaders = { origin, "content-type": "application/json" };
+    const openedShare = await runningApp.inject({ method: "POST", url: "/v1/shared-reports/open", payload: { token: shareToken }, headers: shareHeaders });
+    assert.equal(openedShare.statusCode, 200, openedShare.body);
+    assert.equal(openedShare.json().run.verdict, "HOLD");
+    assert.equal(openedShare.json().artifacts.length, 1);
+    assert.equal(openedShare.json().artifacts[0].id, reportArtifact.id);
+    const sharedDownload = await runningApp.inject({ method: "POST", url: "/v1/shared-reports/artifact", payload: { token: shareToken, artifactId: reportArtifact.id }, headers: shareHeaders });
+    assert.equal(sharedDownload.statusCode, 200, sharedDownload.body);
+    assert.match(sharedDownload.body, /synthetic report/);
+    shareReplicaPool = createPool(databaseUrl);
+    shareReplicaApp = buildApp({ pool: shareReplicaPool, appOrigin: origin, sharedReportRateLimitPerMinute: 2, closePool: false });
+    const limitedOpen = await shareReplicaApp.inject({ method: "POST", url: "/v1/shared-reports/open", payload: { token: shareToken }, headers: shareHeaders });
+    assert.equal(limitedOpen.statusCode, 429);
+    assert.equal(limitedOpen.headers["retry-after"], "60");
+    const excludedArtifact = workerArtifacts.find((artifact) => artifact.mediaType === "application/json");
+    const excludedDownload = await runningApp.inject({ method: "POST", url: "/v1/shared-reports/artifact", payload: { token: shareToken, artifactId: excludedArtifact.id }, headers: shareHeaders });
+    assert.equal(excludedDownload.statusCode, 404);
+    const shareLog = await pool.query("SELECT action FROM audit_events WHERE resource_type='share-link' AND resource_id=$1 ORDER BY action", [shareCreated.json().share.id]);
+    assert.deepEqual(shareLog.rows.map((row) => row.action), ["share-link.artifact-downloaded", "share-link.created", "share-link.opened"]);
+    const shareCounts = await pool.query("SELECT access_count FROM share_links WHERE id=$1", [shareCreated.json().share.id]);
+    assert.equal(shareCounts.rows[0].access_count, 2);
+    const rateLimitRows = await pool.query("SELECT request_count FROM shared_report_request_buckets WHERE share_id=$1", [shareCreated.json().share.id]);
+    assert.equal(rateLimitRows.rows[0].request_count, 3);
+    const revokedShare = await write(`/v1/runs/${workerRun.id}/share-links/${shareCreated.json().share.id}/revoke`, { cookie: cookieA, organizationId: orgA, body: {} });
+    assert.equal(revokedShare.statusCode, 200, revokedShare.body);
+    const revokedOpen = await runningApp.inject({ method: "POST", url: "/v1/shared-reports/open", payload: { token: shareToken }, headers: shareHeaders });
+    assert.equal(revokedOpen.statusCode, 404);
+    const revokedAudit = await pool.query("SELECT count(*)::int AS count FROM audit_events WHERE resource_type='share-link' AND resource_id=$1 AND action='share-link.revoked'", [shareCreated.json().share.id]);
+    assert.equal(revokedAudit.rows[0].count, 1);
+
+    const expiringShare = await write(`/v1/runs/${workerRun.id}/share-links`, { cookie: cookieA, organizationId: orgA, body: { includeSummary: true, artifactIds: [], expiresInHours: 24 } });
+    assert.equal(expiringShare.statusCode, 201, expiringShare.body);
+    const expiringToken = new URLSearchParams(new URL(expiringShare.json().url).hash.slice(1)).get("share");
+    await pool.query("UPDATE share_links SET expires_at=now()-interval '1 second' WHERE id=$1", [expiringShare.json().share.id]);
+    const expiredOpen = await runningApp.inject({ method: "POST", url: "/v1/shared-reports/open", payload: { token: expiringToken }, headers: shareHeaders });
+    assert.equal(expiredOpen.statusCode, 404);
+
     const accountB = await write("/v1/auth/register", { body: { email: emailB, password: "another sufficiently long test password", organizationName: "QA Org B" } });
     assert.equal(accountB.statusCode, 201, accountB.body);
     const orgB = accountB.json().organization.id;
@@ -185,6 +234,8 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
     const cookieB = accountB.headers["set-cookie"].split(";")[0];
     const crossTenant = await runningApp.inject({ method: "GET", url: `/v1/runs/${runId}`, headers: { cookie: cookieB, "x-atlas-organization": orgB } });
     assert.equal(crossTenant.statusCode, 404);
+    const crossTenantShare = await write(`/v1/runs/${workerRun.id}/share-links`, { cookie: cookieB, organizationId: orgB, body: { includeSummary: true, artifactIds: [reportArtifact.id], expiresInHours: 24 } });
+    assert.equal(crossTenantShare.statusCode, 404);
     const crossTenantArtifact = await runningApp.inject({
       method: "GET", url: `/v1/runs/${workerRun.id}/artifacts/${reportArtifact.id}`,
       headers: { cookie: cookieB, "x-atlas-organization": orgB },
@@ -211,6 +262,8 @@ test("Postgres onboarding is tenant-scoped, idempotent, fail-closed and expires 
   } finally {
     for (const id of organizationIds) await pool.query("DELETE FROM organizations WHERE id=$1", [id]);
     await pool.query("DELETE FROM users WHERE email=ANY($1::text[])", [[emailA, emailB]]);
+    if (shareReplicaApp) await shareReplicaApp.close();
+    if (shareReplicaPool) await shareReplicaPool.end();
     await runningApp.close();
     await pool.end();
     await rm(artifactRoot, { recursive: true, force: true });

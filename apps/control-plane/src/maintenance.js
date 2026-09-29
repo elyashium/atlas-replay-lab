@@ -8,6 +8,7 @@ export async function purgeExpiredRecords(pool, { artifactRoot = process.env.ATL
   const deleted = await inTransaction(pool, async (client) => {
     const sessions = await client.query("DELETE FROM sessions WHERE expires_at <= now()");
     const shares = await client.query("DELETE FROM share_links WHERE expires_at <= now() OR revoked_at IS NOT NULL");
+    const shareRequestBuckets = await client.query("DELETE FROM shared_report_request_buckets WHERE bucket_start < date_trunc('minute', now()) - interval '2 minutes'");
     const runs = await client.query("SELECT organization_id,id FROM runs WHERE retention_expires_at <= now() AND status <> 'running' FOR UPDATE");
     for (const run of runs.rows) {
       await client.query("INSERT INTO audit_events(organization_id,action,resource_type,resource_id,details) VALUES($1,'run.retention.purged','run',$2,'{}'::jsonb)", [run.organization_id, run.id]);
@@ -26,7 +27,7 @@ export async function purgeExpiredRecords(pool, { artifactRoot = process.env.ATL
       await client.query("INSERT INTO audit_events(organization_id,action,resource_type,resource_id,details) VALUES($1,'visual-review.retention.purged','visual-review',$2,'{}'::jsonb)", [review.organization_id, review.id]);
     }
     const reviewUsage = await client.query("DELETE FROM visual_review_usage WHERE usage_date < (now() AT TIME ZONE 'UTC')::date - 30");
-    return { sessions: sessions.rowCount ?? 0, shares: shares.rowCount ?? 0, runs: runs.rows, runCount: runs.rowCount ?? 0, visualReviews: visualReviews.rowCount ?? 0, reviewUsage: reviewUsage.rowCount ?? 0, codeProposals: codeProposals.rowCount ?? 0, proposalUsage: proposalUsage.rowCount ?? 0 };
+    return { sessions: sessions.rowCount ?? 0, shares: shares.rowCount ?? 0, shareRequestBuckets: shareRequestBuckets.rowCount ?? 0, runs: runs.rows, runCount: runs.rowCount ?? 0, visualReviews: visualReviews.rowCount ?? 0, reviewUsage: reviewUsage.rowCount ?? 0, codeProposals: codeProposals.rowCount ?? 0, proposalUsage: proposalUsage.rowCount ?? 0 };
   });
   let artifactDirectories = 0;
   if (artifactRoot) {

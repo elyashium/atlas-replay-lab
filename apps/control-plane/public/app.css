@@ -117,6 +117,28 @@ small { font-weight: 400; color: var(--muted); }
 .pill.pending { background: #fff3df; color: #8b5b17; }
 .pill.hold { background: #fde9e5; color: #9c3c2b; }
 .run-card { min-width: 0; }
+.share-manager { min-width: 0; margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfb; }
+.share-manager > .section-title { margin: 0 0 8px; }
+.share-note { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 6px 0 10px; }
+.share-create-form { min-width: 0; display: grid; gap: 8px; }
+.share-create-form label:not(.check-option) { max-width: 200px; }
+.share-create-form .text-button, .share-row .text-button { justify-self: start; min-height: 34px; padding: 7px 9px; border: 1px solid #bdcec7; border-radius: 7px; }
+.share-row { min-width: 0; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: grid; gap: 7px; }
+.share-row p, .share-row small { margin: 0; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.share-access-log { display: grid; gap: 6px; }
+.share-access-log summary { width: fit-content; cursor: pointer; color: var(--green); font-size: 11px; }
+.share-row input { min-width: 0; font: 11px ui-monospace,monospace; }
+.shared-report { max-width: 850px; min-width: 0; margin: 30px auto; }
+.shared-report h2 { overflow-wrap: anywhere; }
+.shared-run-summary { margin-top: 18px; padding: 14px; border-left: 3px solid var(--green); background: #f3f7f4; }
+.shared-run-summary h3 { margin-bottom: 8px; }
+.shared-run-summary p { font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.shared-report .artifact-list { display: grid; }
+.shared-report .artifact-list li { display: grid; gap: 5px; }
+.shared-report .artifact-list button { min-height: 38px; justify-self: start; }
+.shared-artifact-preview { margin: 8px 0 14px; }
+.shared-artifact-preview img { display: block; width: 100%; max-height: 420px; object-fit: contain; border: 1px solid var(--line); border-radius: 7px; background: #f8faf8; }
+.shared-artifact-preview figcaption { margin-top: 5px; color: var(--muted); font-size: 11px; }
 .run-verdict { font-weight: 700; color: var(--ink); }
 .run-evidence { margin: 5px 0; padding-left: 10px; border-left: 2px solid var(--line); color: #43534f; overflow-wrap: anywhere; }
 .artifact-list { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 0; padding: 0; list-style: none; }

@@ -1,0 +1,37 @@
+name: Atlas target release QA
+description: Run an owned staging target contract and publish a commit-scoped SHIP/HOLD/INCONCLUSIVE check.
+inputs:
+  contract-path:
+    description: Path in the checked-out application repository to its authorized target contract JSON.
+    required: true
+  target-build-id:
+    description: Full immutable 40- or 64-character commit SHA actually deployed at the contract's staging URL.
+    required: true
+  github-token:
+    description: GITHUB_TOKEN with checks:write to create the Atlas target QA Check Run.
+    required: true
+  mode:
+    description: advisory (default) marks HOLD neutral; blocking makes HOLD fail. INCONCLUSIVE always fails.
+    required: false
+    default: advisory
+outputs:
+  verdict:
+    description: SHIP, HOLD, or INCONCLUSIVE.
+    value: ${{ steps.run.outputs.verdict }}
+  conclusion:
+    description: GitHub Check Run conclusion.
+    value: ${{ steps.run.outputs.conclusion }}
+  artifact-dir:
+    description: Local directory containing matrix/gate evidence for optional artifact upload.
+    value: ${{ steps.run.outputs.artifact-dir }}
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        ATLAS_ACTION_CONTRACT_PATH: ${{ inputs.contract-path }}
+        ATLAS_ACTION_TARGET_BUILD_ID: ${{ inputs.target-build-id }}
+        ATLAS_ACTION_GITHUB_TOKEN: ${{ inputs.github-token }}
+        ATLAS_ACTION_MODE: ${{ inputs.mode }}
+      run: node "$GITHUB_ACTION_PATH/run.js"

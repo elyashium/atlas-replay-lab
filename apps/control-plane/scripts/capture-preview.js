@@ -100,6 +100,7 @@ try {
   await page.send("Network.enable");
   await page.send("Network.setCookie", { name: "atlas_session", value: cookie, url: origin, httpOnly: true, sameSite: "Strict" });
   const reports = [];
+  const shareUrls = [];
   for (const viewport of [
     { name: "desktop", width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false },
     { name: "mobile", width: 390, height: 844, deviceScaleFactor: 2, mobile: true },
@@ -122,6 +123,15 @@ try {
     const runLayout = await page.evaluate("({innerWidth, clientWidth: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth, bodyScrollWidth: document.body.scrollWidth, fixtureLabel: document.querySelector('.run-card')?.innerText.includes('Illustrative UI fixture')})");
     await writeFile(path.join(output, `control-plane-run-${viewport.name}.png`), await page.screenshot());
     reports.push({ viewport: viewport.name, state: "illustrative-run", ...runLayout, screenshot: `artifacts/control-plane-run-${viewport.name}.png` });
+    await page.evaluate("(() => { const form=document.querySelector('.run-card .share-create-form'); if(!form) throw new Error('share link form was not rendered'); form.querySelector('[name=includeSummary]').checked=true; const artifact=form.querySelector('[name=artifact]'); if(!artifact) throw new Error('no fixture artifact is available to share'); artifact.checked=true; form.requestSubmit(); })()");
+    await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { const link=document.querySelector('.run-card .share-row input[readonly]'); if(link?.value.includes('#share=')) resolve(true); else if(Date.now()-started>8000) reject(new Error('share link creation did not complete')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
+    const createdShareUrl = await page.evaluate("document.querySelector('.run-card .share-row input[readonly]').value");
+    shareUrls.push(createdShareUrl);
+    const shareCreationState = await page.evaluate("({activeShare:document.querySelector('.run-card .share-row')?.innerText.includes('ACTIVE'), shareTokenInUrl:Boolean(document.querySelector('.run-card .share-row input[readonly]')?.value.includes('#share=')), artifactSelected:document.querySelector('.run-card .share-row')?.innerText.includes('high-wifi-preview.png')})");
+    await page.evaluate("document.querySelector('.run-card .share-manager').scrollIntoView({block:'center'})");
+    await page.evaluate("(() => { const input=document.querySelector('.run-card .share-row input[readonly]'); if(input) input.value=new URL(input.value).origin+'/#share=[redacted synthetic token]'; })()");
+    await writeFile(path.join(output, `control-plane-share-create-${viewport.name}.png`), await page.screenshot());
+    reports.push({ viewport: viewport.name, state: "share-link-created", ...shareCreationState, screenshot: `artifacts/control-plane-share-create-${viewport.name}.png` });
     await page.evaluate("document.querySelector('.target-card').scrollIntoView({block:'start'})");
     await page.evaluate("document.querySelector('.verification-record').open = true");
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -173,8 +183,25 @@ try {
     await writeFile(path.join(output, `control-plane-code-proposal-${viewport.name}.png`), await page.screenshot());
     reports.push({ viewport: viewport.name, state: "code-proposal", screenshot: `artifacts/control-plane-code-proposal-${viewport.name}.png` });
   }
+  const sharedPage = await browser.connection.newPage();
+  await sharedPage.send("Page.enable"); await sharedPage.send("Runtime.enable");
+  for (const viewport of [
+    { name: "desktop", width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false },
+    { name: "mobile", width: 390, height: 844, deviceScaleFactor: 2, mobile: true },
+  ]) {
+    await sharedPage.send("Emulation.setDeviceMetricsOverride", viewport);
+    await sharedPage.send("Network.enable");
+    const sharedPreviewUrl = new URL(shareUrls[0]); sharedPreviewUrl.searchParams.set("previewViewport", viewport.name);
+    await sharedPage.send("Page.navigate", { url: sharedPreviewUrl.href });
+    await sharedPage.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { const heading=document.querySelector('#shared-report h2'); if(!document.querySelector('#shared-report').hidden && heading?.innerText.startsWith('Run ')) resolve(true); else if(Date.now()-started>10000) reject(new Error('shared report did not open: '+document.body.innerText.slice(-500))); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
+    await sharedPage.evaluate("[...document.querySelectorAll('#shared-report button')].find((button)=>button.innerText==='Preview screenshot')?.click()");
+    await sharedPage.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { const image=document.querySelector('#shared-report .shared-artifact-preview img'); if(image?.complete && image.naturalWidth) resolve(true); else if(Date.now()-started>8000) reject(new Error('shared screenshot preview did not load')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
+    const shareView = await sharedPage.evaluate("({heading:document.querySelector('#shared-report h2').innerText, artifactCount:document.querySelectorAll('#shared-report .artifact-list li').length, screenshotPreviewCount:document.querySelectorAll('#shared-report .shared-artifact-preview img').length, tokenRemoved:location.hash==='', scrollWidth:document.documentElement.scrollWidth, clientWidth:document.documentElement.clientWidth})");
+    await writeFile(path.join(output, `control-plane-shared-report-${viewport.name}.png`), await sharedPage.screenshot());
+    reports.push({ viewport: viewport.name, state: "anonymous-shared-report", ...shareView, screenshot: `artifacts/control-plane-shared-report-${viewport.name}.png` });
+  }
   console.log(JSON.stringify(reports, null, 2));
-  if (reports.some((item) => item.scrollWidth > item.clientWidth || (item.state === "visual-review-result" && item.findingOverlayCount !== 1) || (item.state === "clear-local-screenshot" && !item.passed))) process.exitCode = 1;
+  if (reports.some((item) => item.scrollWidth > item.clientWidth || (item.state === "visual-review-result" && item.findingOverlayCount !== 1) || (item.state === "clear-local-screenshot" && !item.passed) || (item.state === "share-link-created" && (!item.activeShare || !item.shareTokenInUrl || !item.artifactSelected)) || (item.state === "anonymous-shared-report" && (!item.tokenRemoved || item.artifactCount !== 1 || item.screenshotPreviewCount !== 1)))) process.exitCode = 1;
 } finally {
   await browser.close();
   await app.close();
