@@ -56,19 +56,35 @@ try {
       socket.onerror = () => { clearTimeout(timer); resolve("blocked"); };
     });
     const serviceWorkerResult = navigator.serviceWorker.register("/sw.js").then(() => "registered").catch(() => "blocked");
+    const webrtcResult = (async () => {
+      const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:${proxyUrl.hostname}:3478" }] });
+      peer.createDataChannel("atlas-boundary-probe");
+      const candidates = [];
+      peer.onicecandidate = (event) => { if (event.candidate) candidates.push(event.candidate.type); };
+      await peer.setLocalDescription(await peer.createOffer());
+      await new Promise((resolve) => {
+        if (peer.iceGatheringState === "complete") return resolve();
+        peer.onicegatheringstatechange = () => { if (peer.iceGatheringState === "complete") resolve(); };
+        setTimeout(resolve, 7000);
+      });
+      peer.close();
+      return { serverReflexiveCandidates: candidates.filter((type) => type === "srflx").length };
+    })();
     const outcomes = await Promise.all([
       attempt("https://169.254.169.254/fetch-probe"),
       attempt("https://93.184.216.3/unlisted-ip-probe"),
       attempt("https://blocked.example.test/unlisted-host-probe"),
       attempt("/redirect"), imageResult, frameResult, webSocketResult, serviceWorkerResult,
     ]);
+    outcomes.push(await webrtcResult);
     return outcomes;
   })()`, { awaitPromise: true, timeoutMs: 15_000 });
-  assert.deepEqual(probeResults, ["blocked", "blocked", "blocked", "blocked", "blocked", "navigation-finished", "blocked", "registered"]);
+  assert.deepEqual(probeResults.slice(0, 8), ["blocked", "blocked", "blocked", "blocked", "blocked", "navigation-finished", "blocked", "registered"]);
+  assert.deepEqual(probeResults[8], { serverReflexiveCandidates: 0 }, "browser must not establish a server-reflexive WebRTC route");
   await new Promise((resolve) => setTimeout(resolve, 400));
   const failedForbiddenRequests = [...tracked.values()].filter((request) => request.failed).length;
   assert.ok(failedForbiddenRequests >= 5, `expected failed browser requests to forbidden destinations, observed ${failedForbiddenRequests}`);
-  process.stdout.write(`browser adversarial probes blocked: ${JSON.stringify({ fetches: probeResults.slice(0, 4), image: probeResults[4], redirectFrame: probeResults[5], webSocket: probeResults[6], serviceWorker: probeResults[7], failedForbiddenRequests })}\n`);
+  process.stdout.write(`browser adversarial probes blocked: ${JSON.stringify({ fetches: probeResults.slice(0, 4), image: probeResults[4], redirectFrame: probeResults[5], webSocket: probeResults[6], serviceWorker: probeResults[7], webRtcServerReflexiveCandidates: probeResults[8].serverReflexiveCandidates, failedForbiddenRequests })}\n`);
 } finally {
   await browser.close();
 }

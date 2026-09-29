@@ -69,6 +69,8 @@ try {
   const refusedProxyTunnels = (proxyLogs.match(/ATLAS_PROXY_CONNECT_REFUSED/g) ?? []).length;
   if (refusedProxyTunnels < 5) throw new Error(`browser adversarial cases did not produce enough per-origin proxy denials (${refusedProxyTunnels})`);
   process.stdout.write(`PASS: per-origin proxy denied ${refusedProxyTunnels} browser egress attempts from fetch, redirect, image, WebSocket and service-worker probes\n`);
+  if (proxyLogs.includes("ATLAS_TEST_UDP_PROBE_RECEIVED")) throw new Error("browser sent a WebRTC/STUN UDP packet to the egress proxy test trap");
+  process.stdout.write("PASS: WebRTC/STUN probe produced no UDP packet at the worker-network test trap\n");
   process.stdout.write("PASS: isolated container could reach the synthetic HTTPS origin through the job proxy, while direct public/private sockets and worker DNS were blocked\n");
 
   const fixtureContract = {
