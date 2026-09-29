@@ -35,6 +35,7 @@ import { REPLAY_DIR } from "../runner/run-replay.js";
 import { GATE_DIR } from "../gate/release-gate.js";
 import { COMPARE_DIR } from "./engine-comparison.js";
 import { JUDGE_DIR } from "../judge/run-judge.js";
+import { FINDINGS_DIR } from "../diagnose/run-findings.js";
 import { PREFLIGHT_DIR } from "../preflight/run-preflight.js";
 import { readJson, writeFileEnsured, fromRoot, ROOT } from "../util/fsx.js";
 import { logger } from "../util/log.js";
@@ -89,6 +90,7 @@ export async function renderReport(opts = {}) {
     gate: await load(opts.gateReportPath ? path.resolve(opts.gateReportPath) : path.join(artifactsDir, path.relative(fromRoot("artifacts"), GATE_DIR), "report.json")),
     compare: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), COMPARE_DIR), "engine-comparison.json")),
     judge: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), JUDGE_DIR), "judge-report.json")),
+    findings: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), FINDINGS_DIR), "findings.json")),
     preflight: await load(path.join(artifactsDir, path.relative(fromRoot("artifacts"), PREFLIGHT_DIR), "report.json")),
     replays: await loadReplays(path.join(artifactsDir, path.relative(fromRoot("artifacts"), REPLAY_DIR))),
   };
@@ -99,13 +101,14 @@ export async function renderReport(opts = {}) {
   if (!opts.quiet) {
     const targetRun = sources.matrix?.data?.target?.mode === "owned-staging-contract";
     const present = targetRun
-      ? [sources.matrix ? "target matrix" : null, sources.gate ? "target gate" : null].filter(Boolean)
+      ? [sources.matrix ? "target matrix" : null, sources.gate ? "target gate" : null, sources.findings ? `findings×${sources.findings.data.counts?.findings ?? 0}` : null].filter(Boolean)
       : [
           sources.matrix ? "matrix" : null,
           sources.replays.length ? `replay×${sources.replays.length}` : null,
           sources.gate ? "gate" : null,
           sources.compare ? "compare" : null,
           sources.judge ? `judge×${sources.judge.data.counts?.judged ?? "?"}` : null,
+          sources.findings ? `findings×${sources.findings.data.counts?.findings ?? 0}` : null,
           sources.preflight ? "preflight" : null,
         ].filter(Boolean);
     log.info(
@@ -156,7 +159,7 @@ async function loadReplays(replayDir) {
 /* ── page ────────────────────────────────────────────────────────────────── */
 
 /**
- * @param {{ matrix: any; gate: any; compare: any; judge: any; preflight: any; replays: any[] }} s
+ * @param {{ matrix: any; gate: any; compare: any; judge: any; findings: any; preflight: any; replays: any[] }} s
  * @param {string} outDir
  */
 function renderHtml(s, outDir) {
@@ -170,8 +173,8 @@ function renderHtml(s, outDir) {
   const generatedAt = new Date();
   const targetRun = s.matrix?.data?.target?.mode === "owned-staging-contract";
   const body = (targetRun
-    ? [header(s, generatedAt), targetDisclaimers(), gateSection(s.gate), targetJourneySection(s.matrix, href), failureStory(s.matrix, href), matrixSection(s.matrix, href), provenance(s, generatedAt)]
-    : [header(s, generatedAt), disclaimers(), gateSection(s.gate), preflightSection(s.preflight), failureStory(s.matrix, href), matrixSection(s.matrix, href), replaySection(s.replays, href), compareSection(s.compare), judgeSection(s.judge), predictionSection(s.preflight, s.matrix, s.gate), provenance(s, generatedAt)]
+    ? [header(s, generatedAt), targetDisclaimers(), gateSection(s.gate), targetJourneySection(s.matrix, href), failureStory(s.matrix, href), matrixSection(s.matrix, href), findingsSection(s.findings, href), provenance(s, generatedAt)]
+    : [header(s, generatedAt), disclaimers(), gateSection(s.gate), preflightSection(s.preflight), failureStory(s.matrix, href), matrixSection(s.matrix, href), findingsSection(s.findings, href), replaySection(s.replays, href), compareSection(s.compare), judgeSection(s.judge), predictionSection(s.preflight, s.matrix, s.gate), provenance(s, generatedAt)]
   ).join("\n");
 
   return `<!doctype html>
@@ -885,11 +888,207 @@ function judgeSection(judge) {
 }
 
 /**
+ * The failed rows, diagnosed.
+ *
+ * The three lists are rendered as three lists on purpose. A page that folds
+ * "sustainedFps = 22" and "the experience attempted the camera path under a
+ * denial" into one paragraph has turned a measurement and a rule firing into a
+ * single sentence that reads like a conclusion, and a reader can no longer tell
+ * which half was observed. The diagnosis exists to keep those apart, so the
+ * report cannot be where it gets lost.
+ *
+ * `suggestedChanges` is rendered even though it is always empty, because the
+ * empty list is the honest statement that fix suggestion is not implemented.
+ *
+ * @param {any} findings
+ * @param {(p: string | null) => string | null} href
+ */
+function findingsSection(findings, href) {
+  if (!findings) {
+    return notRun(
+      "Diagnosis",
+      "node bin/atlas.js findings",
+      "No run has been diagnosed. Diagnosis reads a matrix report that already exists; it runs no browser and produces no evidence of its own.",
+    );
+  }
+  const f = findings.data;
+  const counts = f.counts ?? {};
+  const sourceLine = `<p class="source">Source: <code>${esc(rel(findings.path))}</code>${
+    f.source?.report ? ` from <code>${esc(rel(f.source.report))}</code>` : ""
+  } · reproduce with <code>node bin/atlas.js findings</code></p>`;
+
+  if (!f.findings?.length) {
+    return `
+<section>
+  <h2>Diagnosis</h2>
+  <p class="lede">
+    Nothing failed in the ${counts.rows ?? 0} run(s) diagnosed, so there is nothing to explain.
+    Only failed, inconclusive and harness-lost rows are diagnosed; a passing row produces no
+    finding rather than a finding that says "passed".
+  </p>
+  ${sourceLine}
+</section>`;
+  }
+
+  const cards = f.findings.map((/** @type {any} */ x) => findingCard(x, href)).join("\n");
+
+  return `
+<section>
+  <h2>Diagnosis</h2>
+  <p class="lede">
+    Each failed row, with the evidence it was read from: the failing contract step, the slice of
+    the trace around the failure, the console categories, the artifacts, and the release rule in
+    force. Observations name the field they came from. Inferred causes name the rule that fired.
+    Nothing here is a guess, and nothing here is a fix.
+  </p>
+  <div class="facts">
+    ${fact("rows diagnosed", String(counts.rows ?? 0))}
+    ${fact("findings", String(counts.findings ?? 0))}
+    ${fact("about the target", String(counts.aboutTarget ?? 0))}
+    ${fact("about the harness", String(counts.aboutHarness ?? 0))}
+    ${fact("no rule matched", String(counts.unexplained ?? 0))}
+    ${fact("traces loaded", `${f.source?.tracesLoaded ?? "?"}${f.source?.tracesMissing ? ` (${f.source.tracesMissing} missing)` : ""}`)}
+  </div>
+  ${f.$limitations?.traces ? `<p class="warning">${esc(f.$limitations.traces)}</p>` : ""}
+  ${counts.unexplained ? `<p class="note">${esc(f.$limitations?.unexplained ?? "")}</p>` : ""}
+  ${cards}
+  ${sourceLine}
+</section>`;
+}
+
+/**
+ * @param {any} x
+ * @param {(p: string | null) => string | null} href
+ */
+function findingCard(x, href) {
+  // Severity is the gate's word, copied through — the pill only colours it.
+  const sev =
+    x.severity === "hard block"
+      ? "block"
+      : x.severity === "major" || x.severity === "moderate"
+        ? "warn"
+        : x.severity === "minor"
+          ? "degraded"
+          : "info";
+
+  const observations = (x.observations ?? [])
+    .map(
+      (/** @type {any} */ o) =>
+        `<li>${esc(o.what)}<div class="dim small mono">${esc(o.source ?? "—")}</div></li>`,
+    )
+    .join("");
+
+  const causes = (x.inferredCauses ?? []).length
+    ? x.inferredCauses
+        .map((/** @type {any} */ c) => {
+          // `aboutTarget` is a tri-state and each value means something
+          // different: the app's problem, our harness's, or nobody's to claim.
+          const about =
+            c.aboutTarget === true
+              ? `<span class="pill block">target app</span>`
+              : c.aboutTarget === false
+                ? `<span class="pill info">Atlas harness</span>`
+                : `<span class="pill warn">unattributable</span>`;
+          return `<li>${about} ${esc(c.cause)}<div class="dim small">${esc(c.why)}</div><div class="dim small mono">rule ${esc(c.id)} · basis ${esc(c.basis ?? "?")}</div></li>`;
+        })
+        .join("")
+    : `<li class="dim">No rule matched. ${esc(x.$limitations?.observationsVsCauses ?? "")}</li>`;
+
+  const suggested = (x.suggestedChanges ?? []).length
+    ? x.suggestedChanges.map((/** @type {any} */ sg) => `<li>${esc(typeof sg === "string" ? sg : JSON.stringify(sg))}</li>`).join("")
+    : `<li class="dim">None. ${esc(x.$limitations?.suggestedChanges ?? "")}</li>`;
+
+  const e = x.evidence ?? {};
+  const step = e.contractStep
+    ? `<li>step ${e.contractStep.index}: <span class="mono">${esc(e.contractStep.type ?? "?")}</span> <span class="mono dim">${esc(e.contractStep.selector ?? "—")}</span> → <b class="bad">${esc(e.contractStep.outcome ?? "?")}</b>${
+        e.contractStep.declaredTimeoutMs ? ` <span class="dim small">declared timeout ${e.contractStep.declaredTimeoutMs}ms</span>` : ""
+      }</li>`
+    : "";
+  const consoleCats = (e.consoleCategories ?? [])
+    .map(
+      (/** @type {any} */ c) =>
+        `<li>console <b>${esc(c.category)}</b> ×${c.count} <span class="mono dim">${esc((c.codes ?? []).join(", "))}</span>${
+          c.firstAtMs === null || c.firstAtMs === undefined ? "" : ` <span class="dim small">first at ${c.firstAtMs}ms</span>`
+        }</li>`,
+    )
+    .join("");
+  const networkCats = (e.networkCategories ?? [])
+    .map(
+      (/** @type {any} */ c) =>
+        `<li>network <b>${esc(c.category ?? "?")}</b> — ${c.failed ?? 0} failed of ${c.total ?? 0} event(s)${
+          c.note ? ` <span class="dim small">${esc(c.note)}</span>` : ""
+        }</li>`,
+    )
+    .join("");
+  const artifacts = (e.artifacts ?? [])
+    .map((/** @type {any} */ a) => {
+      const link = href(a.path ?? null);
+      const label = `<span class="mono">${esc(a.what ?? "artifact")}</span> ${link ? `<a href="${esc(link)}">${esc(a.path)}</a>` : `<span class="mono dim">${esc(a.path ?? "—")}</span>`}`;
+      return `<li>${label}${a.review ? `<div class="dim small">${esc(a.review)}</div>` : ""}</li>`;
+    })
+    .join("");
+  const policy = e.policy
+    ? `<li>release policy <span class="mono">${esc(e.policy.id)}</span> <span class="mono dim">${esc(e.policy.version)} · ${esc(e.policy.contentHash)}</span></li>`
+    : "";
+  const policyRule = e.policyRule
+    ? `<li>rule <span class="mono">${esc(e.policyRule.id)}</span>${e.policyRule.statement ? ` <span class="dim">${esc(e.policyRule.statement)}</span>` : ""}</li>`
+    : "";
+  const comfort = e.comfortPolicy
+    ? `<li>graded against <span class="mono dim">fps ≥ ${esc(String(e.comfortPolicy.sustainedFpsFloor))} over ${esc(String(e.comfortPolicy.sustainedWindowMs ?? "—"))}ms, p95 input→frame ≤ ${esc(String(e.comfortPolicy.p95InputToFrameMs ?? "—"))}ms</span> <span class="dim small">(${esc(e.comfortPolicy.source ?? "?")}-declared thresholds)</span></li>`
+    : "";
+  const hashes = e.hashes
+    ? `<li>hashes <span class="mono dim">determinism ${esc(e.hashes.determinismHash ?? "—")} · causal ${esc(e.hashes.causalHash ?? "—")}</span></li>`
+    : "";
+
+  const slice = (e.traceSlice ?? []).length
+    ? `<details>
+      <summary>trace slice — ${e.traceSlice.length} event(s) within ±${e.traceSliceWindow?.radiusMs ?? "?"}ms of ${e.traceSliceWindow?.centreMs ?? "?"}ms</summary>
+      <table>
+        <thead><tr><th class="num">tOffsetMs</th><th>kind</th><th>name</th><th>attribute keys</th></tr></thead>
+        <tbody>${e.traceSlice
+          .map(
+            (/** @type {any} */ ev) =>
+              `<tr><td class="num mono">${ev.tOffsetMs}</td><td class="mono">${esc(ev.kind ?? "—")}</td><td class="mono">${esc(ev.name ?? "—")}</td><td class="mono dim">${esc((ev.attributeKeys ?? []).join(", "))}</td></tr>`,
+          )
+          .join("")}</tbody>
+      </table>
+      <p class="note">Offsets are milliseconds from session start, exactly as the trace recorded them. Attribute keys only — no values, no wall-clock time, no message text.</p>
+    </details>`
+    : `<p class="note">No trace slice: the failure moment could not be located in a trace, so none is shown rather than a window centred on session start.</p>`;
+
+  return `
+  <div class="card">
+    <div class="card-head">
+      <span class="pill ${sev}">${esc(x.severity ?? "?")}</span>
+      <h3>${esc(x.title ?? "untitled finding")}</h3>
+    </div>
+    <p class="dim small mono">${esc(x.profileId ?? "—")} · ${esc(x.evidence?.runId ?? "—")} · ${esc(x.evidence?.runKind ?? "—")} · lane ${esc(x.lane ?? "—")} · id ${esc(x.id ?? "—")}</p>
+    <div class="lists">
+      <div>
+        <h4>Observed</h4>
+        <ul>${observations}</ul>
+      </div>
+      <div>
+        <h4>Inferred cause (rule output)</h4>
+        <ul>${causes}</ul>
+      </div>
+      <div>
+        <h4>Suggested changes</h4>
+        <ul>${suggested}</ul>
+      </div>
+    </div>
+    <h4>Evidence</h4>
+    <ul class="checks">${step}${consoleCats}${networkCats}${policy}${policyRule}${comfort}${hashes}${artifacts}</ul>
+    ${slice}
+    <p class="note">${esc(x.$limitations?.lane ?? "")} ${esc(x.$limitations?.sampleSize ?? "")}</p>
+  </div>`;
+}
+
+/**
  * @param {any} s
  * @param {Date} generatedAt
  */
-function provenance(s, generatedAt) {
-  const env = s.matrix?.data?.environment;
+function provenance(s, generatedAt) {  const env = s.matrix?.data?.environment;
   const targetRun = s.matrix?.data?.target?.mode === "owned-staging-contract";
   const reproduce = targetRun
     ? `node examples/start-staging-scene.js\nnode bin/atlas.js matrix --target examples/target-contract.json\nnode bin/atlas.js gate`
@@ -1128,6 +1327,14 @@ tr.sev-block td { background: rgba(255,107,107,0.04); }
 .card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .card-head h3 { margin: 0; color: var(--text); text-transform: none; letter-spacing: 0; font-size: 15px; }
 
+h4 { font-size: 11px; margin: 18px 0 6px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.07em; }
+.lists { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 10px 0 4px; align-items: start; }
+.lists h4 { margin-top: 0; }
+.lists ul { list-style: none; padding: 0; margin: 0; font-size: 12.5px; }
+.lists li { padding: 6px 0; border-top: 1px solid var(--line); }
+.lists li:first-child { border-top: none; }
+.lists .pill { margin-right: 4px; }
+
 .not-run { background: var(--panel); border: 1px dashed var(--line); border-radius: 8px; padding: 16px 20px; color: var(--dim); }
 .not-run pre { margin: 10px 0 0; }
 
@@ -1144,5 +1351,6 @@ footer { border-top: 1px solid var(--line); padding-top: 18px; color: var(--dim)
   .verdict { flex-wrap: wrap; gap: 8px 14px; }
   .story { grid-template-columns: 1fr; }
   .story-arrow { justify-content: center; transform: rotate(90deg); }
+  .lists { grid-template-columns: 1fr; gap: 14px; }
 }
 `;

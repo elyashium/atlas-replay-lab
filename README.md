@@ -18,7 +18,7 @@ or Edge.
 
 ## What it actually does
 
-Five things, each of which is a real artifact on disk after one command:
+Seven things, each of which is a real artifact on disk after one command:
 
 1. **Serves a capability-aware experience.** Three quality tiers and three
    delivery paths (`camera-xr` → `interactive-2d` → `static-safe`), declared in
@@ -44,6 +44,13 @@ Five things, each of which is a real artifact on disk after one command:
 6. **Predicts before running** (`atlas preflight --url`): sizes a page's
    assets by header without executing anything, and says which tier the
    weight points at. The matrix then confirms or refutes.
+
+7. **Diagnoses what failed** (`atlas findings`): attaches the failing step, the
+   trace slice around the failure, the scrubbed console/network categories, the
+   artifacts and the release rule in force to each failed run. Observations name
+   the field they were read from; inferred causes name the rule that fired; the
+   suggested-changes list is always empty, because suggesting fixes is not
+   implemented and an empty list is an honest record of that.
 
 ## The decision layer
 
@@ -201,11 +208,13 @@ measurements, commands, and limits; do not infer a hosted workflow from it.
 | | |
 |---|---|
 | `node bin/atlas.js doctor` | Check Node, the browser, the manifest, assets, engines. Start here. |
-| `node bin/atlas.js all` | Everything: matrix → replay (Orbital only) → gate → judge → compare → report. Exits 1 on HOLD. `--url` adds preflight, skips replay. |
+| `node bin/atlas.js all` | Everything: matrix → replay (Orbital only) → gate → judge → compare → diagnose → report. Exits 1 on HOLD. `--url` adds preflight, skips replay. |
 | `node bin/atlas.js matrix` | The capability matrix: Orbital, `--url <href>` for a third-party page, `--glb <file>` for an uploaded model in the viewer |
 | `node bin/atlas.js matrix --target <contract.json>` | Run a versioned, selector-driven journey against an explicitly authorized development/staging target; report target-policy SHIP/HOLD/INCONCLUSIVE |
 | `node bin/atlas.js replay` | Re-run a captured trace and prove it reproduces |
 | `node bin/atlas.js gate` | Apply the release rule to what was captured |
+| `node bin/atlas.js diff --before <a> --after <b>` | Compare two matrix reports, and say first whether the comparison is valid |
+| `node bin/atlas.js findings` | Diagnose the failed runs: failing step, trace slice, scrubbed console/network category, artifact, policy rule. Rendered into the report as **Diagnosis** |
 | `node bin/atlas.js compare` | §4.4 — both engines over the same fixtures |
 | `node bin/atlas.js judge` | batch-judge captured traces + Jev cost/latency |
 | `node bin/atlas.js jev-check` | validate `TYPESAFE_API_KEY` with one live call |
@@ -265,8 +274,11 @@ src/trace/              the flight recorder schema, normalisation and hashing
 src/runner/             CDP, WebSocket, profiles, the matrix and replay runners
 src/image/              PNG codec and perceptual diff, both hand-written
 src/gate/               the release rule (incl. the Atlas score floor)
+src/targets/            the versioned owned-staging contract, score and build binding
+src/net/                the destination policy for outbound navigation
+src/diagnose/           deterministic findings: observations, rule-named causes, no guesses
 src/preflight/          static pre-launch weight assessment
-src/report/             the engine comparison and the HTML report
+src/report/             the engine comparison, the report diff and the HTML report
 tests/                  run with node:test (`node --test tests/<name>.test.js` to focus)
 scripts/                deterministic asset and fixture generators
 examples/traces/        ten example traces — written by `atlas fixtures`

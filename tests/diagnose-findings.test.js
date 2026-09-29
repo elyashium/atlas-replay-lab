@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   CONSOLE_CATEGORIES,
   DIAGNOSIS_RULES,
@@ -11,8 +14,10 @@ import {
   findingsForReport,
 } from "../src/diagnose/findings.js";
 import { SEVERITY_LEVELS } from "../src/decision/questions.js";
+import { runFindings } from "../src/diagnose/run-findings.js";
 import { provenanceFor } from "../src/runner/provenance.js";
 import { genericManifest } from "../src/manifest/generic.manifest.js";
+import { policyStamp } from "../src/gate/policy.js";
 
 const row = (/** @type {any} */ over = {}) => ({
   runId: "r-1",
@@ -303,4 +308,160 @@ test("every finding records its lane, so a number cannot be lifted as a device r
 test("a report with no runs array yields no findings rather than throwing", () => {
   assert.equal(findingsForReport({}).counts.findings, 0);
   assert.equal(findingsForReport(null).counts.rows, 0);
+});
+
+/* ── the IO shell ────────────────────────────────────────────────────────────
+ * Everything above is pure. These exercise `runFindings`, which is the only
+ * part that touches disk: where it reads the report from, how it resolves each
+ * row's own trace, and what it writes. Nothing here launches a browser or
+ * writes into the repository's `artifacts/`.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * A matrix report on disk, plus a `<dir>/<runId>/trace.json` for each trace
+ * given — the layout `runFindings` falls back to when a report has been copied
+ * out of the repository it was produced in.
+ *
+ * @param {{ runs: any[]; traces?: Record<string, any>; report?: Record<string, any> }} spec
+ */
+async function onDisk(spec) {
+  const dir = await mkdtemp(path.join(tmpdir(), "atlas-findings-"));
+  const outDir = await mkdtemp(path.join(tmpdir(), "atlas-findings-out-"));
+  for (const [runId, value] of Object.entries(spec.traces ?? {})) {
+    await mkdir(path.join(dir, runId), { recursive: true });
+    await writeFile(path.join(dir, runId, "trace.json"), JSON.stringify(value), "utf8");
+  }
+  const reportPath = path.join(dir, "report.json");
+  await writeFile(
+    reportPath,
+    JSON.stringify({ kind: "atlas.matrix-report", ...spec.report, runs: spec.runs }),
+    "utf8",
+  );
+  return { dir, outDir, reportPath };
+}
+
+test("diagnosis refuses to run without a matrix report, and says so plainly", async () => {
+  const { dir, outDir } = await onDisk({ runs: [] });
+  await assert.rejects(
+    () => runFindings({ report: path.join(dir, "not-here.json"), outDir, quiet: true }),
+    /no matrix report with a runs array/,
+  );
+  // A report-shaped file that never ran anything is the same absence.
+  const shell = path.join(dir, "shell.json");
+  await writeFile(shell, JSON.stringify({ kind: "atlas.matrix-report" }), "utf8");
+  await assert.rejects(
+    () => runFindings({ report: shell, outDir, quiet: true }),
+    /does not produce any/,
+    "the error must say diagnosis reads evidence rather than inventing it",
+  );
+});
+
+test("findings.json is written where asked, and matches what was returned", async () => {
+  const { outDir, reportPath } = await onDisk({
+    runs: [row({ runId: "io-slice", tracePath: "artifacts/matrix/io-slice/trace.json" })],
+    traces: { "io-slice": trace() },
+    report: {
+      startedAtIso: "2026-09-28T00:00:00.000Z",
+      runnerBuildId: "build-7",
+      manifest: { id: "generic-url", contentHash: "mh01234567890abc" },
+      target: { contractHash: "ch01234567890abc" },
+    },
+  });
+
+  const { findings, file } = await runFindings({ report: reportPath, outDir, quiet: true });
+  assert.equal(file, path.join(outDir, "findings.json"));
+  assert.deepEqual(JSON.parse(await readFile(file, "utf8")), findings);
+
+  // The source block is the answer to "which run produced this diagnosis" —
+  // without it a findings file is unattributable.
+  assert.equal(findings.source.report, reportPath);
+  assert.equal(findings.source.reportStartedAtIso, "2026-09-28T00:00:00.000Z");
+  assert.equal(findings.source.runnerBuildId, "build-7");
+  assert.equal(findings.source.manifestHash, "mh01234567890abc");
+  assert.equal(findings.source.contractHash, "ch01234567890abc");
+  assert.equal(findings.source.tracesLoaded, 1);
+  assert.equal(findings.source.tracesMissing, 0);
+  assert.equal(findings.$limitations.traces, undefined, "nothing was missing, so nothing to disclaim");
+
+  const [finding] = findings.findings;
+  // The trace resolved from the report's own directory, so the slice is there.
+  assert.equal(finding.evidence.traceSliceWindow.centreMs, 1440);
+  assert.deepEqual(
+    finding.evidence.traceSlice.map((/** @type {any} */ e) => e.tOffsetMs),
+    [896, 1400, 1480],
+  );
+  // The report named a manifest this repository can resolve, so the comfort
+  // thresholds the run was graded against travel with the finding.
+  assert.ok(finding.evidence.comfortPolicy.sustainedFpsFloor > 0);
+  assert.equal(finding.evidence.policy.contentHash, policyStamp().contentHash);
+});
+
+test("a run whose trace cannot be read still gets a finding, and the gap is stated", async () => {
+  const { outDir, reportPath } = await onDisk({
+    // No trace written for this row: the file the report points at is gone.
+    runs: [row({ runId: "io-gone", tracePath: "artifacts/matrix/io-gone/trace.json" })],
+  });
+
+  const { findings } = await runFindings({ report: reportPath, outDir, quiet: true });
+  assert.equal(findings.source.tracesLoaded, 0);
+  assert.equal(findings.source.tracesMissing, 1);
+  assert.match(findings.$limitations.traces, /no trace slice or console categories/);
+  // The finding still exists — a lost trace costs evidence, not the failure.
+  assert.equal(findings.counts.findings, 1);
+  assert.deepEqual(findings.findings[0].evidence.traceSlice, []);
+  assert.equal(findings.findings[0].evidence.traceSliceWindow, null);
+  assert.deepEqual(findings.findings[0].evidence.consoleCategories, []);
+});
+
+test("a harness-lost row is not also counted as a missing trace", async () => {
+  // Rule 1 already owns a quarantined run; counting its absent trace again
+  // would double-report one absence as two problems.
+  const { outDir, reportPath } = await onDisk({
+    runs: [
+      row({
+        runId: "io-lost",
+        tracePath: null,
+        error: "harness failed after 2 attempt(s): target closed",
+        verdict: null,
+        metrics: null,
+        drive: null,
+      }),
+    ],
+  });
+
+  const { findings } = await runFindings({ report: reportPath, outDir, quiet: true });
+  assert.equal(findings.source.tracesMissing, 0);
+  assert.equal(findings.$limitations.traces, undefined);
+  assert.equal(findings.counts.aboutHarness, 1);
+  assert.equal(findings.counts.aboutTarget, 0);
+  assert.match(findings.findings[0].title, /harness lost the run/);
+});
+
+test("an unresolvable manifest id costs the comfort policy and nothing else", async () => {
+  const { outDir, reportPath } = await onDisk({
+    runs: [row({ runId: "io-unknown", tracePath: "artifacts/matrix/io-unknown/trace.json" })],
+    traces: { "io-unknown": trace() },
+    report: { manifest: { id: "some-other-teams-manifest", contentHash: "zz01234567890abc" } },
+  });
+
+  const { findings } = await runFindings({ report: reportPath, outDir, quiet: true });
+  assert.equal(findings.findings[0].evidence.comfortPolicy, null);
+  // The hash is still recorded, so a reader can go find the manifest by hand.
+  assert.equal(findings.source.manifestHash, "zz01234567890abc");
+  assert.equal(findings.findings[0].evidence.traceSliceWindow.centreMs, 1440);
+});
+
+test("two diagnoses of the same report are byte-identical", async () => {
+  // The whole point of a deterministic diagnosis: `findings.json` can be
+  // committed to a bundle and diffed. A clock or a minted id would break this.
+  const { outDir, reportPath } = await onDisk({
+    runs: [row({ runId: "io-det", tracePath: "artifacts/matrix/io-det/trace.json" })],
+    traces: { "io-det": trace() },
+    report: { manifest: { id: "generic-url", contentHash: "mh01234567890abc" } },
+  });
+  const second = await mkdtemp(path.join(tmpdir(), "atlas-findings-out-"));
+
+  const one = await runFindings({ report: reportPath, outDir, quiet: true });
+  const two = await runFindings({ report: reportPath, outDir: second, quiet: true });
+  assert.equal(await readFile(one.file, "utf8"), await readFile(two.file, "utf8"));
 });

@@ -7,7 +7,7 @@ override any implementation suggestion here.
 
 ## Current state at handoff
 
-Repository HEAD: `7adff4a` (`Add guided target contract setup`). The local CLI
+Repository HEAD: `d38b252` (`Add deterministic diagnosis findings`). The local CLI
 engine remains zero-dependency. The separate `apps/control-plane` is a local
 Fastify/PostgreSQL foundation; no hosted service or browser worker is enabled.
 The latest recorded root suite run passed 264/264, `doctor` passed on Node
@@ -15,6 +15,15 @@ The latest recorded root suite run passed 264/264, `doctor` passed on Node
 with PostgreSQL. The guided setup UI was captured and visually inspected at
 desktop 1440 px and emulated mobile 390 px with no horizontal overflow. These
 checks do not establish customer acceptance or hosted safety.
+
+**Uncommitted and unverified in the worktree** (Phase 5 item 1 reachability): the
+`findings` command wired into `bin/atlas.js` and into the `all` pipeline,
+IO-shell tests for `runFindings` in `tests/diagnose-findings.test.js`, a
+`Diagnosis` section in the HTML report with its own tests, and the README /
+AGENTS updates that describe them. The recorded 264/264 figure predates all of
+it. Re-run `npm test` and `node bin/atlas.js doctor` and record the result
+before treating any of it as verified — per rule 1, the number above is evidence
+about `d38b252`, not about the worktree.
 
 ## Handoffs
 

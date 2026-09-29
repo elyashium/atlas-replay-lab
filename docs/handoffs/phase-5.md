@@ -1,8 +1,10 @@
 # Handoff: Phase 5 — guarded remediation
 
-**Status: not implemented and intentionally last.** Atlas does not patch a
-customer repository or automatically fix an arbitrary staging site. Diagnosis
-and developer-readable advice can be explored after real target QA works, but a
+**Status: item 1 (deterministic diagnosis) implemented locally; items 2–5 not
+implemented and intentionally last.** Atlas does not patch a customer repository
+or automatically fix an arbitrary staging site. Diagnosis is shipped because it
+only reads evidence that already exists; fix suggestion, coding-agent
+integration, candidate-patch re-runs and merge approval are not built, and a
 coding-agent integration is not a substitute for evidence.
 
 ## Recommended sequence
@@ -11,6 +13,17 @@ coding-agent integration is not a substitute for evidence.
    profile, trace slice, console/network category (scrubbed), artifact, and
    policy rule to a concise finding. Keep observations separate from inferred
    causes and suggested changes.
+   **Implemented.** `src/diagnose/findings.js` (pure, deterministic) and
+   `src/diagnose/run-findings.js` (the IO shell), reachable as
+   `node bin/atlas.js findings` and run as part of `atlas all`, writing
+   `artifacts/findings/findings.json` and rendering a `Diagnosis` section into
+   `artifacts/report.html`. Four rules exist (`harness-loss`,
+   `profile-denied-capability`, `fallback-absent-under-denial`,
+   `replay-did-not-reproduce`); the three lists never merge, and
+   `suggestedChanges` is always empty because item 2 below is not built. Verified
+   by `tests/diagnose-findings.test.js` on synthetic rows and traces only — no
+   finding in this repository has been reviewed by an engineer who owns the
+   failing application, which is what would make the rules trustworthy.
 2. Add optional fix suggestions that name expected trade-offs and cite the
    evidence. Validate suggestions against representative controlled targets
    before making broad claims.
@@ -46,3 +59,8 @@ then, remediation is planned, not shipped.
   it.
 - No repository write token, coding-agent account, auto-fix flow, or patch
   success evidence exists now.
+- `findings.json` and the report's `Diagnosis` section are the only remediation
+  surface that exists. They state a cause only when a named rule fired, and the
+  attribution field is a tri-state on purpose: the target application's problem,
+  the Atlas harness's own (a denied capability or a lost run), or nobody's to
+  claim. Do not aggregate those into a single "root cause" number.

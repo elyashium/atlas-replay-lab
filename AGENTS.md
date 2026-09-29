@@ -5,9 +5,10 @@ CLI entry point: `node bin/atlas.js`. The CLI/core package remains zero-dependen
 ## First commands
 
 - `node bin/atlas.js doctor` — start here. Launches a real browser (not just path detection) plus manifest/asset/engine checks. Exits 1 if `atlas all` would fail.
-- `node bin/atlas.js all` — full pipeline: matrix → replay (Orbital only) → gate → judge → compare → `artifacts/report.html`. Exits 1 on HOLD. `--url` adds preflight first and skips replay; `--glb` skips preflight too (no page to fetch yet).
+- `node bin/atlas.js all` — full pipeline: matrix → replay (Orbital only) → gate → judge → compare → diagnose → `artifacts/report.html`. Exits 1 on HOLD. `--url` adds preflight first and skips replay; `--glb` skips preflight too (no page to fetch yet).
 - `node bin/atlas.js <cmd> --help` — per-command flags. `--seed` accepts hex (`0x…`).
 - `node bin/atlas.js judge --dir <traces>` — batch-judge captured traces (rules always; +Jev when configured). Always exits 0.
+- `node bin/atlas.js findings` — deterministic diagnosis of the failed rows in a matrix report (`src/diagnose/`). Observations name the field they were read from, inferred causes name the rule that fired, `suggestedChanges` is always empty (Phase 5 item 2 is not implemented). Always exits 0. `report` renders it as the **Diagnosis** section; keep the three lists visually separate there.
 - `node bin/atlas.js jev-check` — the one command requiring `TYPESAFE_API_KEY`; validates key + one live smoke call.
 - `node bin/atlas.js preflight --url <https://…>` — static weight assessment, no browser. Private hosts refused unless `ATLAS_PREFLIGHT_ALLOW_PRIVATE=1`. Always exits 0.
 - `node bin/atlas.js matrix --url <https://…>` — run the matrix against a third-party page (generic probe + generic manifest), not Orbital.
@@ -15,8 +16,8 @@ CLI entry point: `node bin/atlas.js`. The CLI/core package remains zero-dependen
 
 ## Tests
 
-- `npm test` runs `scripts/test-core.js`, which explicitly launches the root `tests/*.test.js` suite. No network, browser, control-plane dependencies, or key.
-- Focused: `node --test tests/<name>.test.js` (`manifest`, `decision`, `gate`, `trace`, `image`, `ws`, `generic`, `judge`, `preflight`, `jev-transport`, `viewer`, `matrix`, `report`).
+- `npm test` runs `scripts/test-core.js`, which discovers and launches every root `tests/*.test.js`. No network, browser, control-plane dependencies, or key. A new `tests/<name>.test.js` is picked up with no registration step.
+- Focused: `node --test tests/<name>.test.js` (`manifest`, `decision`, `gate`, `gate-policy`, `trace`, `image`, `ws`, `generic`, `judge`, `preflight`, `jev-transport`, `viewer`, `matrix`, `report`, `report-diff`, `target-contract`, `destination-policy`, `provenance`, `diagnose-findings`).
 - `decision.test.js` builds fixtures in memory — never requires running `atlas fixtures` first.
 - Control plane: from the repo root, install with `npm install --prefix apps/control-plane`; run `npm test --prefix apps/control-plane`. PostgreSQL-backed local setup is in `docs/evidence/phase2-control-plane-2026-09-27.md`. Do not expose it publicly or enable browser workers; queue entries are not runs.
 ## Browser runs (matrix / replay / serve)

@@ -9,9 +9,9 @@
  *     node bin/atlas.js all
  *
  * which runs the six-profile matrix, replays the failing and the fixed
- * sessions, applies the release rule, runs the §4.4 engine comparison, and
- * renders one HTML report — from a fresh clone, with no arguments, no API key
- * and no dependencies to install.
+ * sessions, applies the release rule, runs the §4.4 engine comparison,
+ * diagnoses whatever failed, and renders one HTML report — from a fresh clone,
+ * with no arguments, no API key and no dependencies to install.
  *
  * ## Design notes
  *
@@ -70,7 +70,7 @@ let quiet = false;
 /** @type {Record<string, Command>} */
 const COMMANDS = {
   all: {
-    summary: "matrix → replay → gate → judge → compare → report (the one command)",
+    summary: "matrix → replay → gate → judge → compare → diagnose → report (the one command)",
     usage: "atlas all [--url <href> | --glb <file>] [--seed <n>] [--profile <id>]... [--no-replay]",
     detail:
       "Runs the whole pipeline end to end and leaves a complete artifacts/ directory behind.\n" +
@@ -127,6 +127,14 @@ const COMMANDS = {
       const gate = await runGate({ quiet });
       await runJudge({ quiet });
       await runComparison({ quiet });
+      // Diagnosis is advisory and reads only what the stages above already
+      // wrote, so a failure here must not cost the run its report — that is the
+      // artifact the whole pipeline exists to produce. The warning is loud
+      // enough that an absent findings.json cannot be mistaken for a clean run.
+      const { runFindings } = await import("../src/diagnose/run-findings.js");
+      await runFindings({ quiet }).catch((err) => {
+        log.warn(`diagnosis skipped: ${message(err)} (the report and gate result are unaffected)`);
+      });
       const report = await renderReport({ quiet });
 
       banner("done");
@@ -313,6 +321,38 @@ const COMMANDS = {
         quiet,
       });
       return diff.counts.regressed > 0 ? 1 : 0;
+    },
+  },
+
+  findings: {
+    summary: "turn failed matrix runs into deterministic, evidence-backed findings",
+    usage: "atlas findings [--matrix <file>] [--out <dir>]",
+    detail:
+      "Phase 5 item 1: attach the failing contract step, profile, trace slice, scrubbed\n" +
+      "console/network category, artifact and policy rule to each failure. Reads what is\n" +
+      "on disk; runs no browser and re-scores nothing.\n" +
+      "\n" +
+      "Observations, inferred causes and suggested changes stay three separate lists.\n" +
+      "An observation names the field it was read from; an inferred cause names the rule\n" +
+      "that fired; `suggestedChanges` is always empty, because fix suggestion (Phase 5\n" +
+      "item 2) is not implemented and an empty list is an honest record of that.\n" +
+      "\n" +
+      "Only failed rows are diagnosed, and a run whose trace is missing still produces a\n" +
+      "finding — without a slice, and saying so. Always exits 0: diagnosis observes,\n" +
+      "`gate` decides.",
+    flags: {
+      matrix: { type: "string", describe: "matrix report path (default artifacts/matrix/report.json)" },
+      out: { type: "string", describe: "output directory (default artifacts/findings)" },
+    },
+    async run(args) {
+      const { runFindings } = await import("../src/diagnose/run-findings.js");
+      const { file } = await runFindings({
+        report: args.flags.matrix ? path.resolve(args.flags.matrix) : undefined,
+        outDir: args.flags.out ? path.resolve(args.flags.out) : undefined,
+        quiet,
+      });
+      if (!quiet) log.info(`wrote ${rel(file)}`);
+      return 0;
     },
   },
 
