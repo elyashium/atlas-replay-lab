@@ -230,7 +230,12 @@ measurements, commands, and limits; do not infer a hosted workflow from it.
 The separate Phase 2 web control-plane foundation is documented in
 [the Phase 2 evidence record](docs/evidence/phase2-control-plane-2026-09-27.md).
 It needs its own dependencies and local PostgreSQL; it is not a hosted service,
-and its queued records do not represent browser test results.
+and its queued records do not represent browser test results. The signed-in
+project view now includes an optional component screenshot review: PNG uploads
+require explicit Groq egress consent, are not stored, and produce advisory
+reports retained for 30 days. Configure the server-side `GROQ_API_KEY`; never
+put it in browser storage. This synchronous path is local-only and does not use
+the queued browser lane.
 
 `node bin/atlas.js <command> --help` for flags.
 

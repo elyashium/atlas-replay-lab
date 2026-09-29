@@ -56,8 +56,9 @@ provider egress requires a separate per-command flag. Findings are validated,
 source-linked to the image hash, labeled as model suggestions, and shown
 separately in the HTML report; they have no gate effect. `visual-compare` adds
 deterministic pairwise PNG metrics and a heatmap, also without a gate effect.
-No Groq key or live visual-model evaluation has been supplied, so output
-quality is unmeasured. A separate `suggest-code-fix` command can send one
+One live smoke request used synthetic images and returned inconclusive because
+the model omitted a requested image region. No quality evaluation has been
+performed. A separate `suggest-code-fix` command can send one
 explicitly approved source file and the analyzed findings to Groq and save a
 validated single-file patch proposal. It does not apply or test the patch.
 These commands do not support the hosted control plane, arbitrary server
@@ -120,6 +121,15 @@ organization-scoped idempotency and reject key reuse across targets; the server 
 session metadata; blob/backups deletion is not connected. Local Postgres tests
 exercise DNS challenge visibility, immutable binding, one cross-organization
 access path, and metadata purge, not a full security audit.
+
+The project UI also supports direct PNG component reviews against an optional
+approved reference and team criteria. Images are capped, decoded, consented
+before Groq egress, and discarded after the request. Organization-scoped
+findings, criteria, hashes, and audit records are retained for 30 days; the
+configurable local safety limit defaults to ten reviews per organization per
+UTC day. This route is
+synchronous and local-only; it has not been load-tested or assessed for public
+hosting, and it is not connected to browser runs or release gates.
 See [`evidence/phase2-control-plane-2026-09-27.md`](evidence/phase2-control-plane-2026-09-27.md).
 
 Still required before hosted execution or launch: isolated ephemeral Chrome

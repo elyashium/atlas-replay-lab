@@ -127,6 +127,7 @@ test("responses set privacy-oriented browser security headers", async () => {
     assert.match(response.headers["content-security-policy"], /frame-ancestors 'none'/);
     assert.equal(response.headers["permissions-policy"], "camera=(), microphone=(), geolocation=()");
     assert.equal(response.headers["x-frame-options"], "DENY");
+    assert.match(response.headers["content-security-policy"], /img-src 'self' data: blob:/);
   } finally { await app.close(); }
 });
 

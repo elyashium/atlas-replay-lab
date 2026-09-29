@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,8 @@ import { lookup, resolveTxt } from "node:dns/promises";
 import { validateTargetContract } from "../../../src/targets/contract.js";
 import { buildBinding, requireImmutableBuild } from "../../../src/targets/build-binding.js";
 import { policyStamp } from "../../../src/gate/policy.js";
+import { decodePng } from "../../../src/image/png.js";
+import { GROQ_VISION_MODEL_DEFAULT, reviewScreenshotWithGroq, VISUAL_REVIEW_IMAGE_LIMIT_BYTES, VISUAL_REVIEW_MAX_DIMENSION, VISUAL_REVIEW_MAX_PIXELS } from "../../../src/visual/groq-review.js";
 import { createPool, inTransaction } from "./db.js";
 import { startRetentionMaintenance } from "./maintenance.js";
 import { clearSessionCookie, hashPassword, hashToken, newId, newSecret, parseCookies, parseOwnedTargetUrl, sessionCookie, verifyPassword, isPublicAddress } from "./security.js";
@@ -22,7 +24,12 @@ export function buildApp({
   logger = false,
   closePool = true,
   dns = { lookup, resolveTxt },
+  visualReviewer = reviewScreenshotWithGroq,
+  groqApiKey = process.env.GROQ_API_KEY,
+  visualReviewDailyLimit = Number(process.env.ATLAS_VISUAL_REVIEW_DAILY_LIMIT ?? 10),
 } = {}) {
+  if (!Number.isInteger(visualReviewDailyLimit) || visualReviewDailyLimit < 1 || visualReviewDailyLimit > 1000) throw new Error("ATLAS_VISUAL_REVIEW_DAILY_LIMIT must be an integer from 1 to 1000");
+  const visualReviewLocks = new Map();
   const app = Fastify({
     logger: logger ? {
       level: "info",
@@ -43,7 +50,7 @@ export function buildApp({
     reply.header("cross-origin-opener-policy", "same-origin");
     reply.header("cross-origin-resource-policy", "same-origin");
     reply.header("cache-control", "no-store");
-    reply.header("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'");
+    reply.header("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'");
   });
 
   app.addHook("onRequest", async (request, reply) => {
@@ -154,7 +161,86 @@ export function buildApp({
     if (!result.rowCount) return reply.code(404).send({ error: "project not found" });
     const targets = await pool.query("SELECT id,base_url AS \"baseUrl\",hostname,verified_at IS NOT NULL AS verified,CASE WHEN verified_at IS NULL THEN verification_token ELSE NULL END AS \"verificationToken\",contract->>'name' AS name,created_at AS \"createdAt\" FROM targets WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC", [orgId, projectId]);
     const runs = await pool.query("SELECT id,target_id AS \"targetId\",status,verdict,contract_version AS \"contractVersion\",created_at AS \"createdAt\",finished_at AS \"finishedAt\" FROM runs WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
-    return { project: result.rows[0], targets: targets.rows, runs: runs.rows };
+    const visualReviews = await pool.query("SELECT id,status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",screenshot_sha256 AS \"screenshotSha256\",reference_sha256 AS \"referenceSha256\",result,error,created_at AS \"createdAt\" FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
+    return { project: result.rows[0], targets: targets.rows, runs: runs.rows, visualReviews: visualReviews.rows };
+  });
+
+  app.post("/v1/projects/:projectId/visual-reviews", { bodyLimit: 28 * 1024 * 1024 }, async (request, reply) => {
+    const { user, orgId, role, error } = await organizationContext(request, pool);
+    if (error) return reply.code(error.status).send({ error: error.message });
+    if (!canWrite(role)) return reply.code(403).send({ error: "organization editor role required" });
+    const { projectId } = request.params;
+    const exists = await pool.query("SELECT id FROM projects WHERE organization_id=$1 AND id=$2", [orgId, projectId]);
+    if (!exists.rowCount) return reply.code(404).send({ error: "project not found" });
+    const body = asObject(request.body);
+    if (body.providerConsent !== true) return reply.code(400).send({ error: "explicit consent to send these images to Groq is required" });
+    const apiKey = groqApiKey;
+    if (!apiKey) return reply.code(503).send({ error: "visual review is not configured on this server" });
+    const idempotencyKey = request.headers["idempotency-key"];
+    if (typeof idempotencyKey !== "string" || idempotencyKey.length < 8 || idempotencyKey.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(idempotencyKey)) {
+      return reply.code(400).send({ error: "idempotency-key header (8 to 128 safe characters) is required" });
+    }
+    let image;
+    let referenceImage;
+    try {
+      image = decodePngBase64(body.imageBase64, "current screenshot");
+      if (body.referenceImageBase64 !== undefined) referenceImage = decodePngBase64(body.referenceImageBase64, "reference screenshot");
+    } catch (decodeError) { return reply.code(400).send({ error: decodeError.message }); }
+    if (referenceImage && (typeof body.criteria !== "string" || !body.criteria.trim() || body.criteria.trim().length > 1200)) {
+      return reply.code(400).send({ error: "a reference screenshot requires explicit criteria of 1 to 1200 characters" });
+    }
+    if (!referenceImage && body.criteria !== undefined) return reply.code(400).send({ error: "criteria can only be sent with a reference screenshot" });
+    if (referenceImage && !samePngDimensions(image, referenceImage)) return reply.code(400).send({ error: "reference and current screenshots must have matching dimensions" });
+    const requestSha256 = createHash("sha256").update(JSON.stringify({
+      imageSha256: createHash("sha256").update(image).digest("hex"),
+      referenceSha256: referenceImage ? createHash("sha256").update(referenceImage).digest("hex") : null,
+      criteria: body.criteria ?? null,
+    })).digest("hex");
+    return withIdempotencyLock(visualReviewLocks, `${orgId}:${idempotencyKey}`, async () => {
+      const duplicate = await pool.query("SELECT id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\",status,result,error FROM visual_reviews WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
+      if (duplicate.rowCount) {
+        const previous = duplicate.rows[0];
+        if (previous.projectId !== projectId || previous.requestSha256 !== requestSha256) return reply.code(409).send({ error: "idempotency-key was already used for a different visual review" });
+        return reply.code(200).send({ review: previous });
+      }
+      const quota = await pool.query(
+        "INSERT INTO visual_review_usage(organization_id,usage_date,request_count) VALUES($1,(now() AT TIME ZONE 'UTC')::date,1) ON CONFLICT(organization_id,usage_date) DO UPDATE SET request_count=visual_review_usage.request_count+1 WHERE visual_review_usage.request_count < $2 RETURNING request_count",
+        [orgId, visualReviewDailyLimit],
+      );
+      if (!quota.rowCount) return reply.code(429).send({ error: `this organization has reached the daily visual review limit (${visualReviewDailyLimit})` });
+
+      const requestedModel = process.env.ATLAS_GROQ_VISION_MODEL ?? GROQ_VISION_MODEL_DEFAULT;
+      let result;
+      let failure;
+      try {
+        result = await visualReviewer({
+          image,
+          ...(referenceImage ? { referenceImage, criteria: body.criteria } : {}),
+          profileId: "studio-component",
+          checkpointId: "user-upload",
+          apiKey,
+          model: requestedModel,
+        });
+      } catch (providerError) { failure = safeProviderError(providerError); }
+      const screenshotSha256 = createHash("sha256").update(image).digest("hex");
+      const referenceSha256 = referenceImage ? createHash("sha256").update(referenceImage).digest("hex") : null;
+      const report = result ?? {
+        provider: "groq", requestedModel, returnedModel: null, profileId: "studio-component", checkpointId: "user-upload",
+        imageSha256: screenshotSha256, referenceSha256, criteria: referenceImage ? body.criteria.trim() : null,
+        issues: [], verdictEffect: "none", confidenceNote: "No model result is available; this is inconclusive, not a visual pass.",
+      };
+      const status = failure ? "inconclusive" : "complete";
+      const reviewId = newId();
+      const record = await inTransaction(pool, async (client) => {
+        const inserted = await client.query(
+          "INSERT INTO visual_reviews(id,organization_id,project_id,status,provider,requested_model,returned_model,request_sha256,screenshot_sha256,reference_sha256,idempotency_key,result,error,requested_by,retention_expires_at) VALUES($1,$2,$3,$4,'groq',$5,$6,$7,$8,$9,$10,$11,$12,$13,now()+interval '30 days') RETURNING id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\",status,result,error,created_at AS \"createdAt\"",
+          [reviewId, orgId, projectId, status, requestedModel, report.returnedModel, requestSha256, screenshotSha256, referenceSha256, idempotencyKey, report, failure ?? null, user.id],
+        );
+        await audit(client, orgId, user.id, status === "complete" ? "visual-review.completed" : "visual-review.inconclusive", "visual-review", reviewId, { screenshotSha256, referenceSha256, provider: "groq", requestedModel, egressConsent: true });
+        return inserted.rows[0];
+      });
+      return reply.code(201).send({ review: record });
+    });
   });
 
   app.post("/v1/projects/:projectId/targets", async (request, reply) => {
@@ -280,6 +366,46 @@ function canWrite(role) { return ["owner", "admin", "member"].includes(role); }
 function asObject(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
 function normalizeEmail(value) { return typeof value === "string" && value.length <= 254 ? value.trim().toLowerCase() : ""; }
 function cleanName(value) { return typeof value === "string" && value.trim().length <= 120 ? value.trim() : ""; }
+function decodePngBase64(value, label) {
+  const maxEncodedLength = Math.ceil(VISUAL_REVIEW_IMAGE_LIMIT_BYTES / 3) * 4;
+  if (typeof value !== "string" || !value.length || value.length > maxEncodedLength || value.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new Error(`${label} must be valid base64 PNG data no larger than 10 MiB`);
+  }
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.length > VISUAL_REVIEW_IMAGE_LIMIT_BYTES || bytes.toString("base64") !== value || bytes.length < 33 || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || bytes.toString("ascii", 12, 16) !== "IHDR") {
+    throw new Error(`${label} is not a complete supported PNG within the 10 MiB limit`);
+  }
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  if (!width || !height || width > VISUAL_REVIEW_MAX_DIMENSION || height > VISUAL_REVIEW_MAX_DIMENSION || width * height > VISUAL_REVIEW_MAX_PIXELS) {
+    throw new Error(`${label} dimensions exceed the visual-review limit`);
+  }
+  try { decodePng(bytes); }
+  catch { throw new Error(`${label} is not a supported, complete PNG`); }
+  return bytes;
+}
+function samePngDimensions(first, second) {
+  return first.readUInt32BE(16) === second.readUInt32BE(16) && first.readUInt32BE(20) === second.readUInt32BE(20);
+}
+function safeProviderError(error) {
+  const message = error instanceof Error ? error.message : "";
+  if (message === "Groq visual review timed out" || message === "Groq visual review request failed; check network and provider availability") return message;
+  const status = /^Groq visual review returned HTTP (\d{3})$/.exec(message);
+  if (status) return `Groq visual review returned HTTP ${status[1]}`;
+  return "Groq visual review returned an invalid or unsupported response";
+}
+async function withIdempotencyLock(locks, key, callback) {
+  const previous = locks.get(key);
+  if (previous) await previous;
+  let release;
+  const current = new Promise((resolve) => { release = resolve; });
+  locks.set(key, current);
+  try { return await callback(); }
+  finally {
+    if (locks.get(key) === current) locks.delete(key);
+    release();
+  }
+}
 async function audit(client, orgId, userId, action, type, id, details = {}) {
   await client.query("INSERT INTO audit_events(organization_id,actor_user_id,action,resource_type,resource_id,details) VALUES($1,$2,$3,$4,$5,$6)", [orgId, userId, action, type, id, details]);
 }
@@ -292,6 +418,12 @@ const OPENAPI = {
     "/v1/auth/login": { post: { summary: "Create a session", responses: { "200": { description: "Authenticated" } } } },
     "/v1/projects": { get: { summary: "List projects in selected organization", responses: { "200": { description: "Project list" } } }, post: { summary: "Create project", responses: { "201": { description: "Created" } } } },
     "/v1/projects/{projectId}/targets": { post: { summary: "Register an HTTPS target and DNS ownership challenge", responses: { "201": { description: "Created" } } } },
+    "/v1/projects/{projectId}/visual-reviews": { post: {
+      summary: "Submit consented component screenshots for advisory visual review; image bytes are not retained",
+      parameters: [{ in: "header", name: "Idempotency-Key", required: true, schema: { type: "string", minLength: 8, maxLength: 128 } }, { in: "header", name: "x-atlas-organization", required: true, schema: { type: "string", format: "uuid" } }],
+      requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["providerConsent", "imageBase64"], properties: { providerConsent: { const: true }, imageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png", description: "Maximum decoded size 10 MiB; PNG dimensions capped." }, referenceImageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png" }, criteria: { type: "string", maxLength: 1200 } } } } } },
+      responses: { "201": { description: "Review report stored for 30 days" }, "400": { description: "Invalid PNG, dimensions, criteria, or missing egress consent" }, "429": { description: "Daily organization quota reached" }, "503": { description: "Groq model is not configured" } },
+    } },
     "/v1/targets/{targetId}/verify": { post: { summary: "Verify DNS TXT ownership", responses: { "200": { description: "Verified" } } } },
     "/v1/targets/{targetId}/runs": { post: { summary: "Queue a run record (Idempotency-Key required)", responses: { "202": { description: "Queued; execution disabled" }, "200": { description: "Existing idempotent run" } } } },
     "/v1/runs/{runId}": { get: { summary: "Get private run status and artifact metadata", responses: { "200": { description: "Run detail" } } } },

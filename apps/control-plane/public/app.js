@@ -142,7 +142,140 @@ async function loadProject(projectId) {
     const note = document.createElement("p"); note.textContent = "No browser evidence has been produced. A queued record is not a passing check.";
     card.append(strong, pill, note); projectDetail.append(card);
   }
+  renderVisualReviewForm();
+  renderVisualReviewHistory(data.visualReviews ?? []);
 }
+
+function renderVisualReviewForm() {
+  const section = document.createElement("section"); section.className = "visual-review-tool";
+  const heading = document.createElement("div"); heading.className = "panel-heading";
+  const titleGroup = document.createElement("div");
+  const eyebrow = document.createElement("p"); eyebrow.className = "eyebrow"; eyebrow.textContent = "COMPONENT VISUAL QA";
+  const title = document.createElement("h3"); title.textContent = "Review a rendered component";
+  titleGroup.append(eyebrow, title); heading.append(titleGroup);
+  const advisory = document.createElement("span"); advisory.className = "pill pending"; advisory.textContent = "ADVISORY"; heading.append(advisory);
+  section.append(heading);
+  const explainer = document.createElement("p"); explainer.className = "visual-review-explainer";
+  explainer.textContent = "Upload a screenshot you are authorized to share. Add an approved reference and written criteria to review visual-language fit. After consent, Atlas sends only these PNG images and criteria to Groq; it does not crawl a URL or store image bytes. The report is retained for 30 days. This server must be configured with GROQ_API_KEY; the key never reaches your browser.";
+  section.append(explainer);
+
+  const form = document.createElement("form"); form.className = "visual-review-form";
+  const currentLabel = document.createElement("label"); currentLabel.textContent = "Current component screenshot (PNG, up to 10 MiB)";
+  const current = document.createElement("input"); current.name = "image"; current.type = "file"; current.accept = "image/png,.png"; current.required = true; currentLabel.append(current);
+  const referenceLabel = document.createElement("label"); referenceLabel.textContent = "Approved reference screenshot (optional, same dimensions)";
+  const reference = document.createElement("input"); reference.name = "reference"; reference.type = "file"; reference.accept = "image/png,.png"; referenceLabel.append(reference);
+  const criteriaLabel = document.createElement("label"); criteriaLabel.textContent = "Team visual criteria (required with a reference)";
+  const criteria = document.createElement("textarea"); criteria.name = "criteria"; criteria.maxLength = 1200; criteria.rows = 3; criteria.placeholder = "For example: preserve the approved type scale and keep the primary action visually dominant."; criteriaLabel.append(criteria);
+  const preview = document.createElement("div"); preview.className = "visual-previews"; preview.setAttribute("aria-live", "polite");
+  const status = document.createElement("p"); status.className = "notice visual-review-status"; status.setAttribute("role", "status");
+  const consentLabel = document.createElement("label"); consentLabel.className = "check-option";
+  const consent = document.createElement("input"); consent.type = "checkbox"; consent.name = "consent"; consent.required = true;
+  const consentText = document.createElement("span"); consentText.textContent = "I am authorized to share these images and criteria with Groq for this analysis. This review is AI-generated advice; it does not change the release verdict.";
+  consentLabel.append(consent, consentText);
+  const submit = document.createElement("button"); submit.className = "primary"; submit.type = "submit"; submit.textContent = "Review with Groq";
+  form.append(currentLabel, referenceLabel, criteriaLabel, preview, consentLabel, submit, status);
+  section.append(form);
+  form.addEventListener("change", () => previewVisualInputs(current.files[0], reference.files[0], preview));
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    status.textContent = "";
+    submit.disabled = true;
+    try {
+      const currentFile = current.files[0];
+      const referenceFile = reference.files[0];
+      if (!currentFile || currentFile.size > 10 * 1024 * 1024 || (referenceFile && referenceFile.size > 10 * 1024 * 1024)) throw new Error("Choose PNG files no larger than 10 MiB each.");
+      if (currentFile.type !== "image/png" || (referenceFile && referenceFile.type !== "image/png")) throw new Error("Only PNG screenshots are supported.");
+      if (referenceFile && !criteria.value.trim()) throw new Error("Add the team's visual criteria when using a reference image.");
+      const payload = {
+        imageBase64: await fileToBase64(currentFile),
+        ...(referenceFile ? { referenceImageBase64: await fileToBase64(referenceFile), criteria: criteria.value.trim() } : {}),
+        providerConsent: consent.checked,
+      };
+      const idempotencyKey = await visualRequestKey(payload);
+      const result = await api(`/v1/projects/${encodeURIComponent(selectedProject)}/visual-reviews`, {
+        method: "POST", headers: { "idempotency-key": idempotencyKey }, body: JSON.stringify(payload),
+      });
+      form.reset();
+      preview.replaceChildren();
+      status.textContent = result.review.status === "complete"
+        ? "Review recorded. Suggestions are advisory; an empty issue list is not a design pass."
+        : "Review is inconclusive. No image passed or failed; see the safe error details below.";
+      renderReviewResult(result.review, section);
+      await refreshSelectedProject();
+    } catch (error) { status.textContent = error.message; }
+    finally { submit.disabled = false; }
+  });
+  projectDetail.append(section);
+}
+
+function previewVisualInputs(current, reference, container) {
+  container.replaceChildren();
+  for (const [label, file] of [["Current screenshot", current], ["Approved reference", reference]]) {
+    if (!file) continue;
+    const figure = document.createElement("figure");
+    const caption = document.createElement("figcaption"); caption.textContent = `${label} · ${formatBytes(file.size)}`;
+    const image = document.createElement("img"); image.alt = label; image.src = URL.createObjectURL(file);
+    image.addEventListener("load", () => URL.revokeObjectURL(image.src), { once: true });
+    image.addEventListener("error", () => URL.revokeObjectURL(image.src), { once: true });
+    figure.append(caption, image); container.append(figure);
+  }
+}
+
+async function fileToBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunk = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunk) binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
+  return btoa(binary);
+}
+
+async function visualRequestKey(payload) {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return `visual-${[...new Uint8Array(digest)].map((part) => part.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function refreshSelectedProject() {
+  if (selectedProject) await loadProject(selectedProject);
+}
+
+function renderVisualReviewHistory(reviews) {
+  const section = document.createElement("section"); section.className = "visual-review-history";
+  const title = document.createElement("p"); title.className = "section-title"; title.textContent = "RECENT VISUAL REVIEWS · REPORTS RETAINED FOR 30 DAYS"; section.append(title);
+  if (!reviews.length) {
+    const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No component visual reviews yet."; section.append(empty);
+  }
+  for (const review of reviews) renderReviewResult(review, section, true);
+  projectDetail.append(section);
+}
+
+function renderReviewResult(review, container, compact = false) {
+  const card = document.createElement("article"); card.className = "visual-review-result";
+  const heading = document.createElement("div"); heading.className = "panel-heading";
+  const title = document.createElement("strong"); title.textContent = `${review.result?.requestedModel ?? review.requestedModel ?? "Groq visual review"} · ${review.createdAt ? new Date(review.createdAt).toLocaleString() : "just now"}`;
+  const result = review.result ?? {};
+  const pill = document.createElement("span"); pill.className = `pill${review.status === "complete" ? "" : " pending"}`; pill.textContent = review.status.toUpperCase(); heading.append(title, pill);
+  if (result.source === "synthetic-fixture") { const fixture = document.createElement("span"); fixture.className = "pill pending"; fixture.textContent = "SYNTHETIC FIXTURE"; heading.append(fixture); }
+  card.append(heading);
+  if (!compact && result.criteria) { const criteria = document.createElement("p"); criteria.className = "review-criteria"; criteria.textContent = `Criteria: ${result.criteria}`; card.append(criteria); }
+  const issues = result.issues ?? [];
+  if (!issues.length) {
+    const note = document.createElement("p"); note.className = "review-note"; note.textContent = review.status === "complete" ? "No suggestions were returned. This is not a visual pass." : "No visual finding is available. This result is inconclusive."; card.append(note);
+  }
+  for (const issue of issues) {
+    const item = document.createElement("div"); item.className = "visual-issue";
+    const label = document.createElement("strong"); label.textContent = `${issue.severity} · ${issue.category} · ${issue.kind}`;
+    const observation = document.createElement("p"); observation.textContent = issue.observation;
+    const suggestion = document.createElement("p"); suggestion.textContent = `Suggestion: ${issue.recommendation}`;
+    const confidence = document.createElement("small"); confidence.textContent = `Model confidence: ${issue.confidence} (self-reported, not calibrated)${issue.region ? ` · region ${issue.region.x}, ${issue.region.y}, ${issue.region.width}, ${issue.region.height} / 1000` : " · no region supplied"}`;
+    item.append(label, observation, suggestion, confidence); card.append(item);
+  }
+  if (review.error) { const error = document.createElement("p"); error.className = "review-note"; error.textContent = review.error; card.append(error); }
+  const hashes = document.createElement("small"); hashes.className = "review-hashes"; hashes.textContent = `Screenshot SHA-256 ${review.screenshotSha256 ?? review.result?.imageSha256 ?? "unavailable"}${review.referenceSha256 ?? review.result?.referenceSha256 ? ` · reference SHA-256 ${review.referenceSha256 ?? review.result.referenceSha256}` : ""} · verdict effect none`;
+  card.append(hashes); container.append(card);
+}
+
+function formatBytes(value) { return value < 1024 * 1024 ? `${(value / 1024).toFixed(0)} KiB` : `${(value / (1024 * 1024)).toFixed(1)} MiB`; }
 
 function renderTarget(target) {
   const card = document.createElement("div"); card.className = "target-card";

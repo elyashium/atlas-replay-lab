@@ -6,7 +6,8 @@
 flowchart LR
   User[Studio user] --> UI[Same-origin web UI]
   UI --> API[Fastify API and session auth]
-  API --> DB[(PostgreSQL: orgs, targets, queued runs, audit)]
+  API --> DB[(PostgreSQL: orgs, targets, queued runs, visual reports, audit)]
+  API -. explicit per-review consent .-> Groq[Groq vision API]
   API --> DNS[DNS ownership challenge]
   Proxy[Per-job CONNECT proxy component: tested separately, not integrated]
   DB -. queued rows only .-> Worker[Isolated Chrome worker: not implemented]
@@ -58,6 +59,8 @@ docker compose -f apps/control-plane/docker-compose.yml up -d
 npm install --prefix apps/control-plane
 $env:DATABASE_URL = "postgres://atlas:local-only-change-me@127.0.0.1:5432/atlas"
 $env:ATLAS_APP_ORIGIN = "http://127.0.0.1:3000"
+$env:GROQ_API_KEY = "<server-side key>" # optional; required only to submit a visual review
+$env:ATLAS_VISUAL_REVIEW_DAILY_LIMIT = "10" # local abuse ceiling, not a commercial plan
 npm --prefix apps/control-plane run migrate
 npm --prefix apps/control-plane start
 ```
@@ -158,3 +161,55 @@ these unit/local-socket checks provide no evidence that a Chrome process cannot
 bypass a proxy. A per-job network namespace/firewall, container-level bypass
 tests, worker resource limits and cleanup must precede worker integration or
 any hosted execution claim. The component is documented in ADR-0008.
+
+## 2026-09-29 continuation: local component visual review
+
+The signed-in project view now lets an organization editor submit a current PNG
+and optional design reference with team criteria. Provider egress requires an
+explicit per-review checkbox. The API enforces strict base64 PNG decoding, a
+10 MiB per-image cap, 4096-pixel dimension and 8-million-pixel limits, a
+separate request body cap, an atomic configurable daily quota (default ten per
+organization), and
+request idempotency. The Groq key is read only by the server environment; it
+is never returned to the browser. Provider/schema failures are stored as
+INCONCLUSIVE with a sanitized error.
+
+The API stores no screenshot bytes. It stores advisory JSON, image hashes,
+optional team criteria, an egress-consent audit event, and a retention deadline
+in Postgres. Project reads are organization-scoped. The hourly maintenance task
+purges visual reports after 30 days, writes a minimal purge audit event, and
+removes old quota counters. This is a synchronous local control-plane feature;
+it is not a queued worker task and does not affect a release gate.
+
+Verification on Windows x64 / Node 20.18.0 / local PostgreSQL 17:
+
+- Migration 003 applied to the local database.
+- `npm test --prefix apps/control-plane` with `DATABASE_URL`: **23/23 passed**.
+  This includes a mocked-provider Postgres flow that verified report storage,
+  organization-scoped project reads (including a second-organization denial),
+  idempotent retry, absence of uploaded PNG bytes in persisted JSON, egress
+  audit, and deletion/audit at expiry. No live Groq request was made in this
+  test.
+- Root `npm test`: **388/388 passed**; root/core dependency posture unchanged.
+- `node --check` passed for the API and browser UI JavaScript. `git diff --check`
+  passed after the final documentation and UI changes.
+- `npm run preview:screenshots --prefix apps/control-plane` started a disposable
+  local API on a loopback ephemeral port, created a test account/project, and
+  submitted a synthetic component PNG through the actual browser form and API
+  using a mock model adapter. It captured a clearly labeled synthetic finding
+  at desktop 1440px and mobile 390px. Document and body widths matched both
+  viewports; both screenshots were visually inspected. No model request or
+  customer data left the workspace.
+- `ATLAS_VISUAL_REVIEW_DAILY_LIMIT` controls the local per-organization UTC-day
+  abuse ceiling (10 by default, range 1..1000). This is not a proposed customer
+  quota or pricing tier. A process-local lock serializes concurrent retries
+  inside one server instance; distributed idempotency is not established.
+
+The UI requires visual inspection after adding the new form. The prior live
+provider smoke used synthetic images and returned inconclusive; no post-fix
+live analysis, accuracy, latency, or cost measurement exists. The daily limit
+default of ten is an initial local abuse-control ceiling, not a pricing or
+customer entitlement decision; choose the hosted setting before opening access. The feature
+still lacks managed key storage, distributed quotas, request cancellation,
+private report shares, browser capture, object storage, public-service security
+review, and queue isolation. Do not host it publicly.

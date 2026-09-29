@@ -147,8 +147,10 @@ matrix screenshots or two component images, validates size/dimensions and PNG
 structure, calls a configured Groq vision model, validates a bounded JSON
 issue schema, and writes `artifacts/visual-review/review.json`. The HTML report
 shows findings as advisory and displays reference/current images separately.
-Tests use a mocked fetch; no live Groq request has been made, and no
-quality/latency/cost result is measured.
+Tests use a mocked fetch. One live smoke request used synthetic images and
+returned inconclusive because the model omitted a requested image region. The
+adapter now accepts an omitted region as null, but there is no successful
+post-fix live measurement and no quality, latency, or cost evaluation.
 The default visual model is an implementation default, not a durability promise;
 Groq currently lists Qwen 3.8 among preview models, so verify lifecycle and
 availability before any hosted or paid use ([Groq model catalog](https://console.groq.com/docs/models)).
@@ -169,11 +171,19 @@ evidence with configurable thresholds. It is not a design review; mismatched
 image dimensions are inconclusive, and passing means only that this image pair
 fits those thresholds.
 
-These local tools do not yet provide a hosted worker, object storage, component
-preview, reference library, source upload, DOM-level visual checks, persistent
-rubric editor, reviewer dispositions, Groq credentials UI/secret vault, cost
-quotas, sandboxed patch application and test execution, PR integration, or a
-model evaluation corpus. They are local-only and are not a production service.
+The control-plane UI now includes a consented PNG component review and report
+history. Images are size/dimension checked, processed in memory, sent to Groq
+only after explicit consent, and not persisted; the JSON findings, image hashes,
+and criteria are retained in Postgres for 30 days with an audit event. A hard
+limit of ten requests per organization per UTC day is enforced in Postgres.
+This is synchronous local control-plane execution, not an isolated worker.
+
+The system still lacks hosted browser execution, private object storage,
+component URL preview, a persistent reference library, DOM-level visual checks,
+a versioned rubric editor, reviewer dispositions, a managed secret vault,
+distributed egress/rate controls, sandboxed patch application and test
+execution, PR integration, and a visual model evaluation corpus. It is not a
+production service.
 
 ## Build order
 
@@ -182,9 +192,10 @@ model evaluation corpus. They are local-only and are not a production service.
 2. Add versioned visual target/rubric contracts and a component preview lane
    behind local-only execution; add deterministic viewport, geometry, and
    redacted screenshot comparisons before model critique.
-3. Integrate the consented visual review as a queued task in the hosted control
-   plane only after tenant-isolated artifact access, secret storage, quotas,
-   audit, retention deletion, and worker network isolation are enforced.
+3. Move consented visual review from the current synchronous local API to a
+   queued hosted task only after tenant-isolated artifact access, managed secret
+   storage, distributed quotas, audit, retention deletion, and worker network
+   isolation are enforced.
 4. Collect an explicitly consented evaluation set and measure model quality
    before describing findings as reliable or allowing policies to reference
    them.

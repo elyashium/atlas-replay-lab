@@ -113,6 +113,24 @@ configuration. No production data has been processed.
 
 ## Third-party egress
 
+### Studio component visual review
+
+The separate control-plane feature accepts user-selected PNG screenshots only
+after an organization editor checks the per-review Groq egress consent. A
+reference PNG and up to 1200 characters of team criteria may also be sent. PNGs
+are capped at 10 MiB each, at 4096 pixels per side and 8 million pixels total,
+and are decoded before egress. Image bytes are held in request memory and are
+not written to Postgres or object storage. The model output, image hashes,
+criteria, request status, and audit event are stored in Postgres for 30 days;
+the hourly retention job deletes expired report and usage rows. Reports are
+organization-scoped. This local synchronous route has not been assessed for
+public hosting and does not use a managed secret vault or isolated worker.
+
+The screenshot is supplied by the user and may contain page content or
+personal data. The user must review it and confirm authority to share it before
+submitting. The raw-camera/no-raw-audio trace invariant remains unchanged; this
+upload feature is not a camera capture path.
+
 `thirdPartyTraceEgress: "off-by-default"`.
 
 For the CLI and engine, with no configuration, nothing leaves the machine.

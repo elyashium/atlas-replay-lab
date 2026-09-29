@@ -9,7 +9,12 @@ export async function purgeExpiredRecords(pool) {
     for (const run of runs.rows) {
       await client.query("INSERT INTO audit_events(organization_id,action,resource_type,resource_id,details) VALUES($1,'run.retention.purged','run',$2,'{}'::jsonb)", [run.organization_id, run.id]);
     }
-    return { sessions: sessions.rowCount ?? 0, shares: shares.rowCount ?? 0, runs: runs.rowCount ?? 0 };
+    const visualReviews = await client.query("DELETE FROM visual_reviews WHERE retention_expires_at <= now() RETURNING organization_id,id");
+    for (const review of visualReviews.rows) {
+      await client.query("INSERT INTO audit_events(organization_id,action,resource_type,resource_id,details) VALUES($1,'visual-review.retention.purged','visual-review',$2,'{}'::jsonb)", [review.organization_id, review.id]);
+    }
+    const reviewUsage = await client.query("DELETE FROM visual_review_usage WHERE usage_date < (now() AT TIME ZONE 'UTC')::date - 30");
+    return { sessions: sessions.rowCount ?? 0, shares: shares.rowCount ?? 0, runs: runs.rowCount ?? 0, visualReviews: visualReviews.rowCount ?? 0, reviewUsage: reviewUsage.rowCount ?? 0 };
   });
 }
 
@@ -19,7 +24,7 @@ export function startRetentionMaintenance(pool, logger = console, intervalMs = 6
   const run = () => {
     if (stopped || inFlight) return inFlight;
     inFlight = purgeExpiredRecords(pool)
-      .then((deleted) => { if (deleted.sessions || deleted.shares || deleted.runs) logger.info({ deleted }, "expired control-plane records purged"); })
+      .then((deleted) => { if (Object.values(deleted).some(Boolean)) logger.info({ deleted }, "expired control-plane records purged"); })
       .catch((error) => { logger.error({ err: error }, "retention purge failed; it will retry on the next interval"); })
       .finally(() => { inFlight = undefined; });
     return inFlight;
