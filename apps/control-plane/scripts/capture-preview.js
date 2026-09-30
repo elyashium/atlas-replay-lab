@@ -76,16 +76,18 @@ try {
     target: { url: "https://stage.example.test/", allowedOrigins: ["https://stage.example.test"], buildId: "a1b2c3d4" },
     journey: { steps: [{ type: "waitForVisible", selector: "[data-ready]", timeoutMs: 5000 }], success: { selector: "[data-ready]" }, fallback: { selector: "[data-fallback]", requiredOn: [] } },
     profiles: ["high-wifi"], budgets: { journeyTimeoutMs: 10000, stepTimeoutMs: 5000 }, mediaConsent: false,
-    policy: { version: "1", criticalProfiles: ["high-wifi"], minimumScore: 50 }, screenshots: { consent: false, redactSelectors: [] },
+    policy: { version: "1", criticalProfiles: ["high-wifi"], minimumScore: 50, visualGate: { version: "1", maxPixelDiffRatio: 0.02 } }, screenshots: { consent: true, redactSelectors: ["[data-private]"], componentSelectors: [{ id: "viewer", selector: "[data-viewer]" }] },
   };
   await pool.query(
     "INSERT INTO targets(id,organization_id,project_id,base_url,hostname,verification_token,contract,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
     [targetId, organizationId, project.id, "https://stage.example.test/", "stage.example.test", verificationToken, targetContract, userId],
   );
   const sampleRunId = randomUUID();
+  const currentVisualContract = structuredClone(targetContract);
+  currentVisualContract.target.buildId = "preview-build-2";
   await pool.query(
-    "INSERT INTO runs(id,organization_id,project_id,target_id,status,verdict,contract_version,contract_snapshot,binding_snapshot,requested_by,idempotency_key,retention_expires_at,result_snapshot) VALUES($1,$2,$3,$4,'completed','INCONCLUSIVE','1',$5,$6,$7,$8,now()+interval '30 days',$9)",
-    [sampleRunId, organizationId, project.id, targetId, targetContract, { bindingVersion: 1, bindingHash: "1".repeat(16) }, userId, `preview-${sampleRunId}`, { evidenceScope: "Illustrative UI fixture; no browser job was run.", targetDecision: { evidence: [{ profileId: "high-wifi", journey: null, score: null, error: "No run executed in this preview" }] } }],
+    "INSERT INTO runs(id,organization_id,project_id,target_id,status,verdict,contract_version,contract_snapshot,binding_snapshot,requested_by,idempotency_key,retention_expires_at,result_snapshot) VALUES($1,$2,$3,$4,'completed','SHIP','1',$5,$6,$7,$8,now()+interval '30 days',$9)",
+    [sampleRunId, organizationId, project.id, targetId, currentVisualContract, { bindingVersion: 1, bindingHash: "1".repeat(16) }, userId, `preview-${sampleRunId}`, { source: "synthetic-fixture", evidenceScope: "Illustrative UI fixture only; no browser job or release evidence was produced.", targetDecision: { evidence: [{ profileId: "high-wifi", journey: "pass", score: 90, error: null }] } }],
   );
   const screenshotBytes = await readFile(uploadFixture);
   const screenshotId = randomUUID();
@@ -95,6 +97,34 @@ try {
     "INSERT INTO artifacts(id,organization_id,run_id,object_key,media_type,byte_length,sha256) VALUES($1,$2,$3,$4,'image/png',$5,$6)",
     [screenshotId, organizationId, sampleRunId, `${sampleRunId}/high-wifi-preview.png`, screenshotBytes.length, createHash("sha256").update(screenshotBytes).digest("hex")],
   );
+  const visualArtifactId = randomUUID();
+  const visualPath = "matrix/runs/high-wifi/screenshots/component-viewer.png";
+  const visualKey = `${sampleRunId}/${visualPath}`;
+  const visualFile = path.join(previewArtifactRoot, ...visualKey.split("/"));
+  await mkdir(path.dirname(visualFile), { recursive: true });
+  await writeFile(visualFile, screenshotBytes);
+  await pool.query("INSERT INTO artifacts(id,organization_id,run_id,object_key,media_type,byte_length,sha256) VALUES($1,$2,$3,$4,'image/png',$5,$6)", [visualArtifactId, organizationId, sampleRunId, visualKey, screenshotBytes.length, createHash("sha256").update(screenshotBytes).digest("hex")]);
+  const baselineRunId = randomUUID();
+  const baselineVisualContract = structuredClone(targetContract);
+  baselineVisualContract.target.buildId = "preview-build-1";
+  await pool.query(
+    "INSERT INTO runs(id,organization_id,project_id,target_id,status,verdict,contract_version,contract_snapshot,binding_snapshot,requested_by,idempotency_key,retention_expires_at,result_snapshot) VALUES($1,$2,$3,$4,'completed','SHIP','1',$5,$6,$7,$8,now()+interval '30 days',$9)",
+    [baselineRunId, organizationId, project.id, targetId, baselineVisualContract, { bindingVersion: 1, bindingHash: "2".repeat(16) }, userId, `preview-${baselineRunId}`, { source: "synthetic-fixture", evidenceScope: "Illustrative baseline fixture only; no browser job or release evidence was produced." }],
+  );
+  const baselineBytes = await readFile(referenceFixture);
+  const baselineArtifactId = randomUUID();
+  await mkdir(path.join(previewArtifactRoot, baselineRunId), { recursive: true });
+  await writeFile(path.join(previewArtifactRoot, baselineRunId, "high-wifi-preview.png"), baselineBytes);
+  await pool.query(
+    "INSERT INTO artifacts(id,organization_id,run_id,object_key,media_type,byte_length,sha256) VALUES($1,$2,$3,$4,'image/png',$5,$6)",
+    [baselineArtifactId, organizationId, baselineRunId, `${baselineRunId}/high-wifi-preview.png`, baselineBytes.length, createHash("sha256").update(baselineBytes).digest("hex")],
+  );
+  const baselineVisualArtifactId = randomUUID();
+  const baselineVisualKey = `${baselineRunId}/${visualPath}`;
+  const baselineVisualFile = path.join(previewArtifactRoot, ...baselineVisualKey.split("/"));
+  await mkdir(path.dirname(baselineVisualFile), { recursive: true });
+  await writeFile(baselineVisualFile, baselineBytes);
+  await pool.query("INSERT INTO artifacts(id,organization_id,run_id,object_key,media_type,byte_length,sha256) VALUES($1,$2,$3,$4,'image/png',$5,$6)", [baselineVisualArtifactId, organizationId, baselineRunId, baselineVisualKey, baselineBytes.length, createHash("sha256").update(baselineBytes).digest("hex")]);
 
   const page = await browser.connection.newPage();
   await page.send("Page.enable");
@@ -158,8 +188,12 @@ try {
     const documentNode = await page.send("DOM.getDocument", { depth: -1 });
     await page.evaluate("(() => { const select=document.querySelector('.visual-review-form select[name=capturedScreenshot]'); if(select.options.length<2) throw new Error('captured screenshot option was not rendered'); select.selectedIndex=1; select.dispatchEvent(new Event('change',{bubbles:true})); })()");
     await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if (document.querySelector('.visual-review-form .visual-previews img') && document.querySelector('.visual-review-status').innerText.includes('Preview the run screenshot')) resolve(true); else if (Date.now()-started>8000) reject(new Error('captured screenshot preview did not load through the artifact API')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
-    const referenceInput = await page.send("DOM.querySelector", { nodeId: documentNode.root.nodeId, selector: ".visual-review-form input[name=reference]" });
-    await page.send("DOM.setFileInputFiles", { nodeId: referenceInput.nodeId, files: [referenceFixture] });
+    const baselinePairing = await page.evaluate("(() => { const select=document.querySelector('.visual-review-form select[name=baselineRunScreenshot]'); if(!select || select.options.length<2 || select.disabled) throw new Error('same-target prior-run comparison option was not rendered'); select.selectedIndex=1; select.dispatchEvent(new Event('change',{bubbles:true})); return true; })()");
+    if (!baselinePairing) throw new Error("prior run selector was unavailable");
+    await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if(document.querySelectorAll('.visual-review-form .visual-previews img').length===2 && document.querySelector('.visual-review-status').innerText.includes('Prior run loaded')) resolve(true); else if(Date.now()-started>8000) reject(new Error('same-contract baseline screenshot did not load')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
+    await page.evaluate("document.querySelector('.visual-review-form button[type=button]').click()");
+    await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if(document.querySelector('.local-pixel-comparison .pixel-comparison') && document.querySelector('.visual-review-status').innerText.includes('No images or comparison data were sent')) resolve(true); else if(Date.now()-started>10000) reject(new Error('same-target prior-run local comparison failed')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
+    reports.push({ viewport: viewport.name, state: "same-contract-run-comparison", comparedPriorRun: true, localOnly: true });
     await page.evaluate("(() => { const criteria=document.querySelector('.visual-review-form textarea[name=criteria]'); criteria.value='Preserve the approved component composition at '+innerWidth+'px.'; criteria.dispatchEvent(new Event('input',{bubbles:true})); })()");
     await page.evaluate("document.querySelector('.visual-review-form button[type=button]').click()");
     await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if (document.querySelector('.local-pixel-comparison .pixel-comparison') && document.querySelector('.visual-review-status').innerText.includes('No images or comparison data were sent')) resolve(true); else if (Date.now()-started>10000) reject(new Error('local pixel comparison did not complete in the browser worker')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
@@ -170,7 +204,7 @@ try {
     reports.push({ viewport: viewport.name, state: "local-only-captured-screenshot-comparison", ...capturePreviewState, screenshot: `artifacts/control-plane-capture-preview-${viewport.name}.png` });
     await page.evaluate("document.querySelector('.visual-review-form input[name=consent]').checked = true; document.querySelector('.visual-review-form input[name=consent]').dispatchEvent(new Event('change',{bubbles:true})); document.querySelector('.visual-review-form').requestSubmit()");
     await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { const image=document.querySelector('.visual-review-history .visual-finding-preview img'); if(image?.complete && image.naturalWidth) resolve(true); else if(Date.now()-started>8000) reject(new Error('synthetic finding overlay did not finish: '+JSON.stringify({history:document.querySelectorAll('.visual-review-history .visual-review-result').length,overlay:Boolean(image)}))); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
-    const previewState = await page.evaluate("({reviewCount:document.querySelectorAll('.visual-review-history .visual-review-result').length, fixtureLabel:document.body.innerText.includes('SYNTHETIC FIXTURE'), sourceProvenanceVisible:document.querySelector('.visual-review-history')?.innerText.includes('Source: run'), pixelComparisonVisible:document.body.innerText.includes('DETERMINISTIC REFERENCE COMPARISON'), findingOverlayCount:document.querySelectorAll('.visual-finding-region').length, findingOverlayLabel:document.querySelector('.visual-finding-preview figcaption')?.innerText, status:document.querySelector('.visual-review-status')?.innerText, scrollY})");
+    const previewState = await page.evaluate("({reviewCount:document.querySelectorAll('.visual-review-history .visual-review-result').length, fixtureLabel:document.body.innerText.includes('SYNTHETIC FIXTURE'), sourceProvenanceVisible:document.querySelector('.visual-review-history')?.innerText.includes('Source: run'), referenceProvenanceVisible:document.querySelector('.visual-review-history')?.innerText.includes('Reference: prior run'), pixelComparisonVisible:document.body.innerText.includes('DETERMINISTIC REFERENCE COMPARISON'), findingOverlayCount:document.querySelectorAll('.visual-finding-region').length, findingOverlayLabel:document.querySelector('.visual-finding-preview figcaption')?.innerText, status:document.querySelector('.visual-review-status')?.innerText, scrollY})");
     reports.push({ viewport: viewport.name, state: "visual-review-result", ...previewState });
     await page.evaluate("(() => { const form=document.querySelector('.finding-disposition'); if(!form) throw new Error('team finding disposition control was not rendered'); const select=form.querySelector('select'); select.value='confirmed'; form.requestSubmit(); })()");
     await page.evaluate("new Promise((resolve, reject) => { const started=Date.now(); const check=() => { if(document.querySelector('.visual-review-history .finding-disposition select')?.value==='confirmed') resolve(true); else if(Date.now()-started>8000) reject(new Error('saved team finding disposition did not reload')); else setTimeout(check,25); }; check(); })", { awaitPromise: true });
@@ -213,7 +247,7 @@ try {
     reports.push({ viewport: viewport.name, state: "anonymous-shared-report", ...shareView, screenshot: `artifacts/control-plane-shared-report-${viewport.name}.png` });
   }
   console.log(JSON.stringify(reports, null, 2));
-  if (reports.some((item) => item.scrollWidth > item.clientWidth || (item.state === "target-static-preflight" && (!item.registerEnabled || !item.ownershipPending || !item.selectorNotTested)) || (item.state === "visual-review-result" && (item.findingOverlayCount !== 1 || !item.sourceProvenanceVisible)) || (item.state === "finding-disposition" && (!item.persisted || !item.noVerdictClaim)) || (item.state === "clear-local-screenshot" && !item.passed) || (item.state === "code-proposal-result" && (!item.unappliedLabel || !item.candidateHashVisible)) || (item.state === "share-link-created" && (!item.activeShare || !item.shareTokenInUrl || !item.artifactSelected)) || (item.state === "anonymous-shared-report" && (!item.tokenRemoved || item.artifactCount !== 1 || item.screenshotPreviewCount !== 1)))) process.exitCode = 1;
+  if (reports.some((item) => item.scrollWidth > item.clientWidth || (item.state === "target-static-preflight" && (!item.registerEnabled || !item.ownershipPending || !item.selectorNotTested)) || (item.state === "same-contract-run-comparison" && (!item.comparedPriorRun || !item.localOnly)) || (item.state === "visual-review-result" && (item.findingOverlayCount !== 1 || !item.sourceProvenanceVisible || !item.referenceProvenanceVisible)) || (item.state === "finding-disposition" && (!item.persisted || !item.noVerdictClaim)) || (item.state === "clear-local-screenshot" && !item.passed) || (item.state === "code-proposal-result" && (!item.unappliedLabel || !item.candidateHashVisible)) || (item.state === "share-link-created" && (!item.activeShare || !item.shareTokenInUrl || !item.artifactSelected)) || (item.state === "anonymous-shared-report" && (!item.tokenRemoved || item.artifactCount !== 1 || item.screenshotPreviewCount !== 1)))) process.exitCode = 1;
 } finally {
   await browser.close();
   await app.close();

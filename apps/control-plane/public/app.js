@@ -31,14 +31,9 @@ if (sharedToken) {
 }
 
 async function api(path, options = {}) {
-  const headers = new Headers(options.headers ?? {});
+  const headers = await authorizedHeaders(options.headers);
   headers.set("accept", "application/json");
   if (options.body !== undefined) headers.set("content-type", "application/json");
-  if (selectedOrg) headers.set("x-atlas-organization", selectedOrg);
-  if (supabase && !headers.has("authorization")) {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) headers.set("authorization", `Bearer ${session.access_token}`);
-  }
   const response = await fetch(path, { ...options, headers, credentials: "same-origin" });
   if (response.status === 204) return null;
   const payload = await response.json().catch(() => ({}));
@@ -49,6 +44,16 @@ async function api(path, options = {}) {
     throw error;
   }
   return payload;
+}
+
+async function authorizedHeaders(initial = {}) {
+  const headers = new Headers(initial);
+  if (selectedOrg) headers.set("x-atlas-organization", selectedOrg);
+  if (supabase && !headers.has("authorization")) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) headers.set("authorization", `Bearer ${session.access_token}`);
+  }
+  return headers;
 }
 
 function setAuthMode(register) {
@@ -225,6 +230,57 @@ async function loadProjects() {
   }));
 }
 
+function renderVisualGateControls(run, projectRuns, evaluations, container) {
+  const policy = run.contract?.policy?.visualGate;
+  const componentSelectors = run.contract?.screenshots?.componentSelectors ?? [];
+  if (!policy || !componentSelectors.length) return;
+  const section = document.createElement("section"); section.className = "visual-gate-panel";
+  const heading = document.createElement("p"); heading.className = "section-title"; heading.textContent = "COMPONENT VISUAL GATE · ONE CAPTURE"; section.append(heading);
+  const note = document.createElement("p"); note.className = "review-note"; note.textContent = `Deterministic pixel gate: at most ${(policy.maxPixelDiffRatio * 100).toFixed(2)}% changed pixels. This result applies to one matching component/profile/checkpoint and remains separate from the run's target-wide verdict.`; section.append(note);
+  for (const evaluation of evaluations.filter((item) => item.runId === run.id)) {
+    const row = document.createElement("p"); row.className = "run-evidence";
+    row.textContent = `${evaluation.verdict} · ${evaluation.evidence?.componentId ?? "component"} · ${(Number(evaluation.evidence?.pixelDiffRatio ?? 0) * 100).toFixed(2)}% changed · build ${evaluation.evidence?.referenceBuildId ?? "?"} → ${evaluation.evidence?.currentBuildId ?? "?"}`;
+    section.append(row);
+  }
+  if (run.status !== "completed") { container.append(section); return; }
+
+  const paths = (run.artifacts ?? []).filter((artifact) => artifact.mediaType === "image/png" && componentSelectors.some((item) => artifact.relativePath?.endsWith(`/screenshots/component-${item.id}.png`)));
+  const candidates = projectRuns.filter((candidate) => candidate.id !== run.id && new Date(candidate.createdAt).getTime() < new Date(run.createdAt).getTime() && candidate.targetId === run.targetId && candidate.status === "completed" && candidate.verdict === "SHIP" && candidate.contract?.target?.buildId && run.contract?.target?.buildId !== candidate.contract.target.buildId && JSON.stringify(candidate.contract?.policy) === JSON.stringify(run.contract.policy) && JSON.stringify(candidate.contract?.screenshots?.componentSelectors) === JSON.stringify(componentSelectors) && paths.some((artifact) => candidate.artifacts?.some((reference) => reference.relativePath === artifact.relativePath && reference.mediaType === "image/png")));
+  if (run.verdict !== "SHIP") { const reason = document.createElement("small"); reason.textContent = `Component comparison cannot produce SHIP because this run's target verdict is ${run.verdict ?? "inconclusive"}.`; section.append(reason); container.append(section); return; }
+  if (!paths.length || !candidates.length) { const empty = document.createElement("small"); empty.textContent = "No matching component capture and prior SHIP run with a different immutable build are available."; section.append(empty); container.append(section); return; }
+
+  const form = document.createElement("form"); form.className = "visual-gate-form";
+  const referenceLabel = document.createElement("label"); referenceLabel.textContent = "Approved reference run";
+  const referenceSelect = document.createElement("select"); referenceSelect.required = true;
+  for (const candidate of candidates) {
+    const option = document.createElement("option"); option.value = candidate.id; option.textContent = `Run ${candidate.id.slice(0, 8)} · ${candidate.contract.target.buildId} · SHIP`; referenceSelect.append(option);
+  }
+  referenceLabel.append(referenceSelect);
+  const captureLabel = document.createElement("label"); captureLabel.textContent = "Component / profile capture";
+  const captureSelect = document.createElement("select"); captureSelect.required = true;
+  for (const artifact of paths) {
+    const option = document.createElement("option"); option.value = artifact.id; option.dataset.relativePath = artifact.relativePath; option.textContent = artifact.relativePath.split("/").slice(-4).join(" /"); captureSelect.append(option);
+  }
+  captureLabel.append(captureSelect);
+  const submit = document.createElement("button"); submit.type = "submit"; submit.className = "text-button"; submit.textContent = "Evaluate component gate";
+  const status = document.createElement("small"); status.setAttribute("role", "status"); status.className = "visual-gate-status";
+  form.append(referenceLabel, captureLabel, submit, status);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault(); submit.disabled = true; status.textContent = "Checking stored hashes and comparing PNG pixels…";
+    const baseline = candidates.find((candidate) => candidate.id === referenceSelect.value);
+    const currentArtifact = paths.find((artifact) => artifact.id === captureSelect.value);
+    const referenceArtifact = baseline?.artifacts?.find((artifact) => artifact.relativePath === currentArtifact?.relativePath && artifact.mediaType === "image/png");
+    if (!baseline || !currentArtifact || !referenceArtifact) { status.textContent = "The selected run no longer has a matching capture. Refresh the project and try again."; submit.disabled = false; return; }
+    try {
+      const { evaluation } = await api(`/v1/runs/${encodeURIComponent(run.id)}/visual-gate-evaluations`, { method: "POST", body: JSON.stringify({ referenceRunId: baseline.id, artifactId: currentArtifact.id, referenceArtifactId: referenceArtifact.id }) });
+      status.textContent = `${evaluation.verdict} · ${(evaluation.evidence.pixelDiffRatio * 100).toFixed(2)}% changed; threshold ${(evaluation.policy.maxPixelDiffRatio * 100).toFixed(2)}%. Scope: one component capture.`;
+      await refreshSelectedProject();
+    } catch (error) { status.textContent = error.message; }
+    finally { submit.disabled = false; }
+  });
+  section.append(form); container.append(section);
+}
+
 function showProjectPlaceholder() {
   projectDetail.innerHTML = '<p class="eyebrow">SELECT A PROJECT</p><h3>Start with your staging app</h3><p class="muted">Register an owned HTTPS target and verify its DNS record. A local isolated Docker worker can execute queued runs when explicitly enabled.</p><div class="coverage-note"><span class="status-dot"></span><div><strong>Current lane</strong><p>Chromium emulation only. No handset, Safari, real radio, GPU, thermal, or camera result is represented.</p></div></div>';
 }
@@ -256,6 +312,7 @@ async function loadProject(projectId) {
     const pill = document.createElement("span"); pill.className = `pill${run.verdict === "SHIP" ? "" : run.verdict === "HOLD" ? " hold" : " pending"}`; pill.textContent = run.verdict ?? run.status.toUpperCase();
     const note = document.createElement("p"); note.textContent = run.result?.evidenceScope ?? (run.status === "queued" || run.status === "running" ? "Awaiting the explicitly configured local browser worker. A queued record is not a passing check." : run.errorCode ? `Harness failure: ${run.errorCode}. This run has no passing evidence.` : "No browser evidence is available.");
     card.append(strong, pill, note);
+    if (run.result?.source === "synthetic-fixture") { const fixture = document.createElement("span"); fixture.className = "pill pending"; fixture.textContent = "ILLUSTRATIVE FIXTURE"; card.append(fixture); }
     if (run.verdict) { const verdict = document.createElement("p"); verdict.className = "run-verdict"; verdict.textContent = `Release decision: ${run.verdict}`; card.append(verdict); }
     for (const evidence of run.result?.targetDecision?.evidence ?? []) { const row = document.createElement("p"); row.className = "run-evidence"; row.textContent = `${evidence.profileId}: journey ${evidence.journey ?? "missing"} · score ${evidence.score ?? "missing"}${evidence.error ? ` · ${evidence.error}` : ""}`; card.append(row); }
     const artifacts = run.artifacts ?? [];
@@ -269,6 +326,7 @@ async function loadProject(projectId) {
       }
       card.append(list);
     }
+    renderVisualGateControls(run, data.runs, data.visualGateEvaluations ?? [], card);
     if (run.result) renderShareManager(run, card);
     if (run.status === "queued" || run.status === "running") {
       const cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "text-button"; cancel.textContent = run.status === "queued" ? "Cancel queued run" : "Request cancellation";
@@ -463,7 +521,7 @@ function renderVisualReviewForm(runs) {
   const advisory = document.createElement("span"); advisory.className = "pill pending"; advisory.textContent = "ADVISORY"; heading.append(advisory);
   section.append(heading);
   const explainer = document.createElement("p"); explainer.className = "visual-review-explainer";
-  explainer.textContent = "Review a PNG you upload or a screenshot artifact from a completed staging run. Owned staging contracts can capture selector-scoped component crops at the final journey state when screenshot consent and redaction selectors are configured. Inspect every image before separate Groq egress consent. Only the selected PNG, optional approved reference, and criteria are sent. Findings are advisory and never change the release verdict. Reports are retained for 30 days. This server must be configured with GROQ_API_KEY; the key never reaches your browser.";
+  explainer.textContent = "Review a PNG you upload or a screenshot artifact from a completed staging run. Pair current and prior run captures only when the target, contract version, profile, checkpoint, and component match; Atlas verifies both artifact hashes and records their provenance. Inspect every image before separate Groq egress consent. Only the selected PNGs and criteria are sent. Findings are advisory and never change the release verdict. Reports are retained for 30 days. This server must be configured with GROQ_API_KEY; the key never reaches your browser.";
   section.append(explainer);
 
   const form = document.createElement("form"); form.className = "visual-review-form";
@@ -486,6 +544,10 @@ function renderVisualReviewForm(runs) {
   }
   if (!captureCount) { noCapture.textContent = "No captured PNGs available; enable screenshot consent on a target"; noCapture.disabled = true; }
   captureLabel.append(captured);
+  const baselineCaptureLabel = document.createElement("label"); baselineCaptureLabel.textContent = "Compare against a prior run of the same target, profile, checkpoint, and component";
+  const baselineCaptured = document.createElement("select"); baselineCaptured.name = "baselineRunScreenshot"; baselineCaptured.disabled = true;
+  const noBaselineCapture = document.createElement("option"); noBaselineCapture.value = ""; noBaselineCapture.textContent = "Choose a current run screenshot first"; baselineCaptured.append(noBaselineCapture);
+  baselineCaptureLabel.append(baselineCaptured);
   const currentLabel = document.createElement("label"); currentLabel.textContent = "Or upload a current component screenshot (PNG, up to 10 MiB)";
   const current = document.createElement("input"); current.name = "image"; current.type = "file"; current.accept = "image/png,.png"; currentLabel.append(current);
   let capturedFile = null;
@@ -503,15 +565,55 @@ function renderVisualReviewForm(runs) {
   consentLabel.append(consent, consentText);
   const compareLocally = document.createElement("button"); compareLocally.className = "text-button"; compareLocally.type = "button"; compareLocally.textContent = "Compare with reference locally"; compareLocally.disabled = true;
   const submit = document.createElement("button"); submit.className = "primary"; submit.type = "submit"; submit.textContent = "Review with Groq";
-  form.append(captureLabel, currentLabel, referenceLabel, criteriaLabel, preview, compareLocally, localComparison, consentLabel, submit, status);
+  form.append(captureLabel, baselineCaptureLabel, currentLabel, referenceLabel, criteriaLabel, preview, compareLocally, localComparison, consentLabel, submit, status);
   section.append(form);
   const selectedCurrent = () => current.files[0] ?? capturedFile;
-  const updateLocalCompareButton = () => { compareLocally.disabled = !selectedCurrent() || !reference.files[0]; };
+  let capturedReferenceFile = null;
+  let capturedReferenceArtifact = null;
+  const selectedReference = () => reference.files[0] ?? capturedReferenceFile;
+  const updateLocalCompareButton = () => { compareLocally.disabled = !selectedCurrent() || !selectedReference(); };
+  const refreshBaselineOptions = () => {
+    const previous = baselineCaptured.value;
+    baselineCaptured.replaceChildren();
+    const placeholder = document.createElement("option"); placeholder.value = "";
+    let currentRun = null;
+    let currentArtifact = null;
+    if (captured.value) {
+      const [currentRunId, currentArtifactId] = captured.value.split(":");
+      currentRun = runs.find((run) => run.id === currentRunId);
+      currentArtifact = currentRun?.artifacts?.find((artifact) => artifact.id === currentArtifactId);
+    }
+    const candidates = currentRun && currentArtifact
+      ? runs.filter((run) => run.status === "completed" && run.id !== currentRun.id && run.targetId === currentRun.targetId && run.contractVersion === currentRun.contractVersion)
+        .flatMap((run) => (run.artifacts ?? []).filter((artifact) => artifact.mediaType === "image/png" && artifact.relativePath === currentArtifact.relativePath).map((artifact) => ({ run, artifact })))
+      : [];
+    if (!currentRun || !currentArtifact) placeholder.textContent = "Choose a current run screenshot first";
+    else if (!candidates.length) placeholder.textContent = "No prior run has the same target, contract, profile, and component";
+    else placeholder.textContent = "No prior run selected (optional)";
+    baselineCaptured.append(placeholder);
+    for (const { run, artifact } of candidates) {
+      const option = document.createElement("option"); option.value = `${run.id}:${artifact.id}`;
+      option.dataset.url = `/v1/runs/${encodeURIComponent(run.id)}/artifacts/${encodeURIComponent(artifact.id)}`;
+      option.dataset.name = artifact.name ?? "reference-screenshot.png";
+      option.dataset.bytes = String(artifact.byteLength);
+      option.textContent = `Run ${run.id.slice(0, 8)} · ${artifact.name} · ${run.verdict ?? "no verdict"}`;
+      if (Number(artifact.byteLength) > 10 * 1024 * 1024) { option.disabled = true; option.textContent += " (over 10 MiB)"; }
+      baselineCaptured.append(option);
+    }
+    baselineCaptured.disabled = !candidates.length;
+    if (candidates.some(({ run, artifact }) => `${run.id}:${artifact.id}` === previous)) baselineCaptured.value = previous;
+  };
+  refreshBaselineOptions();
   captured.addEventListener("change", async () => {
     capturedFile = null;
     capturedSourceArtifact = null;
+    capturedReferenceFile = null;
+    capturedReferenceArtifact = null;
+    baselineCaptured.value = "";
     current.value = "";
+    reference.value = "";
     preview.replaceChildren();
+    refreshBaselineOptions();
     if (!captured.value) { status.textContent = ""; return; }
     const option = captured.selectedOptions[0];
     const selectedValue = captured.value;
@@ -520,7 +622,7 @@ function renderVisualReviewForm(runs) {
     status.textContent = "Loading the selected run artifact for preview…";
     captured.disabled = true;
     try {
-      const response = await fetch(option.dataset.url, { credentials: "same-origin", headers: { "x-atlas-organization": selectedOrg } });
+      const response = await fetch(option.dataset.url, { credentials: "same-origin", headers: await authorizedHeaders() });
       if (!response.ok) throw new Error(response.status === 410 ? "The screenshot expired or failed its integrity check." : `Screenshot could not be loaded (${response.status}).`);
       const blob = await response.blob();
       if (captured.value !== selectedValue) return;
@@ -528,17 +630,53 @@ function renderVisualReviewForm(runs) {
       capturedFile = new File([blob], option.dataset.name, { type: "image/png" });
       const [runId, artifactId] = selectedValue.split(":");
       capturedSourceArtifact = { runId, artifactId };
-      previewVisualInputs(capturedFile, reference.files[0], preview, "Run screenshot artifact");
+      previewVisualInputs(capturedFile, selectedReference(), preview, "Run screenshot artifact");
       updateLocalCompareButton();
       status.dataset.state = "info";
       status.textContent = "Preview the run screenshot below. It will not be sent to Groq unless you check the separate consent box and submit.";
     } catch (error) { status.dataset.state = "error"; status.textContent = error.message; }
     finally { captured.disabled = false; }
   });
+  baselineCaptured.addEventListener("change", async () => {
+    capturedReferenceFile = null;
+    capturedReferenceArtifact = null;
+    reference.value = "";
+    if (!baselineCaptured.value) {
+      previewVisualInputs(selectedCurrent(), null, preview, "Run screenshot artifact");
+      updateLocalCompareButton();
+      return;
+    }
+    const option = baselineCaptured.selectedOptions[0];
+    if (Number(option.dataset.bytes) > 10 * 1024 * 1024) { status.textContent = "The reference screenshot is over the 10 MiB review limit."; baselineCaptured.value = ""; return; }
+    const selectedValue = baselineCaptured.value;
+    status.dataset.state = "pending";
+    status.textContent = "Loading the prior run screenshot for comparison…";
+    baselineCaptured.disabled = true;
+    try {
+      const response = await fetch(option.dataset.url, { credentials: "same-origin", headers: await authorizedHeaders() });
+      if (!response.ok) throw new Error(response.status === 410 ? "The reference screenshot expired or failed its integrity check." : `Reference screenshot could not be loaded (${response.status}).`);
+      const blob = await response.blob();
+      if (baselineCaptured.value !== selectedValue) return;
+      if (blob.type !== "image/png" || blob.size > 10 * 1024 * 1024) throw new Error("The selected baseline is not a supported PNG under 10 MiB.");
+      capturedReferenceFile = new File([blob], option.dataset.name, { type: "image/png" });
+      const [runId, artifactId] = selectedValue.split(":");
+      capturedReferenceArtifact = { runId, artifactId };
+      previewVisualInputs(selectedCurrent(), capturedReferenceFile, preview, "Run screenshot artifact");
+      updateLocalCompareButton();
+      status.dataset.state = "info";
+      status.textContent = "Prior run loaded. Compare locally, or include it in the separately consented Groq review.";
+    } catch (error) { status.dataset.state = "error"; status.textContent = error.message; }
+    finally { baselineCaptured.disabled = !baselineCaptured.options.length || baselineCaptured.options.length <= 1; }
+  });
   form.addEventListener("change", (event) => {
-    if (event.target === captured) return;
-    if (event.target === current && current.files[0]) { captured.value = ""; capturedFile = null; capturedSourceArtifact = null; }
-    previewVisualInputs(current.files[0] ?? capturedFile, reference.files[0], preview, capturedFile && !current.files[0] ? "Run screenshot artifact" : "Current screenshot");
+    if (event.target === captured || event.target === baselineCaptured) return;
+    if (event.target === current && current.files[0]) {
+      captured.value = ""; capturedFile = null; capturedSourceArtifact = null;
+      baselineCaptured.value = ""; capturedReferenceFile = null; capturedReferenceArtifact = null;
+    }
+    if (event.target === reference && reference.files[0]) { baselineCaptured.value = ""; capturedReferenceFile = null; capturedReferenceArtifact = null; }
+    refreshBaselineOptions();
+    previewVisualInputs(current.files[0] ?? capturedFile, selectedReference(), preview, capturedFile && !current.files[0] ? "Run screenshot artifact" : "Current screenshot");
     updateLocalCompareButton();
   });
   compareLocally.addEventListener("click", async () => {
@@ -547,7 +685,7 @@ function renderVisualReviewForm(runs) {
     status.textContent = "Comparing these images locally in your browser…";
     try {
       const actual = selectedCurrent();
-      const baseline = reference.files[0];
+      const baseline = selectedReference();
       if (!actual || !baseline) throw new Error("Choose a current screenshot and an approved reference first.");
       const comparison = await compareImageFilesLocally(baseline, actual);
       localComparison.replaceChildren(renderPixelComparison(comparison, "LOCAL-ONLY PIXEL COMPARISON"));
@@ -563,7 +701,7 @@ function renderVisualReviewForm(runs) {
     submit.disabled = true;
     try {
       const currentFile = current.files[0] ?? capturedFile;
-      const referenceFile = reference.files[0];
+      const referenceFile = selectedReference();
       if (!currentFile || currentFile.size > 10 * 1024 * 1024 || (referenceFile && referenceFile.size > 10 * 1024 * 1024)) throw new Error("Choose PNG files no larger than 10 MiB each.");
       if (currentFile.type !== "image/png" || (referenceFile && referenceFile.type !== "image/png")) throw new Error("Only PNG screenshots are supported.");
       if (referenceFile && !criteria.value.trim()) throw new Error("Add the team's visual criteria when using a reference image.");
@@ -571,6 +709,7 @@ function renderVisualReviewForm(runs) {
         imageBase64: await fileToBase64(currentFile),
         ...(capturedSourceArtifact && !current.files[0] ? { sourceArtifact: capturedSourceArtifact } : {}),
         ...(referenceFile ? { referenceImageBase64: await fileToBase64(referenceFile), criteria: criteria.value.trim() } : {}),
+        ...(capturedReferenceArtifact && !reference.files[0] ? { referenceSourceArtifact: capturedReferenceArtifact } : {}),
         providerConsent: consent.checked,
       };
       const idempotencyKey = await visualRequestKey(payload);
@@ -581,6 +720,9 @@ function renderVisualReviewForm(runs) {
       form.reset();
       capturedFile = null;
       capturedSourceArtifact = null;
+      capturedReferenceFile = null;
+      capturedReferenceArtifact = null;
+      baselineCaptured.value = "";
       preview.replaceChildren();
       status.textContent = result.review.status === "complete"
         ? "Review recorded. Suggestions are advisory; an empty issue list is not a design pass."
@@ -688,6 +830,11 @@ function renderReviewResult(review, container, compact = false, proposals = []) 
     card.append(provenance);
   } else {
     const provenance = document.createElement("p"); provenance.className = "review-note"; provenance.textContent = "Source: user-uploaded PNG; no Atlas run artifact is linked."; card.append(provenance);
+  }
+  if (review.referenceRunId && review.referenceArtifactId) {
+    const referenceProvenance = document.createElement("p"); referenceProvenance.className = "review-note";
+    referenceProvenance.textContent = `Reference: prior run ${review.referenceRunId.slice(0, 8)} · ${review.referenceArtifactName ?? `artifact ${review.referenceArtifactId.slice(0, 8)}`} · same target/contract/profile/component verified.`;
+    card.append(referenceProvenance);
   }
   if (!compact && result.criteria) { const criteria = document.createElement("p"); criteria.className = "review-criteria"; criteria.textContent = `Criteria: ${result.criteria}`; card.append(criteria); }
   if (result.pixelComparison) card.append(renderPixelComparison(result.pixelComparison, "DETERMINISTIC REFERENCE COMPARISON"));
@@ -916,6 +1063,7 @@ function renderTargetForm() {
     <label class="check-option"><input type="checkbox" name="screenshotConsent"> Allow page screenshots for this target</label>
     <label>Selectors to redact in screenshots<input name="redactSelectors" value="[data-private]" placeholder="[data-private], #email"><small>Required if screenshot capture is enabled. Review still applies.</small></label>
     <label>Component CSS selectors to crop at the final journey state<textarea name="componentSelectors" rows="2" placeholder="[data-product-viewer]&#10;.ar-product-card"></textarea><small>Optional; one selector per line, at most five. Each selector must match exactly one visible element inside the viewport.</small></label>
+    <label>Maximum changed pixels for component release check (%)<input name="visualThresholdPercent" type="number" min="0" max="100" step="0.1" value="" placeholder="Disabled"><small>Optional deterministic threshold against a prior SHIP run. Requires screenshots and component selectors. Each evaluation checks one component/profile capture; it does not aggregate the whole release.</small></label>
     <details class="advanced-contract"><summary>Advanced · edit the versioned target contract</summary><label>Contract JSON<textarea name="contract" spellcheck="false" aria-label="Advanced target contract JSON"></textarea></label></details>
   `;
   const textarea = form.elements.contract;
@@ -928,6 +1076,7 @@ function renderTargetForm() {
     const name = String(values.get("targetName")).trim();
     const slug = `studio-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 54) || "staging"}`;
     const screenshots = values.get("screenshotConsent") === "on";
+    const visualThresholdText = String(values.get("visualThresholdPercent") ?? "").trim();
     const redactSelectors = String(values.get("redactSelectors") ?? "").split(",").map((part) => part.trim()).filter(Boolean);
     const componentSelectors = screenshots
       ? String(values.get("componentSelectors") ?? "").split(/\r?\n/).map((selector) => selector.trim()).filter(Boolean).map((selector, index) => ({ id: `component-${index + 1}`, selector }))
@@ -947,7 +1096,7 @@ function renderTargetForm() {
       profiles,
       budgets: { journeyTimeoutMs: 45000, stepTimeoutMs: 12000 },
       mediaConsent: false,
-      policy: { version: "1", criticalProfiles: profiles, minimumScore: 50 },
+      policy: { version: "1", criticalProfiles: profiles, minimumScore: 50, ...(visualThresholdText !== "" ? { visualGate: { version: "1", maxPixelDiffRatio: Number(visualThresholdText) / 100 } } : {}) },
       screenshots: { consent: screenshots, redactSelectors: screenshots ? redactSelectors : [], componentSelectors },
     };
   };

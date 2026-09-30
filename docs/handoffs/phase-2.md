@@ -69,7 +69,7 @@ Package instructions: `AGENTS.md` and `apps/control-plane/package.json`.
 - Local queue leases/artifact export: `apps/control-plane/src/local-worker.js`; result/failure transactions: `apps/control-plane/src/worker-runtime.js`; process entry: `apps/control-plane/src/worker.js`.
 - Pinned isolated Chromium executor and local Docker boundary check: `apps/worker/`.
 - Versioned schema/up migrations: `apps/control-plane/migrations/001` through
-  `014`; down migrations are destructive and only for a disposable DB.
+  `015`; down migrations are destructive and only for a disposable DB.
 - UI: `apps/control-plane/public/{index.html,app.js,app.css}`.
 - Local screenshot comparison worker: `apps/control-plane/public/pixel-diff-worker.js`;
   it imports `/image-diff.js`, a server route exposing the dependency-free core
@@ -492,3 +492,70 @@ same-job-network trap, zero server-reflexive candidates, and a `HOLD` verdict
 at score 35 against the configured 50 floor. This is local synthetic evidence,
 not hosted isolation, a customer journey, external STUN coverage, or a repeated
 benchmark.
+
+### Stored-run visual comparisons (2026-09-30)
+
+The Component Visual QA panel now offers a prior-run selector when a completed
+current run has a matching PNG from the same target, target-contract version,
+profile, checkpoint, and component. Both files are loaded through the normal
+tenant-scoped artifact endpoint and shown for review. On submission, the API
+checks each exact image hash against its artifact record and independently
+enforces the same run-binding and relative artifact path. It stores both run
+and artifact identities in migration `015_visual_run_comparison_provenance.sql`
+and includes them in the audit event and visual-review history. Cross-tenant,
+expired, altered, different-contract, profile, checkpoint, or component
+artifacts fail before model egress. Manual references and uploaded current
+images remain available without Atlas-run provenance.
+
+The comparison produces deterministic pixel evidence and an optional
+consented advisory Groq review. Neither can change the release verdict. This
+is a reproducible visual-review record, not yet a visual threshold gate.
+
+Verification for this slice: migration 015 applied to the local PostgreSQL
+database; `node --test tests/visual-review-api.test.js tests/integration.test.js`
+passed **14/14**; `npm test --prefix apps/control-plane` passed **61/61**;
+`npm run build --prefix apps/control-plane` passed; and
+`npm run preview:screenshots --prefix apps/control-plane` completed at 1440 px
+desktop and 390 px mobile widths. The browser preview asserts the same-contract
+run selector, browser-local comparison, Groq advisory submission, and stored
+reference provenance in history; neither viewport had horizontal overflow.
+Both preview screenshots were visually inspected. Fixtures and model output are
+synthetic, and no hosted Supabase/Postgres, object store, or Groq request was
+used. The API's adversarial test rejects a different artifact path before
+provider egress. Remaining gaps include browser-level tests for user switching
+between projects while selecting artifacts, a real authorized staging target,
+and policy thresholds backed by customer-approved baselines.
+
+### Component visual release threshold (2026-09-30)
+
+Target contracts may opt into `policy.visualGate` version 1 with a maximum
+changed-pixel ratio. It requires screenshot consent and at least one configured
+component selector. On a completed SHIP run, an editor can compare one captured
+component PNG with the same relative profile/checkpoint/component path from a
+prior SHIP run of the same target and contract, where the only contract
+difference is the immutable build ID. Atlas verifies both stored hashes and
+PNG bounds before comparing. A changed ratio above the contract threshold
+produces HOLD; a ratio within it produces SHIP. Existing target HOLD or
+INCONCLUSIVE decisions cannot be loosened. The component verdict is a separate
+immutable record with the threshold, policy hash/version, run/artifact IDs,
+hashes, diff metrics, and audit event. Retention removes these records at the
+paired run expiry. The run verdict itself remains untouched.
+
+This is a component-scoped visual gate, not an aggregate release verdict: each
+evaluation covers one profile/checkpoint/component capture. A team still needs
+to evaluate every required capture and combine those component results with the
+target journey before using an overall release check. Baseline SHIP is treated
+as operator-selected approval; Atlas does not independently establish that a
+baseline is visually correct. The threshold is deterministic pixel drift, not
+a measure of design quality, accessibility, or visual correctness. Emulated
+browser screenshots remain subject to the existing consent/redaction caveats.
+
+Migration `016_visual_gate_evaluations.sql` was applied to local PostgreSQL.
+`node --test tests/target-contract.test.js apps/control-plane/tests/visual-gate-api.test.js apps/control-plane/tests/maintenance.test.js`
+passed **12/12**. `node --test apps/control-plane/tests/visual-gate-integration.test.js`
+passed **1/1** against local PostgreSQL and temporary local PNG artifacts; it
+asserted the stored HOLD, idempotent retry, audit event, and unchanged SHIP run
+verdict. Synthetic API cases reject mismatched paths before object reads and
+prove a visual comparison cannot loosen an existing target HOLD. These checks
+do not exercise hosted object storage, real team baselines, a complete profile
+aggregate, or a GitHub status check.

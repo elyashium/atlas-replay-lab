@@ -65,6 +65,17 @@ export function validateTargetContract(value) {
     }
   }
   if (!Number.isFinite(c.policy?.minimumScore) || c.policy.minimumScore < 0 || c.policy.minimumScore > 100) issues.push("policy.minimumScore must be 0..100");
+  if (c.policy?.visualGate !== undefined) {
+    const gate = c.policy.visualGate;
+    if (!gate || typeof gate !== "object" || Array.isArray(gate)) issues.push("policy.visualGate must be an object");
+    else {
+      if (gate.version !== "1") issues.push("policy.visualGate.version must be 1");
+      if (!Number.isFinite(gate.maxPixelDiffRatio) || gate.maxPixelDiffRatio < 0 || gate.maxPixelDiffRatio > 1) issues.push("policy.visualGate.maxPixelDiffRatio must be 0..1");
+      if (c.screenshots?.consent !== true || !Array.isArray(c.screenshots?.componentSelectors) || !c.screenshots.componentSelectors.length) {
+        issues.push("policy.visualGate requires screenshot consent and at least one component selector");
+      }
+    }
+  }
   if (typeof c.mediaConsent !== "boolean") issues.push("mediaConsent must explicitly allow or deny page camera/microphone APIs");
   if (typeof c.screenshots?.consent !== "boolean") issues.push("screenshots.consent must be explicitly true or false");
   if (c.screenshots?.consent === true && (!Array.isArray(c.screenshots?.redactSelectors) || !c.screenshots.redactSelectors.length)) issues.push("screenshots.redactSelectors must include at least one selector when screenshot consent is enabled");

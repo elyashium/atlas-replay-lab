@@ -13,6 +13,7 @@ test("retention purge removes expired non-running rows and records a minimal aud
           if (sql.includes("DELETE FROM share_links")) return { rowCount: 1, rows: [] };
           if (sql.includes("SELECT organization_id,id FROM runs")) return { rowCount: 1, rows: [{ organization_id: "org-1", id: "123e4567-e89b-42d3-a456-426614174000" }] };
           if (sql.includes("DELETE FROM visual_reviews")) return { rowCount: 1, rows: [{ organization_id: "org-1", id: "review-1" }] };
+          if (sql.includes("DELETE FROM visual_gate_evaluations")) return { rowCount: 1, rows: [{ organization_id: "org-1", id: "gate-1" }] };
           if (sql.includes("DELETE FROM visual_review_usage")) return { rowCount: 2, rows: [] };
           if (sql.includes("DELETE FROM code_proposals")) return { rowCount: 1, rows: [{ organization_id: "org-1", id: "proposal-1" }] };
           if (sql.includes("DELETE FROM code_proposal_usage")) return { rowCount: 3, rows: [] };
@@ -23,7 +24,7 @@ test("retention purge removes expired non-running rows and records a minimal aud
     },
   };
   const result = await purgeExpiredRecords(pool);
-  assert.deepEqual(result, { sessions: 2, shares: 1, shareRequestBuckets: 1, anonymousShareRequestBuckets: 1, runCount: 1, codeProposals: 1, proposalUsage: 3, visualReviews: 1, reviewUsage: 2, artifactDirectories: 0, artifactObjects: 0 });
+  assert.deepEqual(result, { sessions: 2, shares: 1, shareRequestBuckets: 1, anonymousShareRequestBuckets: 1, runCount: 1, codeProposals: 1, proposalUsage: 3, visualReviews: 1, visualGateEvaluations: 1, reviewUsage: 2, artifactDirectories: 0, artifactObjects: 0 });
   const selectRuns = calls.find((call) => call.sql.includes("SELECT organization_id,id FROM runs"));
   assert.match(selectRuns.sql, /retention_expires_at <= now\(\)/);
   assert.match(selectRuns.sql, /status <> 'running'/);
@@ -31,6 +32,8 @@ test("retention purge removes expired non-running rows and records a minimal aud
   assert.deepEqual(audit.params, ["org-1", "123e4567-e89b-42d3-a456-426614174000"]);
   const reviewAudit = calls.find((call) => call.sql.includes("visual-review.retention.purged"));
   assert.deepEqual(reviewAudit.params, ["org-1", "review-1"]);
+  const gateAudit = calls.find((call) => call.sql.includes("visual-gate.retention.purged"));
+  assert.deepEqual(gateAudit.params, ["org-1", "gate-1"]);
   assert.match(calls.find((call) => call.sql.includes("DELETE FROM visual_review_usage")).sql, /usage_date < .* - 30/);
   assert.match(calls.find((call) => call.sql.includes("DELETE FROM shared_report_request_buckets")).sql, /bucket_start < date_trunc\('minute', now\(\)\) - interval '2 minutes'/);
   assert.match(calls.find((call) => call.sql.includes("DELETE FROM anonymous_share_request_buckets")).sql, /bucket_start < date_trunc\('minute', now\(\)\) - interval '2 minutes'/);

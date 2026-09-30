@@ -76,6 +76,25 @@ test("component screenshot selectors are optional, bounded, unique, and consent-
   }
 });
 
+test("component visual release threshold requires consented captured components and a bounded versioned policy", () => {
+  const valid = contract();
+  valid.screenshots.componentSelectors = [{ id: "viewer", selector: "[data-viewer]" }];
+  valid.policy.visualGate = { version: "1", maxPixelDiffRatio: 0.025 };
+  assert.equal(validateTargetContract(valid).ok, true);
+
+  for (const ratio of [-0.01, 1.01, Number.NaN]) {
+    const invalid = structuredClone(valid);
+    invalid.policy.visualGate.maxPixelDiffRatio = ratio;
+    assert.match(validateTargetContract(invalid).issues.join(" "), /maxPixelDiffRatio/);
+  }
+  const missingComponents = structuredClone(valid);
+  missingComponents.screenshots.componentSelectors = [];
+  assert.match(validateTargetContract(missingComponents).issues.join(" "), /requires screenshot consent and at least one component selector/);
+  const noConsent = structuredClone(valid);
+  noConsent.screenshots.consent = false;
+  assert.match(validateTargetContract(noConsent).issues.join(" "), /requires screenshot consent/);
+});
+
 test("target policy fails closed for failed and missing critical journey evidence", () => {
   const c = contract();
   const good = [

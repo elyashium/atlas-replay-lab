@@ -1,0 +1,2 @@
+DROP TABLE visual_gate_evaluations;
+ALTER TABLE artifacts DROP CONSTRAINT artifacts_organization_id_id_unique;

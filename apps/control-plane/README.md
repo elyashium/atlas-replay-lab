@@ -40,6 +40,20 @@ classification. It does not open the page, test selectors, verify ownership,
 or prove the browser journey; registration and DNS TXT verification follow as
 separate steps.
 
+The Component Visual QA panel can compare screenshots from two completed runs
+of the same target and contract version. It only pairs PNGs with the same
+profile/checkpoint/component path, checks both stored hashes, records artifact
+provenance, and runs the deterministic pixel comparison. A target contract may
+also opt into a version 1 component visual gate by setting
+`policy.visualGate.maxPixelDiffRatio` (0 through 1) and enabling consented
+component screenshots. The app then evaluates one matching component capture
+against a prior SHIP run from a distinct immutable build. Its immutable
+SHIP/HOLD/INCONCLUSIVE result includes exact artifact hashes and the threshold,
+and is audited and retained with the runs. It is explicitly scoped to that one
+component/profile/checkpoint; it does not aggregate or overwrite the target
+run's release verdict. Groq findings remain advisory and cannot affect either
+verdict.
+
 The local `.env.example` database password is only for the Docker development
 container. For another database, set `DATABASE_URL` to its PostgreSQL
 connection string before running migrations or starting Atlas. Supabase Auth

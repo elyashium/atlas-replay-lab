@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { lstat, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { lookup, resolveTxt } from "node:dns/promises";
@@ -237,14 +238,15 @@ export function buildApp({
     const result = await pool.query("SELECT id,name,created_at AS \"createdAt\" FROM projects WHERE organization_id=$1 AND id=$2", [orgId, projectId]);
     if (!result.rowCount) return reply.code(404).send({ error: "project not found" });
     const targets = await pool.query("SELECT id,base_url AS \"baseUrl\",hostname,verified_at IS NOT NULL AS verified,CASE WHEN verified_at IS NULL THEN verification_token ELSE NULL END AS \"verificationToken\",contract->>'name' AS name,created_at AS \"createdAt\" FROM targets WHERE organization_id=$1 AND project_id=$2 ORDER BY created_at DESC", [orgId, projectId]);
-    const runs = await pool.query("SELECT r.id,r.target_id AS \"targetId\",r.status,r.verdict,r.error_code AS \"errorCode\",r.contract_version AS \"contractVersion\",r.created_at AS \"createdAt\",r.started_at AS \"startedAt\",r.finished_at AS \"finishedAt\",r.result_snapshot AS result,COALESCE((SELECT json_agg(json_build_object('id',a.id,'mediaType',a.media_type,'byteLength',a.byte_length,'sha256',a.sha256,'name',regexp_replace(a.object_key,'^.*/','')) ORDER BY a.object_key) FROM artifacts a WHERE a.organization_id=r.organization_id AND a.run_id=r.id),'[]'::json) AS artifacts FROM runs r WHERE r.organization_id=$1 AND r.project_id=$2 AND r.retention_expires_at>now() ORDER BY r.created_at DESC LIMIT 50", [orgId, projectId]);
-    const visualReviews = await pool.query("SELECT id,status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",screenshot_sha256 AS \"screenshotSha256\",reference_sha256 AS \"referenceSha256\",source_run_id AS \"sourceRunId\",source_artifact_id AS \"sourceArtifactId\",source_artifact_name AS \"sourceArtifactName\",result,error,created_at AS \"createdAt\" FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 AND retention_expires_at>now() ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
+    const runs = await pool.query("SELECT r.id,r.target_id AS \"targetId\",r.status,r.verdict,r.error_code AS \"errorCode\",r.contract_version AS \"contractVersion\",r.contract_snapshot AS contract,r.created_at AS \"createdAt\",r.started_at AS \"startedAt\",r.finished_at AS \"finishedAt\",r.result_snapshot AS result,COALESCE((SELECT json_agg(json_build_object('id',a.id,'mediaType',a.media_type,'byteLength',a.byte_length,'sha256',a.sha256,'name',regexp_replace(a.object_key,'^.*/',''),'relativePath',regexp_replace(a.object_key,'^[^/]+/','')) ORDER BY a.object_key) FROM artifacts a WHERE a.organization_id=r.organization_id AND a.run_id=r.id),'[]'::json) AS artifacts FROM runs r WHERE r.organization_id=$1 AND r.project_id=$2 AND r.retention_expires_at>now() ORDER BY r.created_at DESC LIMIT 50", [orgId, projectId]);
+    const visualReviews = await pool.query("SELECT id,status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",screenshot_sha256 AS \"screenshotSha256\",reference_sha256 AS \"referenceSha256\",source_run_id AS \"sourceRunId\",source_artifact_id AS \"sourceArtifactId\",source_artifact_name AS \"sourceArtifactName\",reference_run_id AS \"referenceRunId\",reference_artifact_id AS \"referenceArtifactId\",reference_artifact_name AS \"referenceArtifactName\",result,error,created_at AS \"createdAt\" FROM visual_reviews WHERE organization_id=$1 AND project_id=$2 AND retention_expires_at>now() ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
     const findingDispositions = await pool.query("SELECT d.visual_review_id AS \"reviewId\",d.finding_index AS \"index\",d.disposition,d.updated_at AS \"updatedAt\" FROM visual_finding_dispositions d JOIN visual_reviews v ON v.organization_id=d.organization_id AND v.id=d.visual_review_id AND v.retention_expires_at>now() WHERE d.organization_id=$1 AND v.project_id=$2 ORDER BY d.visual_review_id,d.finding_index", [orgId, projectId]);
     const codeProposals = await pool.query("SELECT id,visual_review_id AS \"visualReviewId\",status,provider,requested_model AS \"requestedModel\",returned_model AS \"returnedModel\",file_name AS \"fileName\",source_sha256 AS \"sourceSha256\",result,error,created_at AS \"createdAt\" FROM code_proposals WHERE organization_id=$1 AND project_id=$2 AND retention_expires_at>now() ORDER BY created_at DESC LIMIT 50", [orgId, projectId]);
+    const visualGateEvaluations = await pool.query("SELECT id,run_id AS \"runId\",reference_run_id AS \"referenceRunId\",artifact_id AS \"artifactId\",reference_artifact_id AS \"referenceArtifactId\",relative_path AS \"relativePath\",verdict,policy_snapshot AS policy,evidence,created_at AS \"createdAt\" FROM visual_gate_evaluations WHERE organization_id=$1 AND project_id=$2 AND retention_expires_at>now() ORDER BY created_at DESC LIMIT 100", [orgId, projectId]);
     const shares = await pool.query("SELECT s.id,s.run_id AS \"runId\",s.include_summary AS \"includeSummary\",s.artifact_scope AS \"artifactIds\",s.expires_at AS \"expiresAt\",s.revoked_at AS \"revokedAt\",s.created_at AS \"createdAt\",s.access_count AS \"accessCount\",s.last_accessed_at AS \"lastAccessedAt\",COALESCE((SELECT json_agg(json_build_object('action',e.action,'createdAt',e.created_at,'artifactId',e.details->>'artifactId') ORDER BY e.created_at DESC) FROM (SELECT action,created_at,details FROM audit_events WHERE organization_id=s.organization_id AND resource_type='share-link' AND resource_id=s.id AND action IN ('share-link.opened','share-link.artifact-downloaded') ORDER BY created_at DESC LIMIT 25) e),'[]'::json) AS \"accessLog\" FROM share_links s JOIN runs r ON r.organization_id=s.organization_id AND r.id=s.run_id WHERE s.organization_id=$1 AND r.project_id=$2 AND r.retention_expires_at>now() ORDER BY s.created_at DESC", [orgId, projectId]);
     for (const run of runs.rows) run.clientShares = shares.rows.filter((share) => share.runId === run.id);
     for (const review of visualReviews.rows) review.findingDispositions = findingDispositions.rows.filter((item) => item.reviewId === review.id);
-    return { project: result.rows[0], targets: targets.rows, runs: runs.rows, visualReviews: visualReviews.rows, findingDispositions: findingDispositions.rows, codeProposals: codeProposals.rows };
+    return { project: result.rows[0], targets: targets.rows, runs: runs.rows, visualReviews: visualReviews.rows, visualGateEvaluations: visualGateEvaluations.rows, findingDispositions: findingDispositions.rows, codeProposals: codeProposals.rows };
   });
 
   app.post("/v1/projects/:projectId/visual-reviews", { bodyLimit: 28 * 1024 * 1024 }, async (request, reply) => {
@@ -266,6 +268,7 @@ export function buildApp({
     let imagePixels;
     let referenceImage;
     let referencePixels;
+    let referenceSource = null;
     try {
       const current = decodePngBase64(body.imageBase64, "current screenshot");
       image = current.bytes;
@@ -279,6 +282,7 @@ export function buildApp({
     if (referenceImage && (typeof body.criteria !== "string" || !body.criteria.trim() || body.criteria.trim().length > 1200)) {
       return reply.code(400).send({ error: "a reference screenshot requires explicit criteria of 1 to 1200 characters" });
     }
+    if (body.referenceSourceArtifact !== undefined && !referenceImage) return reply.code(400).send({ error: "referenceSourceArtifact requires the matching reference screenshot bytes" });
     if (!referenceImage && body.criteria !== undefined) return reply.code(400).send({ error: "criteria can only be sent with a reference screenshot" });
     if (referencePixels && (imagePixels.width !== referencePixels.width || imagePixels.height !== referencePixels.height)) return reply.code(400).send({ error: "reference and current screenshots must have matching dimensions" });
     let sourceArtifact = null;
@@ -288,20 +292,40 @@ export function buildApp({
         return reply.code(400).send({ error: "sourceArtifact must identify a run and artifact from this project" });
       }
       const sourceResult = await pool.query(
-        "SELECT a.sha256,regexp_replace(a.object_key,'^.*/','') AS \"artifactName\" FROM artifacts a JOIN runs r ON r.organization_id=a.organization_id AND r.id=a.run_id WHERE a.organization_id=$1 AND r.project_id=$2 AND r.id=$3 AND a.id=$4 AND a.media_type='image/png' AND r.status='completed' AND r.retention_expires_at>now()",
+        "SELECT a.sha256,regexp_replace(a.object_key,'^.*/','') AS \"artifactName\",regexp_replace(a.object_key,'^[^/]+/','') AS \"relativePath\",r.target_id AS \"targetId\",r.contract_version AS \"contractVersion\" FROM artifacts a JOIN runs r ON r.organization_id=a.organization_id AND r.id=a.run_id WHERE a.organization_id=$1 AND r.project_id=$2 AND r.id=$3 AND a.id=$4 AND a.media_type='image/png' AND r.status='completed' AND r.retention_expires_at>now()",
         [orgId, projectId, source.runId, source.artifactId],
       );
       if (!sourceResult.rowCount) return reply.code(404).send({ error: "source screenshot artifact not found in this project" });
       const storedArtifact = sourceResult.rows[0];
       const actualSha256 = createHash("sha256").update(image).digest("hex");
       if (storedArtifact.sha256 !== actualSha256) return reply.code(409).send({ error: "source screenshot bytes do not match the selected run artifact" });
-      sourceArtifact = { runId: source.runId, artifactId: source.artifactId, artifactName: storedArtifact.artifactName };
+      sourceArtifact = { runId: source.runId, artifactId: source.artifactId, artifactName: storedArtifact.artifactName, relativePath: storedArtifact.relativePath, targetId: storedArtifact.targetId, contractVersion: storedArtifact.contractVersion };
+    }
+    if (body.referenceSourceArtifact !== undefined) {
+      const reference = asObject(body.referenceSourceArtifact);
+      if (Object.keys(reference).length !== 2 || typeof reference.runId !== "string" || !UUID.test(reference.runId) || typeof reference.artifactId !== "string" || !UUID.test(reference.artifactId)) {
+        return reply.code(400).send({ error: "referenceSourceArtifact must identify a prior run and artifact from this project" });
+      }
+      if (!sourceArtifact || reference.runId === sourceArtifact.runId) return reply.code(400).send({ error: "run-to-run comparisons require distinct captured current and reference runs" });
+      const referenceResult = await pool.query(
+        "SELECT a.sha256,regexp_replace(a.object_key,'^.*/','') AS \"artifactName\",regexp_replace(a.object_key,'^[^/]+/','') AS \"relativePath\",r.target_id AS \"targetId\",r.contract_version AS \"contractVersion\" FROM artifacts a JOIN runs r ON r.organization_id=a.organization_id AND r.id=a.run_id WHERE a.organization_id=$1 AND r.project_id=$2 AND r.id=$3 AND a.id=$4 AND a.media_type='image/png' AND r.status='completed' AND r.retention_expires_at>now()",
+        [orgId, projectId, reference.runId, reference.artifactId],
+      );
+      if (!referenceResult.rowCount) return reply.code(404).send({ error: "reference screenshot artifact not found in this project" });
+      const storedReference = referenceResult.rows[0];
+      const actualReferenceSha256 = createHash("sha256").update(referenceImage).digest("hex");
+      if (storedReference.sha256 !== actualReferenceSha256) return reply.code(409).send({ error: "reference screenshot bytes do not match the selected run artifact" });
+      if (sourceArtifact.targetId !== storedReference.targetId || sourceArtifact.contractVersion !== storedReference.contractVersion || sourceArtifact.relativePath !== storedReference.relativePath) {
+        return reply.code(400).send({ error: "run-to-run screenshots must use the same target, contract version, profile, checkpoint, and component" });
+      }
+      referenceSource = { runId: reference.runId, artifactId: reference.artifactId, artifactName: storedReference.artifactName };
     }
     const requestSha256 = createHash("sha256").update(JSON.stringify({
       imageSha256: createHash("sha256").update(image).digest("hex"),
       referenceSha256: referenceImage ? createHash("sha256").update(referenceImage).digest("hex") : null,
       criteria: body.criteria ?? null,
       sourceArtifact: sourceArtifact ? { runId: sourceArtifact.runId, artifactId: sourceArtifact.artifactId } : null,
+      referenceSourceArtifact: referenceSource ? { runId: referenceSource.runId, artifactId: referenceSource.artifactId } : null,
     })).digest("hex");
     return withIdempotencyLock(visualReviewLocks, idempotencyPool, `${orgId}:${idempotencyKey}`, async () => {
       const duplicate = await pool.query("SELECT id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\",status,result,error,retention_expires_at>now() AS active FROM visual_reviews WHERE organization_id=$1 AND idempotency_key=$2", [orgId, idempotencyKey]);
@@ -350,10 +374,10 @@ export function buildApp({
       const reviewId = newId();
       const record = await inTransaction(pool, async (client) => {
         const inserted = await client.query(
-          "INSERT INTO visual_reviews(id,organization_id,project_id,status,provider,requested_model,returned_model,request_sha256,screenshot_sha256,reference_sha256,idempotency_key,result,error,requested_by,retention_expires_at,source_run_id,source_artifact_id,source_artifact_name) VALUES($1,$2,$3,$4,'groq',$5,$6,$7,$8,$9,$10,$11,$12,$13,now()+interval '30 days',$14,$15,$16) RETURNING id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\",status,result,error,source_run_id AS \"sourceRunId\",source_artifact_id AS \"sourceArtifactId\",source_artifact_name AS \"sourceArtifactName\",created_at AS \"createdAt\"",
-          [reviewId, orgId, projectId, status, requestedModel, report.returnedModel, requestSha256, screenshotSha256, referenceSha256, idempotencyKey, report, failure ?? null, user.id, sourceArtifact?.runId ?? null, sourceArtifact?.artifactId ?? null, sourceArtifact?.artifactName ?? null],
+          "INSERT INTO visual_reviews(id,organization_id,project_id,status,provider,requested_model,returned_model,request_sha256,screenshot_sha256,reference_sha256,idempotency_key,result,error,requested_by,retention_expires_at,source_run_id,source_artifact_id,source_artifact_name,reference_run_id,reference_artifact_id,reference_artifact_name) VALUES($1,$2,$3,$4,'groq',$5,$6,$7,$8,$9,$10,$11,$12,$13,now()+interval '30 days',$14,$15,$16,$17,$18,$19) RETURNING id,project_id AS \"projectId\",request_sha256 AS \"requestSha256\",status,result,error,source_run_id AS \"sourceRunId\",source_artifact_id AS \"sourceArtifactId\",source_artifact_name AS \"sourceArtifactName\",reference_run_id AS \"referenceRunId\",reference_artifact_id AS \"referenceArtifactId\",reference_artifact_name AS \"referenceArtifactName\",created_at AS \"createdAt\"",
+          [reviewId, orgId, projectId, status, requestedModel, report.returnedModel, requestSha256, screenshotSha256, referenceSha256, idempotencyKey, report, failure ?? null, user.id, sourceArtifact?.runId ?? null, sourceArtifact?.artifactId ?? null, sourceArtifact?.artifactName ?? null, referenceSource?.runId ?? null, referenceSource?.artifactId ?? null, referenceSource?.artifactName ?? null],
         );
-        await audit(client, orgId, user.id, status === "complete" ? "visual-review.completed" : "visual-review.inconclusive", "visual-review", reviewId, { screenshotSha256, referenceSha256, sourceRunId: sourceArtifact?.runId ?? null, sourceArtifactId: sourceArtifact?.artifactId ?? null, provider: "groq", requestedModel, egressConsent: true });
+        await audit(client, orgId, user.id, status === "complete" ? "visual-review.completed" : "visual-review.inconclusive", "visual-review", reviewId, { screenshotSha256, referenceSha256, sourceRunId: sourceArtifact?.runId ?? null, sourceArtifactId: sourceArtifact?.artifactId ?? null, referenceRunId: referenceSource?.runId ?? null, referenceArtifactId: referenceSource?.artifactId ?? null, provider: "groq", requestedModel, egressConsent: true });
         return inserted.rows[0];
       });
       return reply.code(201).send({ review: record });
@@ -616,6 +640,123 @@ export function buildApp({
     if (!found.rowCount) return reply.code(404).send({ error: "run not found" });
     const artifacts = await pool.query("SELECT id,media_type AS \"mediaType\",byte_length AS \"byteLength\",sha256,created_at AS \"createdAt\" FROM artifacts WHERE organization_id=$1 AND run_id=$2 ORDER BY created_at", [orgId, runId]);
     return { run: found.rows[0], artifacts: artifacts.rows.map((artifact) => ({ ...artifact, url: `/v1/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifact.id)}` })), evidenceStatus: found.rows[0].result ? "captured" : found.rows[0].status === "queued" || found.rows[0].status === "running" ? "pending" : "absent" };
+  });
+
+  app.post("/v1/runs/:runId/visual-gate-evaluations", async (request, reply) => {
+    const { user, orgId, role, error } = await organizationContext(request, pool);
+    if (error) return reply.code(error.status).send({ error: error.message });
+    if (!canWrite(role)) return reply.code(403).send({ error: "organization editor role required" });
+    const { runId } = request.params;
+    const body = asObject(request.body);
+    const referenceRunId = body.referenceRunId;
+    const artifactId = body.artifactId;
+    const referenceArtifactId = body.referenceArtifactId;
+    if (![runId, referenceRunId, artifactId, referenceArtifactId].every((id) => typeof id === "string" && UUID.test(id)) || runId === referenceRunId) {
+      return reply.code(400).send({ error: "distinct current/reference run IDs and their artifact IDs are required" });
+    }
+
+    const runs = await pool.query(
+      "SELECT id,project_id AS \"projectId\",target_id AS \"targetId\",status,verdict,contract_version AS \"contractVersion\",contract_snapshot AS contract,created_at AS \"createdAt\",retention_expires_at AS \"retentionExpiresAt\" FROM runs WHERE organization_id=$1 AND id=ANY($2::uuid[]) AND retention_expires_at>now()",
+      [orgId, [runId, referenceRunId]],
+    );
+    if (runs.rowCount !== 2) return reply.code(404).send({ error: "current or reference run not found or expired" });
+    const current = runs.rows.find((run) => run.id === runId);
+    const baseline = runs.rows.find((run) => run.id === referenceRunId);
+    if (current.projectId !== baseline.projectId || current.targetId !== baseline.targetId || current.contractVersion !== baseline.contractVersion) return reply.code(409).send({ error: "visual comparison requires the same project, target, and target-contract version" });
+    if (current.status !== "completed" || baseline.status !== "completed") return reply.code(409).send({ error: "both runs must be completed before visual gate evaluation" });
+    if (!(new Date(baseline.createdAt).getTime() < new Date(current.createdAt).getTime())) return reply.code(409).send({ error: "reference SHIP run must be older than the current release run" });
+    if (baseline.verdict !== "SHIP") return reply.code(409).send({ error: "reference run must have an existing SHIP result to serve as a baseline" });
+
+    const currentContract = current.contract;
+    const referenceContract = baseline.contract;
+    const currentContractCheck = validateTargetContract(currentContract);
+    const referenceContractCheck = validateTargetContract(referenceContract);
+    if (!currentContractCheck.ok || !referenceContractCheck.ok) return reply.code(409).send({ error: "stored target contract is invalid for visual release evaluation" });
+    const visualPolicy = currentContract?.policy?.visualGate;
+    if (!visualPolicy || visualPolicy.version !== "1" || !Number.isFinite(visualPolicy.maxPixelDiffRatio)) return reply.code(409).send({ error: "target contract has no version 1 visual gate policy" });
+    const comparableCurrent = structuredClone(currentContract);
+    const comparableReference = structuredClone(referenceContract);
+    delete comparableCurrent.target.buildId;
+    delete comparableReference.target.buildId;
+    if (!isDeepStrictEqual(comparableCurrent, comparableReference)) {
+      return reply.code(409).send({ error: "current and reference runs differ beyond their immutable build IDs" });
+    }
+    const currentBuild = currentContract.target?.buildId;
+    const referenceBuild = referenceContract.target?.buildId;
+    if (!currentBuild || !referenceBuild || currentBuild === referenceBuild) return reply.code(409).send({ error: "visual gate requires distinct immutable current and reference build IDs" });
+    if (currentContract.screenshots?.consent !== true || !Array.isArray(currentContract.screenshots.componentSelectors) || !currentContract.screenshots.componentSelectors.length) {
+      return reply.code(409).send({ error: "visual gate requires consented component screenshot captures" });
+    }
+
+    const artifacts = await pool.query(
+      "SELECT id,run_id AS \"runId\",object_key AS \"objectKey\",media_type AS \"mediaType\",byte_length AS \"byteLength\",sha256 FROM artifacts WHERE organization_id=$1 AND id=ANY($2::uuid[]) AND run_id=ANY($3::uuid[])",
+      [orgId, [artifactId, referenceArtifactId], [runId, referenceRunId]],
+    );
+    if (artifacts.rowCount !== 2) return reply.code(404).send({ error: "component artifact not found in its specified run" });
+    const currentArtifact = artifacts.rows.find((artifact) => artifact.id === artifactId);
+    const referenceArtifact = artifacts.rows.find((artifact) => artifact.id === referenceArtifactId);
+    if (currentArtifact.runId !== runId || referenceArtifact.runId !== referenceRunId || currentArtifact.mediaType !== "image/png" || referenceArtifact.mediaType !== "image/png") {
+      return reply.code(409).send({ error: "visual gate requires PNG artifacts bound to their respective runs" });
+    }
+    const relativeArtifactPath = (artifact, expectedRunId) => {
+      const pieces = artifact.objectKey.split("/");
+      if (pieces[0] !== expectedRunId || pieces.length < 3 || pieces.some((piece) => !piece || piece === "." || piece === ".." || !/^[A-Za-z0-9._-]+$/.test(piece))) return null;
+      return pieces.slice(1).join("/");
+    };
+    const currentPath = relativeArtifactPath(currentArtifact, runId);
+    const referencePath = relativeArtifactPath(referenceArtifact, referenceRunId);
+    const componentIds = new Set(currentContract.screenshots.componentSelectors.map((item) => item.id));
+    const name = currentPath?.split("/").at(-1) ?? "";
+    const componentMatch = /^component-([A-Za-z0-9][A-Za-z0-9_-]{0,31})\.png$/.exec(name);
+    if (!currentPath || currentPath !== referencePath || !currentPath.split("/").includes("screenshots") || !componentMatch || !componentIds.has(componentMatch[1])) {
+      return reply.code(409).send({ error: "artifacts must match the same configured component, profile, and checkpoint path" });
+    }
+
+    let currentBytes;
+    let referenceBytes;
+    try {
+      currentBytes = await readVerifiedPng(currentArtifact, { artifactStore, artifactRoot, runId });
+      referenceBytes = await readVerifiedPng(referenceArtifact, { artifactStore, artifactRoot, runId: referenceRunId });
+    } catch (readError) {
+      if (readError.code === "artifact_unavailable") return reply.code(503).send({ error: "run artifact storage is not configured" });
+      return reply.code(410).send({ error: "a selected PNG is unavailable or failed its integrity check" });
+    }
+    let diff;
+    try {
+      const imageA = decodePng(referenceBytes);
+      const imageB = decodePng(currentBytes);
+      if ([imageA, imageB].some((image) => image.width > 4096 || image.height > 4096 || image.width * image.height > 8_000_000)) throw new Error("PNG dimensions exceed visual gate limits");
+      if (imageA.width !== imageB.width || imageA.height !== imageB.height) throw new Error("reference and current PNG dimensions differ");
+      diff = diffImages(imageA, imageB);
+    } catch { return reply.code(400).send({ error: "selected PNGs are invalid, too large, or have different dimensions" }); }
+
+    const contractPolicySha256 = createHash("sha256").update(JSON.stringify(currentContract.policy)).digest("hex");
+    const policySnapshot = { id: "atlas.target-visual-gate", version: visualPolicy.version, contractPolicyVersion: currentContract.policy.version, contractPolicySha256, algorithm: "atlas.pixel-diff.v1", maxPixelDiffRatio: visualPolicy.maxPixelDiffRatio, channelTolerance: 6 };
+    const verdict = current.verdict !== "SHIP" ? current.verdict : diff.pixelDiffRatio <= visualPolicy.maxPixelDiffRatio ? "SHIP" : "HOLD";
+    const evidence = {
+      scope: "one component capture; this is not an aggregate target release verdict",
+      targetId: current.targetId, currentBuildId: currentBuild, referenceBuildId: referenceBuild,
+      componentId: componentMatch[1], relativePath: currentPath,
+      current: { runId, artifactId, sha256: currentArtifact.sha256 },
+      reference: { runId: referenceRunId, artifactId: referenceArtifactId, sha256: referenceArtifact.sha256 },
+      pixelDiffRatio: diff.pixelDiffRatio, perceptualScore: diff.perceptualScore,
+      dimensions: { width: diff.width, height: diff.height }, firstDivergenceBox: diff.firstDivergenceBox,
+      currentRunVerdict: current.verdict, reason: current.verdict === "SHIP" ? diff.pixelDiffRatio <= visualPolicy.maxPixelDiffRatio ? "within_visual_threshold" : "pixel_difference_exceeds_threshold" : "current_run_did_not_ship",
+    };
+    const id = newId();
+    const committed = await inTransaction(pool, async (client) => {
+      const inserted = await client.query(
+        "INSERT INTO visual_gate_evaluations(id,organization_id,project_id,run_id,reference_run_id,artifact_id,reference_artifact_id,relative_path,verdict,policy_snapshot,evidence,requested_by,retention_expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,LEAST($13::timestamptz,$14::timestamptz)) ON CONFLICT (organization_id,run_id,reference_run_id,relative_path) DO NOTHING RETURNING id,run_id AS \"runId\",reference_run_id AS \"referenceRunId\",artifact_id AS \"artifactId\",reference_artifact_id AS \"referenceArtifactId\",relative_path AS \"relativePath\",verdict,policy_snapshot AS policy,evidence,created_at AS \"createdAt\"",
+        [id, orgId, current.projectId, runId, referenceRunId, artifactId, referenceArtifactId, currentPath, verdict, policySnapshot, evidence, user.id, current.retentionExpiresAt, baseline.retentionExpiresAt],
+      );
+      if (inserted.rowCount) {
+        await audit(client, orgId, user.id, "visual-gate.evaluated", "visual-gate-evaluation", id, { runId, referenceRunId, artifactId, referenceArtifactId, verdict, policyVersion: visualPolicy.version, pixelDiffRatio: diff.pixelDiffRatio });
+        return { evaluation: inserted.rows[0], created: true };
+      }
+      const existing = await client.query("SELECT id,run_id AS \"runId\",reference_run_id AS \"referenceRunId\",artifact_id AS \"artifactId\",reference_artifact_id AS \"referenceArtifactId\",relative_path AS \"relativePath\",verdict,policy_snapshot AS policy,evidence,created_at AS \"createdAt\" FROM visual_gate_evaluations WHERE organization_id=$1 AND run_id=$2 AND reference_run_id=$3 AND relative_path=$4", [orgId, runId, referenceRunId, currentPath]);
+      return { evaluation: existing.rows[0], created: false };
+    });
+    return reply.code(committed.created ? 201 : 200).send({ evaluation: committed.evaluation });
   });
 
   app.post("/v1/runs/:runId/cancel", async (request, reply) => {
@@ -893,6 +1034,28 @@ async function readFrontendFile(builtPath, sourcePath = builtPath) {
     return readFile(path.join(here, "../public", sourcePath), "utf8");
   }
 }
+async function readVerifiedPng(artifact, { artifactStore, artifactRoot, runId }) {
+  if (!artifactStore && (!artifactRoot || !path.isAbsolute(artifactRoot))) throw Object.assign(new Error("artifact storage unavailable"), { code: "artifact_unavailable" });
+  const pieces = artifact.objectKey.split("/");
+  if (pieces[0] !== runId || pieces.length < 3 || pieces.some((piece) => !piece || piece === "." || piece === ".." || !/^[A-Za-z0-9._-]+$/.test(piece))) throw new Error("unsafe object key");
+  if (artifact.mediaType !== "image/png" || Number(artifact.byteLength) < 33 || Number(artifact.byteLength) > VISUAL_REVIEW_IMAGE_LIMIT_BYTES) throw new Error("PNG artifact size or type is invalid");
+  let bytes;
+  if (artifactStore) bytes = await artifactStore.getObject(artifact.objectKey);
+  else {
+    const root = path.resolve(artifactRoot);
+    const filePath = path.resolve(root, ...pieces);
+    if (!filePath.startsWith(`${root}${path.sep}`)) throw new Error("unsafe local artifact path");
+    const info = await lstat(filePath);
+    if (!info.isFile() || info.isSymbolicLink() || info.size !== Number(artifact.byteLength)) throw new Error("local artifact integrity check failed");
+    bytes = await readFile(filePath);
+  }
+  if (bytes.length !== Number(artifact.byteLength) || createHash("sha256").update(bytes).digest("hex") !== artifact.sha256) throw new Error("artifact integrity check failed");
+  if (bytes.length < 33 || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || bytes.toString("ascii", 12, 16) !== "IHDR") throw new Error("artifact is not a PNG");
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  if (!width || !height || width > VISUAL_REVIEW_MAX_DIMENSION || height > VISUAL_REVIEW_MAX_DIMENSION || width * height > VISUAL_REVIEW_MAX_PIXELS) throw new Error("PNG dimensions exceed visual gate limits");
+  return bytes;
+}
 function asObject(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
 function normalizeEmail(value) { return typeof value === "string" && value.length <= 254 ? value.trim().toLowerCase() : ""; }
 function cleanName(value) { return typeof value === "string" && value.trim().length <= 120 ? value.trim() : ""; }
@@ -995,7 +1158,7 @@ const OPENAPI = {
     "/v1/projects/{projectId}/visual-reviews": { post: {
       summary: "Compare consented reference/current PNGs deterministically and request separate advisory model review; image bytes are not retained by this route",
       parameters: [{ in: "header", name: "Idempotency-Key", required: true, schema: { type: "string", minLength: 8, maxLength: 128 } }, { in: "header", name: "x-atlas-organization", required: true, schema: { type: "string", format: "uuid" } }],
-      requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["providerConsent", "imageBase64"], properties: { providerConsent: { const: true }, imageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png", description: "Maximum decoded size 10 MiB; PNG dimensions capped." }, sourceArtifact: { type: "object", required: ["runId", "artifactId"], properties: { runId: { type: "string", format: "uuid" }, artifactId: { type: "string", format: "uuid" } }, description: "Optional exact run screenshot provenance; server verifies same-project PNG identity and SHA-256." }, referenceImageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png" }, criteria: { type: "string", maxLength: 1200 } } } } } },
+      requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["providerConsent", "imageBase64"], properties: { providerConsent: { const: true }, imageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png", description: "Maximum decoded size 10 MiB; PNG dimensions capped." }, sourceArtifact: { type: "object", required: ["runId", "artifactId"], properties: { runId: { type: "string", format: "uuid" }, artifactId: { type: "string", format: "uuid" } }, description: "Optional exact current-run screenshot provenance; server verifies same-project PNG identity and SHA-256." }, referenceImageBase64: { type: "string", contentEncoding: "base64", contentMediaType: "image/png" }, referenceSourceArtifact: { type: "object", required: ["runId", "artifactId"], properties: { runId: { type: "string", format: "uuid" }, artifactId: { type: "string", format: "uuid" } }, description: "Optional prior-run provenance. With sourceArtifact, the server requires distinct runs with the same target, contract version, relative profile/checkpoint/component path, and matching PNG SHA-256." }, criteria: { type: "string", maxLength: 1200 } } } } } },
       responses: { "201": { description: "Advisory review and optional deterministic pixel comparison stored for 30 days" }, "400": { description: "Invalid PNG, dimensions, criteria, or missing egress consent" }, "410": { description: "Idempotent review has expired" }, "429": { description: "Daily organization quota reached" }, "503": { description: "Groq model is not configured" } },
     } },
     "/v1/projects/{projectId}/visual-reviews/{reviewId}/findings/{findingIndex}/disposition": { put: {
@@ -1013,6 +1176,7 @@ const OPENAPI = {
     "/v1/targets/{targetId}/verify": { post: { summary: "Verify DNS TXT ownership", responses: { "200": { description: "Verified" } } } },
     "/v1/targets/{targetId}/runs": { post: { summary: "Queue a run record (Idempotency-Key required) under organization UTC-day and active-run quotas", responses: { "202": { description: "Queued; an explicitly started local Docker worker may process it" }, "200": { description: "Existing idempotent run; retry consumes no additional quota" }, "410": { description: "Idempotent run has expired" }, "429": { description: "Organization daily or concurrent run quota reached" } } } },
     "/v1/runs/{runId}": { get: { summary: "Get private run status and artifact metadata", responses: { "200": { description: "Run detail" }, "404": { description: "Run is missing or expired" } } } },
+    "/v1/runs/{runId}/visual-gate-evaluations": { post: { summary: "Compare one same-path component PNG from a completed run with a prior SHIP run under the immutable target visual threshold; this evaluation is component-scoped and does not aggregate the target verdict", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["referenceRunId", "artifactId", "referenceArtifactId"], properties: { referenceRunId: { type: "string", format: "uuid" }, artifactId: { type: "string", format: "uuid" }, referenceArtifactId: { type: "string", format: "uuid" } } } } } }, responses: { "201": { description: "Immutable component visual gate evidence stored" }, "200": { description: "Idempotent existing evaluation returned" }, "400": { description: "Invalid or incompatible PNGs" }, "403": { description: "Organization editor role required" }, "409": { description: "Runs, builds, component path, or policy do not satisfy the visual gate contract" }, "410": { description: "Artifact integrity check failed" } } } },
     "/v1/runs/{runId}/share-links": { post: { summary: "Create an expiring client link for an explicitly selected run summary and artifacts; raw token is returned once in a URL fragment", responses: { "201": { description: "Created; client must store the fragment URL" }, "400": { description: "Invalid expiry or artifact scope" }, "409": { description: "Run evidence is still pending" } } } },
     "/v1/runs/{runId}/share-links/{shareId}/revoke": { post: { summary: "Immediately revoke a client report link", responses: { "200": { description: "Revoked" }, "404": { description: "Link not found" } } } },
     "/v1/shared-reports/open": { post: { summary: "Resolve an anonymous client report using a token sent in the JSON body; access is audited", responses: { "200": { description: "Scoped report summary and selected artifact metadata" }, "404": { description: "Invalid, expired, or revoked link" }, "429": { description: "Service-wide public-route or per-link limit reached; retry after the supplied interval" } } } },

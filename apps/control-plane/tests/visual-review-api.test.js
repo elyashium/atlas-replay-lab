@@ -9,10 +9,12 @@ const orgId = "123e4567-e89b-42d3-a456-426614174000";
 const projectId = "223e4567-e89b-42d3-a456-426614174000";
 const runId = "323e4567-e89b-42d3-a456-426614174000";
 const artifactId = "423e4567-e89b-42d3-a456-426614174000";
+const referenceRunId = "523e4567-e89b-42d3-a456-426614174000";
+const referenceArtifactId = "623e4567-e89b-42d3-a456-426614174000";
 const cookie = "atlas_session=0123456789abcdef0123456789abcdef0123456789abcdef";
 const png = encodePng({ width: 2, height: 2, data: Buffer.from([20, 30, 40, 255, 60, 70, 80, 255, 90, 100, 110, 255, 120, 130, 140, 255]) });
 
-function reviewPool({ role = "owner", sourceArtifact = null } = {}) {
+function reviewPool({ role = "owner", sourceArtifact = null, referenceArtifact = null } = {}) {
   const reviews = new Map();
   const reviewRecords = new Map();
   const dispositions = new Map();
@@ -25,7 +27,10 @@ function reviewPool({ role = "owner", sourceArtifact = null } = {}) {
       if (sql.includes("SELECT u.id,u.email FROM sessions")) return { rows: [{ id: "user-1", email: "qa@example.org" }], rowCount: 1 };
       if (sql.includes("SELECT role FROM memberships")) return { rows: [{ role }], rowCount: 1 };
       if (sql.includes("SELECT id FROM projects WHERE organization_id=$1 AND id=$2")) return { rows: [{ id: projectId }], rowCount: 1 };
-      if (sql.includes("SELECT a.sha256,regexp_replace")) return sourceArtifact && params[1] === projectId ? { rows: [sourceArtifact], rowCount: 1 } : { rows: [], rowCount: 0 };
+      if (sql.includes("SELECT a.sha256,regexp_replace")) {
+        const artifact = params[1] === projectId ? params[2] === runId ? sourceArtifact : params[2] === referenceRunId ? referenceArtifact : null : null;
+        return artifact ? { rows: [artifact], rowCount: 1 } : { rows: [], rowCount: 0 };
+      }
       if (sql.includes("SELECT status,result FROM visual_reviews")) {
         const row = reviewRecords.get(params[2]);
         return row && params[1] === projectId ? { rows: [row], rowCount: 1 } : { rows: [], rowCount: 0 };
@@ -49,6 +54,7 @@ function reviewPool({ role = "owner", sourceArtifact = null } = {}) {
             id: params[0], projectId: params[2], status: params[3], requestSha256: params[6],
             result: params[10], error: params[11], screenshotSha256: params[7], referenceSha256: params[8],
             sourceRunId: params[13], sourceArtifactId: params[14], sourceArtifactName: params[15],
+            referenceRunId: params[16], referenceArtifactId: params[17], referenceArtifactName: params[18],
             createdAt: "2026-09-29T00:00:00.000Z",
           };
           reviews.set(params[9], row);
@@ -265,7 +271,7 @@ test("captured screenshot provenance must be a same-project PNG with matching by
       name: response.json().review.sourceArtifactName,
     }, { runId, artifactId, name: "component-ready.png" });
     const insert = pool.calls.find((call) => call.sql.includes("INSERT INTO visual_reviews"));
-    assert.deepEqual(insert.params.slice(13), [runId, artifactId, "component-ready.png"]);
+    assert.deepEqual(insert.params.slice(13, 16), [runId, artifactId, "component-ready.png"]);
     assert.equal(providerCalls, 1);
   } finally { await app.close(); }
 
@@ -290,6 +296,61 @@ test("captured screenshot provenance must be a same-project PNG with matching by
     const crossProject = await request(crossProjectApp, { providerConsent: true, imageBase64: png.toString("base64"), sourceArtifact: source }, { project: otherProjectId });
     assert.equal(crossProject.statusCode, 404);
   } finally { await crossProjectApp.close(); }
+});
+
+test("run-to-run visual comparison verifies matching provenance and stores both artifact identities", async () => {
+  const altered = decodePng(png);
+  altered.data = Buffer.from(altered.data);
+  altered.data[0] = 230;
+  const current = encodePng(altered);
+  const targetId = "723e4567-e89b-42d3-a456-426614174000";
+  const relativePath = "matrix/runs/high-wifi/screenshots/component-ready.png";
+  const pool = reviewPool({
+    sourceArtifact: { sha256: createHash("sha256").update(current).digest("hex"), artifactName: "component-ready.png", relativePath, targetId, contractVersion: 2 },
+    referenceArtifact: { sha256: createHash("sha256").update(png).digest("hex"), artifactName: "component-ready.png", relativePath, targetId, contractVersion: 2 },
+  });
+  let providerOptions;
+  const app = buildApp({ pool, appOrigin: origin, groqApiKey: "test-only", visualReviewer: async (options) => {
+    providerOptions = options;
+    return { provider: "groq", requestedModel: "qwen/test", returnedModel: "qwen/test", issues: [], verdictEffect: "none" };
+  } });
+  try {
+    const response = await request(app, {
+      providerConsent: true,
+      imageBase64: current.toString("base64"),
+      sourceArtifact: { runId, artifactId },
+      referenceImageBase64: png.toString("base64"),
+      referenceSourceArtifact: { runId: referenceRunId, artifactId: referenceArtifactId },
+      criteria: "Keep the component structure stable.",
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    const review = response.json().review;
+    assert.equal(review.sourceRunId, runId);
+    assert.equal(review.referenceRunId, referenceRunId);
+    assert.equal(review.referenceArtifactId, referenceArtifactId);
+    assert.equal(review.referenceArtifactName, "component-ready.png");
+    assert.equal(review.result.pixelComparison.pixelDiffRatio, 0.25);
+    assert.deepEqual(providerOptions.referenceImage, png);
+    const insert = pool.calls.find((call) => call.sql.includes("INSERT INTO visual_reviews"));
+    assert.deepEqual(insert.params.slice(16, 19), [referenceRunId, referenceArtifactId, "component-ready.png"]);
+  } finally { await app.close(); }
+
+  const mismatch = reviewPool({
+    sourceArtifact: { sha256: createHash("sha256").update(current).digest("hex"), artifactName: "component-ready.png", relativePath, targetId, contractVersion: 2 },
+    referenceArtifact: { sha256: createHash("sha256").update(png).digest("hex"), artifactName: "component-ready.png", relativePath: "matrix/runs/low-cpu-3g/screenshots/component-ready.png", targetId, contractVersion: 2 },
+  });
+  let providerCalls = 0;
+  const mismatchApp = buildApp({ pool: mismatch, appOrigin: origin, groqApiKey: "test-only", visualReviewer: async () => { providerCalls += 1; } });
+  try {
+    const response = await request(mismatchApp, {
+      providerConsent: true, imageBase64: current.toString("base64"), sourceArtifact: { runId, artifactId },
+      referenceImageBase64: png.toString("base64"), referenceSourceArtifact: { runId: referenceRunId, artifactId: referenceArtifactId },
+      criteria: "Keep the component structure stable.",
+    });
+    assert.equal(response.statusCode, 400);
+    assert.match(response.json().error, /same target, contract version, profile/);
+    assert.equal(providerCalls, 0);
+  } finally { await mismatchApp.close(); }
 });
 
 test("simultaneous retries with the same idempotency key share one provider request", async () => {
